@@ -63,31 +63,38 @@ export default function StartScreen({ onLoad }: { onLoad: () => void }) {
 
   const capPct = (preview.cap / preview.capMax) * 100;
 
+  /* parede de escudos: a seleção de franquia é o próprio brasão de cada time */
   const renderConf = (conf: Conf) => (
     <Panel key={conf} title={conf === 'AFC' ? 'AFC — Americana' : 'NFC — Nacional'} pad={false}>
-      {[0, 1, 2, 3].map(div => (
-        <div key={div}>
-          <div className="border-b border-line2 bg-panel2/60 px-4 py-1.5 font-disp text-[13px] font-bold uppercase tracking-[0.2em] text-faint">
-            Divisão {DIV_NAMES[div]}
+      <div className="grid grid-cols-2">
+        {[0, 1, 2, 3].map(div => (
+          <div key={div} className="border-r border-line2 p-3 [&:nth-child(2n)]:border-r-0 [&:nth-child(-n+2)]:border-b">
+            <div className="mb-2 text-center font-disp text-[12px] font-bold uppercase tracking-[0.25em] text-faint">
+              {DIV_NAMES[div]}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {TEAMS_DEF.filter(t => t.conf === conf && t.div === div).map(t => {
+                const id = t.sigla.toLowerCase();
+                const on = sel === id;
+                return (
+                  <button key={id} onClick={() => setSel(id)} title={`${t.cidade} ${t.nome} — ${t.estadio}`}
+                    className={`group flex flex-col items-center gap-1.5 border px-2 pb-2 pt-2.5 transition-all duration-150
+                      ${on
+                        ? 'border-gold bg-[rgba(240,180,41,0.12)] shadow-[0_0_0_1px_var(--color-gold),0_6px_16px_rgba(240,180,41,0.15)]'
+                        : 'border-line2 hover:-translate-y-[2px] hover:border-line hover:bg-raise hover:shadow-[0_8px_18px_rgba(0,0,0,0.4)]'}`}>
+                    <span className="transition-transform duration-150 group-hover:scale-110">
+                      <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={on ? 50 : 44} />
+                    </span>
+                    <span className={`font-disp text-[14px] font-bold uppercase leading-none tracking-wide ${on ? 'text-goldhi' : 'text-dim group-hover:text-ink'}`}>
+                      {t.sigla}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          {TEAMS_DEF.filter(t => t.conf === conf && t.div === div).map(t => {
-            const id = t.sigla.toLowerCase();
-            const on = sel === id;
-            return (
-              <button key={id} onClick={() => setSel(id)}
-                className={`flex w-full items-center gap-3 border-b border-line2 px-4 py-2 text-left font-mono text-[13px] transition-all duration-100
-                  ${on ? 'bg-[rgba(240,180,41,0.1)] shadow-[inset_3px_0_0_var(--color-gold)]' : 'hover:bg-raise'}`}>
-                <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={20} />
-                <span className="w-44 truncate">{t.cidade} <b className="text-ink">{t.nome}</b></span>
-                <span className="ml-auto flex items-center gap-2">
-                  <span className="hidden text-[11px] text-faint md:inline">{t.estadio}</span>
-                  <span className={`inline-block h-2 w-2 ${on ? 'bg-gold' : 'bg-line'}`} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ))}
+        ))}
+      </div>
     </Panel>
   );
 
@@ -117,12 +124,17 @@ export default function StartScreen({ onLoad }: { onLoad: () => void }) {
           {/* painel da franquia */}
           <div className="lg:sticky lg:top-5 lg:self-start">
             <Panel title="Sua franquia">
-              <div className="flex items-center gap-3">
-                <TeamCrest cor={preview.team.cor} cor2={preview.team.cor2} sigla={preview.team.sigla} conf={preview.team.conf} size={52} />
+              <div className="flex items-center gap-4">
+                <span className="grid shrink-0 place-items-center border border-line2 bg-pitcho/60 p-2.5 shadow-[inset_0_0_24px_rgba(0,0,0,0.5)]">
+                  <TeamCrest cor={preview.team.cor} cor2={preview.team.cor2} sigla={preview.team.sigla} conf={preview.team.conf} size={86} />
+                </span>
                 <div>
                   <div className="font-disp text-[26px] font-extrabold uppercase leading-none">{preview.team.cidade}</div>
                   <div className="font-disp text-[18px] font-bold uppercase text-goldhi">{preview.team.nome}</div>
-                  <div className="mt-0.5 font-mono text-[11px] text-faint">{preview.team.estadioNome}</div>
+                  <div className="mt-1 font-mono text-[11px] text-faint">{preview.team.estadioNome}</div>
+                  <div className="mt-0.5 font-mono text-[10.5px] uppercase tracking-[0.15em] text-faint">
+                    {preview.team.conf} · Divisão {DIV_NAMES[preview.team.div]}
+                  </div>
                 </div>
               </div>
 

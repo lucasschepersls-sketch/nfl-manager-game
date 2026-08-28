@@ -56,21 +56,66 @@ function inkFor(hex: string): string {
   return lum > 140 ? '#10130c' : '#f4f7ef';
 }
 
-/** Brasão autoral da franquia (cores oficiais, arte própria — AFC escudo, NFC hexágono). */
+/** Luminância aproximada (0..255) de uma cor hex. */
+const lum = (hex: string): number => {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  const r = (n >> 16) & 255; const g = (n >> 8) & 255; const b = n & 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+};
+
+/**
+ * Brasão autoral da franquia — escudo esportivo em camadas, derivado apenas
+ * das cores oficiais (marca própria: variação de padrão por time, anel na cor
+ * secundária, monograma biselado e emblema de conferência).
+ */
 export function TeamCrest({ cor, cor2, sigla, conf, size = 22 }: { cor: string; cor2: string; sigla: string; conf: Conf; size?: number }) {
-  const ink = inkFor(cor);
-  const shape = conf === 'AFC'
-    ? 'M5 1 H27 V19 L16 31 L5 19 Z'
-    : 'M16 1 L29 8.5 V23.5 L16 31 L3 23.5 V8.5 Z';
+  const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
+  const dark = lum(cor) < 120;
+  const ink = dark ? '#f4f6f1' : '#0c1410';
+  // cor de acento: secundária, com fallback prateado quando ela "some" no fundo
+  const accent = lum(cor2) < 30 && lum(cor) < 140 ? '#c9ced4' : cor2;
+  // variação de padrão determinística por franquia
+  const h = sigla.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const pattern = h % 4;
+  const id = `cr-${uid}`;
+  const shape = 'M50 4 L88 16 V52 C88 76 72 90 50 97 C28 90 12 76 12 52 V16 Z';
+
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden style={{ display: 'inline-block', verticalAlign: 'middle', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.6))' }}>
-      <path d={shape} fill={cor} stroke={cor2} strokeWidth="2" />
-      <path d={shape} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="0.8" transform="translate(1.2 1.2) scale(0.925)" />
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden
+      style={{ display: 'inline-block', verticalAlign: 'middle', filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.55))' }}>
+      <defs>
+        <clipPath id={id}><path d={shape} /></clipPath>
+        <linearGradient id={`${id}-sheen`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.32" />
+          <stop offset="0.45" stopColor="#fff" stopOpacity="0.04" />
+          <stop offset="1" stopColor="#000" stopOpacity="0.22" />
+        </linearGradient>
+      </defs>
+
+      {/* base + padrões */}
+      <g clipPath={`url(#${id})`}>
+        <rect x="0" y="0" width="100" height="100" fill={cor} />
+        {pattern === 0 && <rect x="-30" y="34" width="170" height="26" fill={accent} opacity="0.9" transform="rotate(-24 50 47)" />}
+        {pattern === 1 && <><rect x="0" y="14" width="100" height="15" fill={accent} /><rect x="0" y="78" width="100" height="9" fill={accent} /></>}
+        {pattern === 2 && <><path d="M0 62 L50 44 L100 62 V76 L50 58 L0 76 Z" fill={accent} /><path d="M0 80 L50 62 L100 80 V92 L50 74 L0 92 Z" fill={accent} opacity="0.55" /></>}
+        {pattern === 3 && <rect x="62" y="0" width="38" height="100" fill={accent} opacity="0.85" />}
+        <rect x="0" y="0" width="100" height="100" fill={`url(#${id}-sheen)`} />
+      </g>
+
+      {/* anel interno + contorno */}
+      <path d={shape} fill="none" stroke={accent} strokeWidth="4" transform="translate(3 3) scale(0.94)" />
+      <path d={shape} fill="none" stroke={dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)'} strokeWidth="2.4" />
+
+      {/* emblema de conferência: estrela (AFC) / losango (NFC) */}
       {conf === 'AFC'
-        ? <path d="M16 5 l1.2 2.6 2.8 .3 -2.1 1.9 .6 2.8 -2.5 -1.5 -2.5 1.5 .6 -2.8 -2.1 -1.9 2.8 -.3 Z" fill={ink} opacity="0.9" />
-        : <circle cx="16" cy="8" r="2.2" fill={ink} opacity="0.9" />}
-      <text x="16" y={conf === 'AFC' ? 22 : 21} textAnchor="middle" fontFamily="Barlow Condensed, sans-serif" fontWeight="800"
-        fontSize={sigla.length > 2 ? 8.5 : 10} fill={ink} letterSpacing="0.5">{sigla}</text>
+        ? <path d="M50 12 l2.6 5.6 6.1 .7 -4.5 4.2 1.2 6.1 -5.4 -3.1 -5.4 3.1 1.2 -6.1 -4.5 -4.2 6.1 -.7 Z" fill={ink} opacity="0.92" />
+        : <path d="M50 11 L56 19 L50 27 L44 19 Z" fill={ink} opacity="0.92" />}
+
+      {/* monograma biselado */}
+      <text x="50" y={pattern === 0 ? 60 : 64} textAnchor="middle" fontFamily="Barlow Condensed, sans-serif" fontWeight="800"
+        fontSize={sigla.length > 3 ? 24 : sigla.length === 3 ? 27 : 30} letterSpacing="1"
+        stroke={dark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.5)'} strokeWidth="1.4" paintOrder="stroke" fill={ink}>{sigla}</text>
     </svg>
   );
 }
