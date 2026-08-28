@@ -15,8 +15,35 @@ function fatalOverlay(msg: string) {
   </div>`;
   document.body.appendChild(el);
 }
-window.addEventListener('error', e => fatalOverlay(`${e.message} @ ${e.filename}:${e.lineno}`));
-window.addEventListener('unhandledrejection', e => fatalOverlay(String(e.reason)));
+/* Erros de ambiente (HMR do Vite, WebSocket, recursos) não são bugs do jogo —
+   ignoramos para que só falhas reais da aplicação acionem o diagnóstico. */
+function isEnvNoise(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('websocket') ||
+    m.includes('hmr') ||
+    m.includes('vite') ||
+    m.includes('hot update') ||
+    m.includes('failed to fetch') ||
+    m.includes('networkerror') ||
+    m.includes('load failed') ||
+    m.includes('aborterror') ||
+    m.includes('resizeobserver') ||
+    m.length === 0
+  );
+}
+window.addEventListener('error', e => {
+  // Falha de carregamento de recurso (script/img) vem sem message — não é exceção de código
+  if (!e.message && e.filename) return;
+  const msg = `${e.message} @ ${e.filename}:${e.lineno}`;
+  if (isEnvNoise(e.message ?? '')) return;
+  fatalOverlay(msg);
+});
+window.addEventListener('unhandledrejection', e => {
+  const msg = String(e.reason);
+  if (isEnvNoise(msg)) return;
+  fatalOverlay(msg);
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
