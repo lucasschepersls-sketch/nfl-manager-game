@@ -193,6 +193,18 @@ export function newGame(userTeamId: string, seed: number): GameState {
     staff.push(...buildStaff(teams[i], rng));
   });
 
+  // Salários compatíveis com o teto: cada franquia começa com a folha em ~90%
+  // do cap — mantém os 53 + 10 em campo e o cap ABAIXO do limite, sem cortes.
+  const TARGET = 0.9;
+  for (const t of teams) {
+    const roster = players.filter(p => p.teamId === t.id);
+    const total = roster.reduce((s, p) => s + p.salario, 0);
+    if (total > CAP_BASE * TARGET) {
+      const f = (CAP_BASE * TARGET) / total;
+      for (const p of roster) p.salario = Math.max(0.6, Math.round(p.salario * f * 10) / 10);
+    }
+  }
+
   const ranks = initialRanks(TEAMS_DEF.map(d => ({ id: d.sigla.toLowerCase(), div: d.div, forca: d.forca })), rng);
   const schedTeams = teams.map(t => ({ id: t.id, conf: t.conf, div: t.div }));
   let regSeason: Match[];

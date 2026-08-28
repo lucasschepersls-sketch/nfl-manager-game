@@ -59,6 +59,32 @@ export type RankMap = Map<string, number>;
 const ROT3: [number, number][][] = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]];
 const pairs3 = (step: number) => ROT3[((step % 3) + 3) % 3];
 
+/**
+ * Escolhe, por conferência, quais divisões MANDAM a rotação intraconferência,
+ * de modo que cada franquia mande exatamente UM entre {intra, inter} — o que
+ * garante 8-9 jogos em casa por time (equilíbrio real da NFL), sem reparos.
+ * Restrição: P_afc.has(X) !== P_nfc.has((X+off)%4) para todo X.
+ */
+function chooseIntraHosts(intra: [number, number][], off: number): { afc: Set<number>; nfc: Set<number> } | null {
+  const [p1, p2] = intra;
+  const onePerPair: number[][] = [
+    [p1[0], p2[0]], [p1[0], p2[1]], [p1[1], p2[0]], [p1[1], p2[1]],
+  ];
+  for (const a of onePerPair) {
+    const Pafc = new Set(a);
+    for (const b of onePerPair) {
+      const Pnfc = new Set(b);
+      let ok = true;
+      for (let X = 0; X < 4; X++) {
+        const Y = (X + off) % 4;
+        if (Pafc.has(X) === Pnfc.has(Y)) { ok = false; break; }
+      }
+      if (ok) return { afc: Pafc, nfc: Pnfc };
+    }
+  }
+  return null;
+}
+
 function buildMatchups(teams: SchedTeam[], year: number, ranks: RankMap): Game[] {
   const games: Game[] = [];
   const byDiv = new Map<string, SchedTeam[]>();
@@ -72,9 +98,15 @@ function buildMatchups(teams: SchedTeam[], year: number, ranks: RankMap): Game[]
     [...divOf(conf, div)].sort((a, b) => rankOf(a.id) - rankOf(b.id));
 
   const intra = pairs3(year);
-  const intraHosts = year % 2 === 0;
+  const off = ((year % 4) + 4) % 4;
+  // mandos balanceados por construção (8-9 em casa por time)
+  const hosts = chooseIntraHosts(intra, off) ?? {
+    afc: new Set([intra[0][0], intra[1][0]]),
+    nfc: new Set([intra[0][0], intra[1][0]]),
+  };
 
   for (const conf of ['AFC', 'NFC'] as Conf[]) {
+    const hostSet = conf === 'AFC' ? hosts.afc : hosts.nfc;
     // 6 jogos de divisão (ida e volta)
     for (let d = 0; d < 4; d++) {
       const div = divOf(conf, d);
@@ -86,8 +118,9 @@ function buildMatchups(teams: SchedTeam[], year: number, ranks: RankMap): Game[]
     // 4 jogos de rotação intraconferência (ciclo de 3 anos)
     for (const [da, db] of intra) {
       const A = divOf(conf, da); const B = divOf(conf, db);
+      const aHosts = hostSet.has(da);
       for (let k = 0; k < 4; k++)
-        games.push(intraHosts ? { casa: A[k].id, fora: B[k].id, isDiv: false } : { casa: B[k].id, fora: A[k].id, isDiv: false });
+        games.push(aHosts ? { casa: A[k].id, fora: B[k].id, isDiv: false } : { casa: B[k].id, fora: A[k].id, isDiv: false });
     }
     // 2 jogos vs. mesma conferência, mesma colocação (bipartido entre os pares da rotação)
     const [pp0, pp1] = intra;
@@ -104,11 +137,12 @@ function buildMatchups(teams: SchedTeam[], year: number, ranks: RankMap): Game[]
     }
   }
 
-  // 4 jogos interconferência (ciclo real de 4 anos) — gerados uma única vez
+  // 4 jogos interconferência (ciclo real de 4 anos) — gerados uma única vez.
+  // Mando complementar ao intra: quem NÃO mandou a rotação intra, manda a inter.
   for (let d = 0; d < 4; d++) {
     const oppDiv = (d + year) % 4;
     const A = divOf('AFC', d); const B = divOf('NFC', oppDiv);
-    const aHosts = (d + year) % 2 === 0;
+    const aHosts = !hosts.afc.has(d);
     for (let k = 0; k < 4; k++)
       games.push(aHosts ? { casa: A[k].id, fora: B[k].id, isDiv: false } : { casa: B[k].id, fora: A[k].id, isDiv: false });
   }
