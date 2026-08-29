@@ -329,15 +329,24 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   // divisão evitam folgar na mesma semana e a carga fica ~3-4 times por semana.
   const bye = assignByeWeeks(teams, rng);
 
-  // guloso semanas 1..17
+  // guloso semanas 1..17 — heurística "mais carregado primeiro" (coloração de
+  // arestas) para que as byes 5-14 sejam sempre respeitadas e os jogos de
+  // divisão se espalhem pela temporada (sem viés de empurrar divisão p/ o fim).
+  const baseLeft = new Map<string, number>();
+  for (const g of rest) {
+    baseLeft.set(g.casa, (baseLeft.get(g.casa) ?? 0) + 1);
+    baseLeft.set(g.fora, (baseLeft.get(g.fora) ?? 0) + 1);
+  }
   let best: Game[][] | null = null;
-  for (let attempt = 0; attempt < 100 && !best; attempt++) {
+  for (let attempt = 0; attempt < 250 && !best; attempt++) {
     const r2 = new Rng((rng.int(1, 0x7fffffff) + attempt * 7919) >>> 0);
     const weeks: Game[][] = Array.from({ length: 17 }, () => []);
     const remaining = [...rest];
+    const left = new Map(baseLeft);
+    let ok = true;
     for (let w = 0; w < 17 && remaining.length; w++) {
       const booked = new Set<string>();
-      // times de folga nesta semana ficam indisponíveis
+      // times de folga nesta semana ficam indisponíveis (bye 5-14)
       for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
       let progress = true;
       while (progress) {
@@ -353,28 +362,44 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
           if (booked.has(tm)) continue;
           const opts = (avail.get(tm) ?? []).filter(g => !booked.has(g.casa) && !booked.has(g.fora));
           if (!opts.length) { booked.add(tm); continue; }
-          const late = w >= 13; const early = w <= 4;
-          const scored = opts.map(g => {
-            let sc = r2.f(0, 1);
-            if (g.isDiv && late) sc += 3;
-            if (g.isDiv && early) sc -= 2;
-            return { g, sc };
-          }).sort((a, b) => b.sc - a.sc);
+          // prioriza jogos dos times com MAIS partidas restantes (espalha a carga)
+          const scored = opts.map(g => ({
+            g,
+            sc: (left.get(g.casa) ?? 0) + (left.get(g.fora) ?? 0) + r2.f(0, 3),
+          })).sort((a, b) => b.sc - a.sc);
           const pick = scored[0].g;
           weeks[w].push(pick);
           remaining.splice(remaining.indexOf(pick), 1);
+          left.set(pick.casa, (left.get(pick.casa) ?? 0) - 1);
+          left.set(pick.fora, (left.get(pick.fora) ?? 0) - 1);
           booked.add(pick.casa); booked.add(pick.fora);
           progress = true;
         }
       }
+      // se algum time elegível ficou sem jogar tendo jogos restantes "atrasados",
+      // esta tentativa provavelmente falhará — continua mesmo assim e valida no fim.
+      void ok;
     }
-    if (remaining.length === 0) best = weeks;
+    // valida: tudo alocado E a semana vazia de cada time é a sua bye (5-14)
+    if (remaining.length === 0) {
+      const emptyOk = teams.every(t => {
+        const b = bye.get(t.id);
+        for (let w = 0; w < 17; w++) {
+          const plays = weeks[w].some(g => g.casa === t.id || g.fora === t.id);
+          if (!plays && w !== b) return false;
+        }
+        return true;
+      });
+      if (emptyOk) best = weeks;
+    }
   }
   if (!best) {
+    // último recurso: aloca respeitando byes, sem validação de semana vazia
     const weeks: Game[][] = Array.from({ length: 17 }, () => []);
     const remaining = [...rest];
     for (let w = 0; w < 17 && remaining.length; w++) {
       const booked = new Set<string>();
+      for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
       for (let i = remaining.length - 1; i >= 0; i--) {
         const g = remaining[i];
         if (booked.has(g.casa) || booked.has(g.fora)) continue;
@@ -384,6 +409,7 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
     }
     for (const g of remaining) {
       for (let w = 0; w < 17; w++) {
+        if (bye.get(g.casa) === w || bye.get(g.fora) === w) continue;
         const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
         if (!busy.has(g.casa) && !busy.has(g.fora)) { weeks[w].push(g); break; }
       }
