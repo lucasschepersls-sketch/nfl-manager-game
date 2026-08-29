@@ -414,18 +414,24 @@ export class NFLMatchEngine {
     const rb = this.rng.chance(0.7) ? (fresh[0] ?? off.qb) : (fresh[1] ?? fresh[0] ?? off.qb);
     if (!rb) { res.yds = 0; res.secs = 20; return; }
     this.snap(rb); this.snap(off.qb);
-    const power = off.runOff - def.runDef;
-    let yds = 3.4 + power * 0.25 + this.rng.gauss(0, 2.4);
-    const big = this.rng.chance(clamp(0.05 + (rb.attrs.velocidade - def.coverage) * 0.0015, 0.02, 0.12));
-    if (big) yds = 12 + this.rng.int(0, 25);
-    else if (power < -8 && this.rng.chance(0.28)) yds = this.rng.int(-3, 0);
-    yds = Math.round(yds);
+    // qualidade relativa desloca PROBABILIDADES (não soma jardas brutas)
+    const qn = clamp((off.runOff - def.runDef) / 22, -1, 1);
+    const bigP = clamp(0.045 + qn * 0.03 + (rb.attrs.velocidade - def.coverage) * 0.001, 0.02, 0.11);
+    const big = this.rng.chance(bigP);
+    let yds: number;
+    if (big) yds = 12 + this.rng.int(0, 22);
+    else {
+      const stuffP = clamp(0.26 - qn * 0.12, 0.14, 0.38);
+      if (this.rng.chance(stuffP)) yds = this.rng.int(-2, 1);
+      else yds = this.rng.weighted([2, 3, 4, 5, 6, 7, 8], [13, 21, 23, 19, 13, 8, 3]) + this.rng.int(0, 1);
+    }
+    yds = Math.round(yds + qn * 0.8);
 
     const tackler = this.rng.pick([...def.lb, ...def.dl, ...def.s]);
     if (tackler && yds < 8) this.addStat(tackler.id, 'tackles', 1);
 
     // fumble (nervosismo aumenta o risco)
-    const fumP = clamp(0.011 + (power < 0 ? 0.008 : 0) + nerv * 0.012, 0.005, 0.04) * this.injFactor;
+    const fumP = clamp(0.011 + (qn < 0 ? 0.008 : 0) + nerv * 0.012, 0.005, 0.04) * this.injFactor;
     if (this.rng.chance(fumP)) {
       const rec = this.rng.pick([...def.lb, ...def.dl, ...def.s]);
       this.log(`${dn}, ${spot} — ${shortName(rb.nome)} sofre FUMBLE! ${rec ? shortName(rec.nome) : def.team.sigla} recupera para o ${def.team.sigla}.`, 'turn');
@@ -453,10 +459,12 @@ export class NFLMatchEngine {
     if (!qb) { this.playRun(off, def, dn, spot, res, nerv); return; }
     this.snap(qb);
     const t = off.team;
+    // qualidade relativa desloca PROBABILIDADES (não soma jardas brutas)
+    const qn = clamp((off.passOff - def.coverage) / 25, -1, 1);
     const pressure = clamp((def.passRush - off.passProt) / 6, -3, 4.5);
-    const complP = clamp(0.58 + (off.passOff - def.coverage) * 0.0045 - pressure * 0.045 + this.clima.pass * 0.005 - nerv * 0.12, 0.25, 0.80);
-    const sackP = clamp(0.06 + pressure * 0.028 - qb.attrs.velocidade * 0.0004, 0.025, 0.16);
-    const intP = clamp(0.021 + pressure * 0.008 + (def.coverage - off.passOff) * 0.0007 + nerv * 0.02, 0.007, 0.12);
+    const complP = clamp(0.53 + qn * 0.08 - pressure * 0.04 + this.clima.pass * 0.004 - nerv * 0.10, 0.28, 0.68);
+    const sackP = clamp(0.06 + pressure * 0.025 - qn * 0.008 - qb.attrs.velocidade * 0.0003, 0.02, 0.15);
+    const intP = clamp(0.02 + pressure * 0.006 - qn * 0.006 + nerv * 0.018, 0.006, 0.10);
     const rusher = this.rng.pick([...def.dl, ...def.lb]);
 
     if (this.rng.chance(sackP)) {
@@ -487,10 +495,10 @@ export class NFLMatchEngine {
     }
 
     const alvo = this.receiver(off);
-    const deep = this.rng.chance(clamp(0.08 + (off.passOff - 75) * 0.003, 0.04, 0.16));
-    let base = deep ? 15 + this.rng.int(0, 15) : this.rng.weighted([5, 8, 11], [35, 38, 27]) + this.rng.int(-1, 2);
-    base += (off.passOff - def.coverage) * 0.10;
-    const yac = clamp(Math.round((alvo.attrs.velocidade - 72) * 0.08 + this.rng.int(0, 2)), 0, 6);
+    const deep = this.rng.chance(clamp(0.055 + qn * 0.035, 0.02, 0.12));
+    let base = deep ? 14 + this.rng.int(0, 14) : this.rng.weighted([3, 5, 7, 9, 11, 13], [20, 25, 21, 16, 11, 7]);
+    base += qn * 0.9;
+    const yac = clamp(Math.round((alvo.attrs.velocidade - 72) * 0.06 + this.rng.int(0, 2)), 0, 5);
     const yds = Math.max(2, Math.round(base + yac));
 
     this.addStat(qb.id, 'py', yds);

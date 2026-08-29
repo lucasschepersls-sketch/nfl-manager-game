@@ -244,8 +244,10 @@ export default function MatchScreen() {
                 : <><span className="live-dot inline-block h-2.5 w-2.5 rounded-full bg-blood" /><span className="font-disp text-[15px] font-bold uppercase tracking-[0.2em] text-blood">Ao vivo</span></>}
             </div>
             <div className="mt-1 font-disp text-[22px] font-bold text-goldhi">
-              {cur.quarter >= 5 ? 'PRORROGAÇÃO' : `${cur.quarter}º QUARTO`}
-              <span className="ml-2 font-mono text-[16px] text-ink">{fmtClock(cur.clock, cur.quarter)}</span>
+              {done
+                ? 'FINAL'
+                : <>{cur.quarter >= 5 ? 'PRORROGAÇÃO' : `${cur.quarter}º QUARTO`}
+                  <span className="ml-2 font-mono text-[16px] text-ink">{fmtClock(cur.clock, cur.quarter)}</span></>}
             </div>
             <div className="font-mono text-[11px] text-faint">
               {r.clima} {r.climaIcon} · público {r.publico.toLocaleString('pt-BR')} ·{' '}
