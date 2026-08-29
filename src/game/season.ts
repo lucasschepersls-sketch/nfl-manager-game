@@ -167,20 +167,32 @@ function buildMatchups(teams: SchedTeam[], year: number, ranks: RankMap): Game[]
   });
 }
 
-/** Validação rigorosa: 17 jogos, 8-9 em casa, 6 de divisão (2× vs cada rival). */
+/** Validação rigorosa: 17 jogos, 8-9 em casa, 6 de divisão (2× vs cada rival)
+ *  e nenhum par de times se enfrentando mais de 2 vezes (3× é impossível). */
 function validateMatchups(teams: SchedTeam[], games: Game[]): string | null {
   const count = new Map<string, number>();
   const home = new Map<string, number>();
   const divVs = new Map<string, Map<string, number>>();
+  const pairCount = new Map<string, number>();
   for (const g of games) {
     count.set(g.casa, (count.get(g.casa) ?? 0) + 1);
     count.set(g.fora, (count.get(g.fora) ?? 0) + 1);
     home.set(g.casa, (home.get(g.casa) ?? 0) + 1);
+    const pk = [g.casa, g.fora].sort().join('|');
+    pairCount.set(pk, (pairCount.get(pk) ?? 0) + 1);
     if (g.isDiv) for (const [a, b] of [[g.casa, g.fora], [g.fora, g.casa]] as const) {
       const m = divVs.get(a) ?? new Map<string, number>();
       m.set(b, (m.get(b) ?? 0) + 1);
       divVs.set(a, m);
     }
+  }
+  // nenhum confronto pode se repetir mais de 2 vezes (ida e volta de divisão)
+  for (const [pk, n] of pairCount) {
+    if (n > 2) return `confronto ${pk.replace('|', ' × ')} acontece ${n}x (máx. 2)`;
+    const [a, b] = pk.split('|');
+    const ta = teams.find(t => t.id === a)!; const tb = teams.find(t => t.id === b)!;
+    const sameDiv = ta.conf === tb.conf && ta.div === tb.div;
+    if (n === 2 && !sameDiv) return `confronto não-divisão ${pk.replace('|', ' × ')} acontece 2x`;
   }
   for (const t of teams) {
     const n = count.get(t.id) ?? 0;
@@ -232,34 +244,31 @@ function repairMatchups(teams: SchedTeam[], raw: Game[]): Game[] {
 /** Fallback que PRESERVA os 6 jogos de divisão. */
 function fallbackSchedule(teams: SchedTeam[]): Game[] {
   const games: Game[] = [];
-  const isDivPair = (a: string, b: string) => {
-    const ta = teams.find(t => t.id === a); const tb = teams.find(t => t.id === b);
-    return !!ta && !!tb && ta.conf === tb.conf && ta.div === tb.div;
-  };
   for (const conf of ['AFC', 'NFC'] as Conf[]) {
     const arr = teams.filter(t => t.conf === conf);
-    // 6 de divisão (ida e volta)
-    for (let d = 0; d < 4; d++) {
-      const div = arr.filter(t => t.div === d);
+    const byDiv = [0, 1, 2, 3].map(d => arr.filter(t => t.div === d));
+    // 6 de divisão (ida e volta) — cada rival exatamente 2x
+    for (const div of byDiv) {
       for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) {
         games.push({ casa: div[i].id, fora: div[j].id, isDiv: true });
         games.push({ casa: div[j].id, fora: div[i].id, isDiv: true });
       }
     }
-    // 11 de conferência: round-robin completo menos um perfect matching
-    const skip = new Map<string, string>();
-    for (let d = 0; d < 4; d++) {
-      const div = arr.filter(t => t.div === d);
-      skip.set(div[0].id, div[1].id); skip.set(div[1].id, div[0].id);
-      skip.set(div[2].id, div[3].id); skip.set(div[3].id, div[2].id);
+    // 11 de conferência: todos os pares NÃO-divisão, menos um perfect matching
+    // (cada time pula exatamente 1 adversário de conferência fora da divisão)
+    const skip = new Set<string>();
+    const pairKey = (a: string, b: string) => [a, b].sort().join('|');
+    for (let i = 0; i < 4; i++) {
+      skip.add(pairKey(byDiv[0][i].id, byDiv[1][i].id));
+      skip.add(pairKey(byDiv[2][i].id, byDiv[3][i].id));
     }
     for (let i = 0; i < 16; i++) for (let j = i + 1; j < 16; j++) {
       const a = arr[i]; const b = arr[j];
-      if (skip.get(a.id) === b.id) continue;
+      if (a.div === b.div) continue;                 // divisão já coberta acima
+      if (skip.has(pairKey(a.id, b.id))) continue;  // adversário pulado deste ano
       games.push((i + j) % 2 === 0 ? { casa: a.id, fora: b.id, isDiv: false } : { casa: b.id, fora: a.id, isDiv: false });
     }
   }
-  void isDivPair;
   return games;
 }
 
@@ -357,10 +366,14 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   return { weeks: best, week18 };
 }
 
-export function initialRanks(teams: { id: string; div: number; forca: number }[], rng: Rng): RankMap {
+export function initialRanks(teams: { id: string; conf: Conf; div: number; s: number }[], rng: Rng): RankMap {
   const map: RankMap = new Map();
-  const byDiv = new Map<number, { id: string; s: number }[]>();
-  for (const t of teams) byDiv.set(t.div, [...(byDiv.get(t.div) ?? []), { id: t.id, s: t.forca * 10 + rng.int(0, 14) }]);
+  // ranqueia DENTRO de cada divisão (conf+div) — nunca cruza conferências
+  const byDiv = new Map<string, { id: string; s: number }[]>();
+  for (const t of teams) {
+    const k = `${t.conf}-${t.div}`;
+    byDiv.set(k, [...(byDiv.get(k) ?? []), { id: t.id, s: t.s * 100 + rng.int(0, 9) }]);
+  }
   for (const list of byDiv.values()) {
     list.sort((a, b) => b.s - a.s);
     list.forEach((x, i) => map.set(x.id, i + 1));

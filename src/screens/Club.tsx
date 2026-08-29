@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useGame } from '../state/store';
 import {
   teamById, playersOf, standings, teamStrength, capUsed, fmtM, crowdPressure,
+  conferenceSeeds,
 } from '../game/season';
 import { Panel, Bar, SeqBadge, TeamCrest, Icons } from '../components/ui';
 
@@ -173,21 +174,31 @@ function MiniStandings() {
   const { st } = useGame();
   const g = st.game!;
   const t = teamById(g, g.userTeam);
-  const rows = standings(g)
-    .filter(r => teamById(g, r.teamId).conf === t.conf)
-    .sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net)
-    .slice(0, 8);
+  const seeds = conferenceSeeds(g, t.conf);           // 7 classificados reais
+  const rows = standings(g).filter(r => teamById(g, r.teamId).conf === t.conf)
+    .sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net);
+  const seedOf = new Map(seeds.map(x => [x.teamId, x.seed]));
+  const inZone = new Set(seeds.map(x => x.teamId));
+  const shown = [...rows.filter(r => inZone.has(r.teamId)), ...rows.filter(r => !inZone.has(r.teamId)).slice(0, 2)];
   return (
-    <Panel title={`${t.conf} — G8 (playoffs)`} pad={false}>
+    <Panel title={`${t.conf} — zona de playoffs (7 vagas)`} pad={false}
+      right={<span className="font-mono text-[10px] text-faint">#1 folga no Wild Card</span>}>
       <table className="tbl">
         <thead><tr><th /><th>Clube</th><th className="num">V</th><th className="num">D</th><th>Últ.5</th></tr></thead>
         <tbody>
-          {rows.map((r, i) => {
+          {shown.map((r) => {
             const tt = teamById(g, r.teamId);
             const me = r.teamId === g.userTeam;
+            const sd = seedOf.get(r.teamId);
+            const cut = sd === 7; // linha de corte após o seed #7
             return (
-              <tr key={r.teamId} style={me ? { background: 'rgba(240,180,41,0.07)' } : undefined}>
-                <td className="w-7 font-mono text-[11px] text-gold">#{i + 1}</td>
+              <tr key={r.teamId}
+                style={{
+                  background: me ? 'rgba(240,180,41,0.07)' : undefined,
+                  borderBottom: cut ? '2px dashed var(--color-gold)' : undefined,
+                  opacity: sd ? 1 : 0.45,
+                }}>
+                <td className="w-7 font-mono text-[11px] text-gold">{sd ? `#${sd}` : '—'}</td>
                 <td className="max-w-[130px]"><TeamCrest cor={tt.cor} cor2={tt.cor2} sigla={tt.sigla} conf={tt.conf} size={15} /> <b>{tt.sigla}</b></td>
                 <td className="num">{r.v}</td>
                 <td className="num">{r.d}</td>

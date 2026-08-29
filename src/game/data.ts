@@ -72,7 +72,10 @@ export function genName(rng: Rng): string {
 /* ================= 32 franquias ================= */
 export interface TeamDef {
   cidade: string; nome: string; sigla: string;
-  cor: string; cor2: string; conf: Conf; div: number; forca: number; estadio: string;
+  cor: string; cor2: string; conf: Conf; div: number;
+  forca: number;      // 1-5, baseada no desempenho na temporada 2025 da NFL
+  camp: number;       // aproveitamento aprox. na temporada 2025 (0-1)
+  estadio: string;
 }
 export const DIV_NAMES = ['Leste', 'Norte', 'Sul', 'Oeste'];
 export const CONF_LABEL: Record<Conf, string> = {
@@ -81,46 +84,46 @@ export const CONF_LABEL: Record<Conf, string> = {
 };
 
 export const TEAMS_DEF: TeamDef[] = [
-  // ---- AFC LESTE (0) ----
-  { cidade: 'Buffalo', nome: 'Bills', sigla: 'BUF', cor: '#00338D', cor2: '#C60C30', conf: 'AFC', div: 0, forca: 5, estadio: 'Highmark Stadium' },
-  { cidade: 'Miami', nome: 'Dolphins', sigla: 'MIA', cor: '#008E97', cor2: '#FC4C02', conf: 'AFC', div: 0, forca: 4, estadio: 'Hard Rock Stadium' },
-  { cidade: 'New England', nome: 'Patriots', sigla: 'NE', cor: '#002244', cor2: '#C60C30', conf: 'AFC', div: 0, forca: 3, estadio: 'Gillette Stadium' },
-  { cidade: 'New York', nome: 'Jets', sigla: 'NYJ', cor: '#125740', cor2: '#000000', conf: 'AFC', div: 0, forca: 2, estadio: 'MetLife Stadium' },
+  // ---- AFC LESTE (0) ----   forca/camp baseadas na temporada 2025 da NFL
+  { cidade: 'Buffalo', nome: 'Bills', sigla: 'BUF', cor: '#00338D', cor2: '#C60C30', conf: 'AFC', div: 0, forca: 5, camp: 0.81, estadio: 'Highmark Stadium' },
+  { cidade: 'Miami', nome: 'Dolphins', sigla: 'MIA', cor: '#008E97', cor2: '#FC4C02', conf: 'AFC', div: 0, forca: 2, camp: 0.47, estadio: 'Hard Rock Stadium' },
+  { cidade: 'New England', nome: 'Patriots', sigla: 'NE', cor: '#002244', cor2: '#C60C30', conf: 'AFC', div: 0, forca: 4, camp: 0.72, estadio: 'Gillette Stadium' },
+  { cidade: 'New York', nome: 'Jets', sigla: 'NYJ', cor: '#125740', cor2: '#000000', conf: 'AFC', div: 0, forca: 1, camp: 0.29, estadio: 'MetLife Stadium' },
   // ---- AFC NORTE (1) ----
-  { cidade: 'Baltimore', nome: 'Ravens', sigla: 'BAL', cor: '#241773', cor2: '#9E7C0C', conf: 'AFC', div: 1, forca: 5, estadio: 'M&T Bank Stadium' },
-  { cidade: 'Cincinnati', nome: 'Bengals', sigla: 'CIN', cor: '#FB4F14', cor2: '#000000', conf: 'AFC', div: 1, forca: 4, estadio: 'Paycor Stadium' },
-  { cidade: 'Cleveland', nome: 'Browns', sigla: 'CLE', cor: '#311D00', cor2: '#FF3C00', conf: 'AFC', div: 1, forca: 2, estadio: 'Huntington Bank Field' },
-  { cidade: 'Pittsburgh', nome: 'Steelers', sigla: 'PIT', cor: '#FFB612', cor2: '#101820', conf: 'AFC', div: 1, forca: 4, estadio: 'Acrisure Stadium' },
+  { cidade: 'Baltimore', nome: 'Ravens', sigla: 'BAL', cor: '#241773', cor2: '#9E7C0C', conf: 'AFC', div: 1, forca: 5, camp: 0.78, estadio: 'M&T Bank Stadium' },
+  { cidade: 'Cincinnati', nome: 'Bengals', sigla: 'CIN', cor: '#FB4F14', cor2: '#000000', conf: 'AFC', div: 1, forca: 2, camp: 0.44, estadio: 'Paycor Stadium' },
+  { cidade: 'Cleveland', nome: 'Browns', sigla: 'CLE', cor: '#311D00', cor2: '#FF3C00', conf: 'AFC', div: 1, forca: 1, camp: 0.25, estadio: 'Huntington Bank Field' },
+  { cidade: 'Pittsburgh', nome: 'Steelers', sigla: 'PIT', cor: '#FFB612', cor2: '#101820', conf: 'AFC', div: 1, forca: 3, camp: 0.59, estadio: 'Acrisure Stadium' },
   // ---- AFC SUL (2) ----
-  { cidade: 'Houston', nome: 'Texans', sigla: 'HOU', cor: '#03202F', cor2: '#A71930', conf: 'AFC', div: 2, forca: 4, estadio: 'NRG Stadium' },
-  { cidade: 'Indianapolis', nome: 'Colts', sigla: 'IND', cor: '#002C5F', cor2: '#A2AAAD', conf: 'AFC', div: 2, forca: 3, estadio: 'Lucas Oil Stadium' },
-  { cidade: 'Jacksonville', nome: 'Jaguars', sigla: 'JAX', cor: '#006778', cor2: '#D7A22A', conf: 'AFC', div: 2, forca: 3, estadio: 'EverBank Stadium' },
-  { cidade: 'Tennessee', nome: 'Titans', sigla: 'TEN', cor: '#4B92DB', cor2: '#0C2340', conf: 'AFC', div: 2, forca: 2, estadio: 'Nissan Stadium' },
+  { cidade: 'Houston', nome: 'Texans', sigla: 'HOU', cor: '#03202F', cor2: '#A71930', conf: 'AFC', div: 2, forca: 4, camp: 0.71, estadio: 'NRG Stadium' },
+  { cidade: 'Indianapolis', nome: 'Colts', sigla: 'IND', cor: '#002C5F', cor2: '#A2AAAD', conf: 'AFC', div: 2, forca: 3, camp: 0.50, estadio: 'Lucas Oil Stadium' },
+  { cidade: 'Jacksonville', nome: 'Jaguars', sigla: 'JAX', cor: '#006778', cor2: '#D7A22A', conf: 'AFC', div: 2, forca: 2, camp: 0.38, estadio: 'EverBank Stadium' },
+  { cidade: 'Tennessee', nome: 'Titans', sigla: 'TEN', cor: '#4B92DB', cor2: '#0C2340', conf: 'AFC', div: 2, forca: 1, camp: 0.25, estadio: 'Nissan Stadium' },
   // ---- AFC OESTE (3) ----
-  { cidade: 'Denver', nome: 'Broncos', sigla: 'DEN', cor: '#FB4F14', cor2: '#002244', conf: 'AFC', div: 3, forca: 4, estadio: 'Empower Field' },
-  { cidade: 'Kansas City', nome: 'Chiefs', sigla: 'KC', cor: '#E31837', cor2: '#FFB81C', conf: 'AFC', div: 3, forca: 5, estadio: 'Arrowhead Stadium' },
-  { cidade: 'Las Vegas', nome: 'Raiders', sigla: 'LV', cor: '#A5ACAF', cor2: '#000000', conf: 'AFC', div: 3, forca: 2, estadio: 'Allegiant Stadium' },
-  { cidade: 'Los Angeles', nome: 'Chargers', sigla: 'LAC', cor: '#0080C6', cor2: '#FFC20E', conf: 'AFC', div: 3, forca: 4, estadio: 'SoFi Stadium' },
+  { cidade: 'Denver', nome: 'Broncos', sigla: 'DEN', cor: '#FB4F14', cor2: '#002244', conf: 'AFC', div: 3, forca: 5, camp: 0.80, estadio: 'Empower Field' },
+  { cidade: 'Kansas City', nome: 'Chiefs', sigla: 'KC', cor: '#E31837', cor2: '#FFB81C', conf: 'AFC', div: 3, forca: 5, camp: 0.83, estadio: 'Arrowhead Stadium' },
+  { cidade: 'Las Vegas', nome: 'Raiders', sigla: 'LV', cor: '#A5ACAF', cor2: '#000000', conf: 'AFC', div: 3, forca: 1, camp: 0.25, estadio: 'Allegiant Stadium' },
+  { cidade: 'Los Angeles', nome: 'Chargers', sigla: 'LAC', cor: '#0080C6', cor2: '#FFC20E', conf: 'AFC', div: 3, forca: 4, camp: 0.68, estadio: 'SoFi Stadium' },
   // ---- NFC LESTE (0) ----
-  { cidade: 'Dallas', nome: 'Cowboys', sigla: 'DAL', cor: '#003594', cor2: '#869397', conf: 'NFC', div: 0, forca: 4, estadio: 'AT&T Stadium' },
-  { cidade: 'New York', nome: 'Giants', sigla: 'NYG', cor: '#0B2265', cor2: '#A71930', conf: 'NFC', div: 0, forca: 2, estadio: 'MetLife Stadium' },
-  { cidade: 'Philadelphia', nome: 'Eagles', sigla: 'PHI', cor: '#004C54', cor2: '#A5ACAF', conf: 'NFC', div: 0, forca: 5, estadio: 'Lincoln Financial Field' },
-  { cidade: 'Washington', nome: 'Commanders', sigla: 'WAS', cor: '#773141', cor2: '#FFB612', conf: 'NFC', div: 0, forca: 4, estadio: 'Northwest Stadium' },
+  { cidade: 'Dallas', nome: 'Cowboys', sigla: 'DAL', cor: '#003594', cor2: '#869397', conf: 'NFC', div: 0, forca: 2, camp: 0.44, estadio: 'AT&T Stadium' },
+  { cidade: 'New York', nome: 'Giants', sigla: 'NYG', cor: '#0B2265', cor2: '#A71930', conf: 'NFC', div: 0, forca: 1, camp: 0.31, estadio: 'MetLife Stadium' },
+  { cidade: 'Philadelphia', nome: 'Eagles', sigla: 'PHI', cor: '#004C54', cor2: '#A5ACAF', conf: 'NFC', div: 0, forca: 5, camp: 0.85, estadio: 'Lincoln Financial Field' },
+  { cidade: 'Washington', nome: 'Commanders', sigla: 'WAS', cor: '#773141', cor2: '#FFB612', conf: 'NFC', div: 0, forca: 3, camp: 0.56, estadio: 'Northwest Stadium' },
   // ---- NFC NORTE (1) ----
-  { cidade: 'Chicago', nome: 'Bears', sigla: 'CHI', cor: '#C83803', cor2: '#0B162A', conf: 'NFC', div: 1, forca: 3, estadio: 'Soldier Field' },
-  { cidade: 'Detroit', nome: 'Lions', sigla: 'DET', cor: '#0076B6', cor2: '#B0B7BC', conf: 'NFC', div: 1, forca: 5, estadio: 'Ford Field' },
-  { cidade: 'Green Bay', nome: 'Packers', sigla: 'GB', cor: '#203731', cor2: '#FFB612', conf: 'NFC', div: 1, forca: 4, estadio: 'Lambeau Field' },
-  { cidade: 'Minnesota', nome: 'Vikings', sigla: 'MIN', cor: '#4F2683', cor2: '#FFC62F', conf: 'NFC', div: 1, forca: 4, estadio: 'U.S. Bank Stadium' },
+  { cidade: 'Chicago', nome: 'Bears', sigla: 'CHI', cor: '#C83803', cor2: '#0B162A', conf: 'NFC', div: 1, forca: 3, camp: 0.56, estadio: 'Soldier Field' },
+  { cidade: 'Detroit', nome: 'Lions', sigla: 'DET', cor: '#0076B6', cor2: '#B0B7BC', conf: 'NFC', div: 1, forca: 5, camp: 0.82, estadio: 'Ford Field' },
+  { cidade: 'Green Bay', nome: 'Packers', sigla: 'GB', cor: '#203731', cor2: '#FFB612', conf: 'NFC', div: 1, forca: 4, camp: 0.72, estadio: 'Lambeau Field' },
+  { cidade: 'Minnesota', nome: 'Vikings', sigla: 'MIN', cor: '#4F2683', cor2: '#FFC62F', conf: 'NFC', div: 1, forca: 4, camp: 0.69, estadio: 'U.S. Bank Stadium' },
   // ---- NFC SUL (2) ----
-  { cidade: 'Atlanta', nome: 'Falcons', sigla: 'ATL', cor: '#A71930', cor2: '#000000', conf: 'NFC', div: 2, forca: 3, estadio: 'Mercedes-Benz Stadium' },
-  { cidade: 'Carolina', nome: 'Panthers', sigla: 'CAR', cor: '#0085CA', cor2: '#101820', conf: 'NFC', div: 2, forca: 1, estadio: 'Bank of America Stadium' },
-  { cidade: 'New Orleans', nome: 'Saints', sigla: 'NO', cor: '#D3BC8D', cor2: '#101820', conf: 'NFC', div: 2, forca: 2, estadio: 'Caesars Superdome' },
-  { cidade: 'Tampa Bay', nome: 'Buccaneers', sigla: 'TB', cor: '#D50A0A', cor2: '#34302B', conf: 'NFC', div: 2, forca: 4, estadio: 'Raymond James Stadium' },
+  { cidade: 'Atlanta', nome: 'Falcons', sigla: 'ATL', cor: '#A71930', cor2: '#000000', conf: 'NFC', div: 2, forca: 2, camp: 0.47, estadio: 'Mercedes-Benz Stadium' },
+  { cidade: 'Carolina', nome: 'Panthers', sigla: 'CAR', cor: '#0085CA', cor2: '#101820', conf: 'NFC', div: 2, forca: 1, camp: 0.31, estadio: 'Bank of America Stadium' },
+  { cidade: 'New Orleans', nome: 'Saints', sigla: 'NO', cor: '#D3BC8D', cor2: '#101820', conf: 'NFC', div: 2, forca: 1, camp: 0.25, estadio: 'Caesars Superdome' },
+  { cidade: 'Tampa Bay', nome: 'Buccaneers', sigla: 'TB', cor: '#D50A0A', cor2: '#34302B', conf: 'NFC', div: 2, forca: 4, camp: 0.63, estadio: 'Raymond James Stadium' },
   // ---- NFC OESTE (3) ----
-  { cidade: 'Arizona', nome: 'Cardinals', sigla: 'ARI', cor: '#97233F', cor2: '#000000', conf: 'NFC', div: 3, forca: 3, estadio: 'State Farm Stadium' },
-  { cidade: 'Los Angeles', nome: 'Rams', sigla: 'LAR', cor: '#003594', cor2: '#FFA300', conf: 'NFC', div: 3, forca: 4, estadio: 'SoFi Stadium' },
-  { cidade: 'San Francisco', nome: '49ers', sigla: 'SF', cor: '#AA0000', cor2: '#B3995D', conf: 'NFC', div: 3, forca: 4, estadio: "Levi's Stadium" },
-  { cidade: 'Seattle', nome: 'Seahawks', sigla: 'SEA', cor: '#69BE28', cor2: '#002244', conf: 'NFC', div: 3, forca: 4, estadio: 'Lumen Field' },
+  { cidade: 'Arizona', nome: 'Cardinals', sigla: 'ARI', cor: '#97233F', cor2: '#000000', conf: 'NFC', div: 3, forca: 2, camp: 0.44, estadio: 'State Farm Stadium' },
+  { cidade: 'Los Angeles', nome: 'Rams', sigla: 'LAR', cor: '#003594', cor2: '#FFA300', conf: 'NFC', div: 3, forca: 5, camp: 0.76, estadio: 'SoFi Stadium' },
+  { cidade: 'San Francisco', nome: '49ers', sigla: 'SF', cor: '#AA0000', cor2: '#B3995D', conf: 'NFC', div: 3, forca: 3, camp: 0.59, estadio: "Levi's Stadium" },
+  { cidade: 'Seattle', nome: 'Seahawks', sigla: 'SEA', cor: '#69BE28', cor2: '#002244', conf: 'NFC', div: 3, forca: 3, camp: 0.63, estadio: 'Lumen Field' },
 ];
 
 /* pressão-base da torcida (caldeirões no topo) */

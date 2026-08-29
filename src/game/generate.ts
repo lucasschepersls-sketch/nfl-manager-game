@@ -178,7 +178,7 @@ export function newGame(userTeamId: string, seed: number): GameState {
     cor: d.cor, cor2: d.cor2, conf: d.conf, div: d.div,
     estadioNome: d.estadio,
     hostilidade: HOSTILITY[d.sigla] ?? 65,
-    histCampanha: [0.5, 0.5, 0.5],
+    histCampanha: [d.camp, d.camp, d.camp], // desempenho recente ≈ temporada 2025
     dinheiro: Math.round(28 + d.forca * 5 + rng.f(0, 18)),
     moral: rng.int(58, 70),
     estadio: Math.min(4, Math.max(1, d.forca + rng.int(-1, 0))),
@@ -205,7 +205,8 @@ export function newGame(userTeamId: string, seed: number): GameState {
     }
   }
 
-  const ranks = initialRanks(TEAMS_DEF.map(d => ({ id: d.sigla.toLowerCase(), div: d.div, forca: d.forca })), rng);
+  // Ranks iniciais dentro de cada divisão, baseados na campanha de 2025
+  const ranks = initialRanks(TEAMS_DEF.map(d => ({ id: d.sigla.toLowerCase(), conf: d.conf, div: d.div, s: d.camp })), rng);
   const schedTeams = teams.map(t => ({ id: t.id, conf: t.conf, div: t.div }));
   let regSeason: Match[];
   try {
