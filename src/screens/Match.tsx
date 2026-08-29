@@ -216,7 +216,8 @@ export default function MatchScreen() {
             : e.kind === 'end' ? 'score'
               : e.kind === 'quarter' ? 'info'
                 : e.kind === 'play' ? (e.tipo ?? 'ok') : 'info';
-      items.push({ t: e.texto, tipo });
+      // segmentos agrupam várias jogadas (\n) — cada uma vira sua linha na narração
+      for (const linha of e.texto.split('\n')) if (linha.trim()) items.push({ t: linha, tipo });
     }
     return items;
   }, [live, idx]);
