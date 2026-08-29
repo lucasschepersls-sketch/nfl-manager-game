@@ -194,11 +194,23 @@ function validateMatchups(teams: SchedTeam[], games: Game[]): string | null {
     const sameDiv = ta.conf === tb.conf && ta.div === tb.div;
     if (n === 2 && !sameDiv) return `confronto não-divisão ${pk.replace('|', ' × ')} acontece 2x`;
   }
+  // jogos interconferência por time (fórmula NFL: 4 de rotação + 1 extra = 5)
+  const interconf = new Map<string, number>();
+  const teamById_ = new Map(teams.map(t => [t.id, t]));
+  for (const g of games) {
+    const a = teamById_.get(g.casa)!; const b = teamById_.get(g.fora)!;
+    if (a.conf !== b.conf) {
+      interconf.set(g.casa, (interconf.get(g.casa) ?? 0) + 1);
+      interconf.set(g.fora, (interconf.get(g.fora) ?? 0) + 1);
+    }
+  }
   for (const t of teams) {
     const n = count.get(t.id) ?? 0;
     if (n !== 17) return `${t.id} tem ${n} jogos (esperado 17)`;
     const h = home.get(t.id) ?? 0;
     if (h < 8 || h > 9) return `${t.id} tem ${h} jogos em casa (esperado 8-9)`;
+    const ic = interconf.get(t.id) ?? 0;
+    if (ic !== 5) return `${t.id} tem ${ic} jogos interconferência (esperado 5)`;
     const mo = divVs.get(t.id) ?? new Map();
     if ([...mo.values()].reduce((a, b) => a + b, 0) !== 6) return `${t.id} sem 6 jogos de divisão`;
     for (const r of teams) {
@@ -272,6 +284,35 @@ function fallbackSchedule(teams: SchedTeam[]): Game[] {
   return games;
 }
 
+/**
+ * Distribui a semana de folga (bye) de cada franquia entre as semanas 5-14
+ * (índices 4..13), no padrão da NFL: sem folga nas semanas 1-4 e 15-18,
+ * rivais de divisão preferencialmente em semanas distintas e carga equilibrada.
+ */
+function assignByeWeeks(teams: SchedTeam[], rng: Rng): Map<string, number> {
+  const bye = new Map<string, number>();
+  const load = new Map<number, number>();
+  for (let w = 4; w <= 13; w++) load.set(w, 0);
+  const byDiv = new Map<string, SchedTeam[]>();
+  for (const t of teams) {
+    const k = `${t.conf}-${t.div}`;
+    byDiv.set(k, [...(byDiv.get(k) ?? []), t]);
+  }
+  for (const key of rng.shuffle([...byDiv.keys()])) {
+    const usedByDiv = new Set<number>();
+    for (const t of rng.shuffle(byDiv.get(key)!)) {
+      const weeks = [...Array(10)].map((_, i) => i + 4)
+        .filter(w => !usedByDiv.has(w))
+        .sort((a, b) => (load.get(a)! - load.get(b)!) || (rng.next() - 0.5));
+      const w = weeks[0] ?? [...Array(10)].map((_, i) => i + 4).sort((a, b) => load.get(a)! - load.get(b)!)[0];
+      bye.set(t.id, w);
+      usedByDiv.add(w);
+      load.set(w, load.get(w)! + 1);
+    }
+  }
+  return bye;
+}
+
 /** Aloca nas 18 semanas: guloso com byes (semanas 5-14) + semana 18 = divisão. */
 function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game[][]; week18: Game[] } {
   // semana 18: perfect matching dentro de cada divisão
@@ -303,15 +344,21 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   }
   const rest = games.filter(g => !w18Keys.has(`${g.casa}>${g.fora}`));
 
+  // BYE WEEKS no padrão NFL: cada franquia folga exatamente 1 semana entre as
+  // semanas 5 e 14 (índices 4..13); nunca nas semanas 1-4 nem 15-18. Rivais de
+  // divisão evitam folgar na mesma semana e a carga fica ~3-4 times por semana.
+  const bye = assignByeWeeks(teams, rng);
+
   // guloso semanas 1..17
   let best: Game[][] | null = null;
   for (let attempt = 0; attempt < 100 && !best; attempt++) {
     const r2 = new Rng((rng.int(1, 0x7fffffff) + attempt * 7919) >>> 0);
     const weeks: Game[][] = Array.from({ length: 17 }, () => []);
     const remaining = [...rest];
-    const byeUsed = new Set<string>();
     for (let w = 0; w < 17 && remaining.length; w++) {
       const booked = new Set<string>();
+      // times de folga nesta semana ficam indisponíveis
+      for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
       let progress = true;
       while (progress) {
         progress = false;
@@ -325,7 +372,7 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
         for (const tm of free) {
           if (booked.has(tm)) continue;
           const opts = (avail.get(tm) ?? []).filter(g => !booked.has(g.casa) && !booked.has(g.fora));
-          if (!opts.length) { booked.add(tm); if (!byeUsed.has(tm) && w >= 4 && w <= 13) byeUsed.add(tm); continue; }
+          if (!opts.length) { booked.add(tm); continue; }
           const late = w >= 13; const early = w <= 4;
           const scored = opts.map(g => {
             let sc = r2.f(0, 1);

@@ -39,16 +39,24 @@ export function loadSave(): GameState | null {
     if (!Array.isArray(s.staffPool)) s.staffPool = [];
     /* Repara saves com calendário fora do modelo oficial (fórmula antiga):
        se nenhuma rodada da temporada regular foi jogada e alguma franquia não
-       tem exatamente 17 jogos, regenera pré-temporada + temporada regular. */
+       tem exatamente 17 jogos — ou não tem nenhum confronto AFC×NFC — regenera
+       pré-temporada + temporada regular com a fórmula correta. */
     try {
       const regPlayed = s.matches.some(m => m.fase === 'REG' && m.jogada);
       if (!regPlayed) {
         const cnt = new Map<string, number>();
+        const confOf = new Map(s.teams.map(t => [t.id, t.conf]));
+        const inter = new Map<string, number>();
         for (const m of s.matches) if (m.fase === 'REG') {
           cnt.set(m.casa, (cnt.get(m.casa) ?? 0) + 1);
           cnt.set(m.fora, (cnt.get(m.fora) ?? 0) + 1);
+          if (confOf.get(m.casa) !== confOf.get(m.fora)) {
+            inter.set(m.casa, (inter.get(m.casa) ?? 0) + 1);
+            inter.set(m.fora, (inter.get(m.fora) ?? 0) + 1);
+          }
         }
-        if (s.teams.some(t => (cnt.get(t.id) ?? 0) !== 17)) {
+        const semInter = s.teams.some(t => (inter.get(t.id) ?? 0) === 0);
+        if (s.teams.some(t => (cnt.get(t.id) ?? 0) !== 17) || semInter) {
           const rng = new Rng(newSeed());
           const ranks: RankMap = new Map();
           for (const conf of ['AFC', 'NFC'] as const) {
@@ -62,7 +70,7 @@ export function loadSave(): GameState | null {
             ...buildPreseason(rng),
             ...generateNFLSchedule(s.teams.map(t => ({ id: t.id, conf: t.conf, div: t.div })), s.settings.temporada, ranks, rng),
           ];
-          s.news.unshift({ id: Date.now(), rotulo: 'LIGA', texto: 'Calendário recalculado com o modelo oficial da NFL: 17 jogos, 6 contra a divisão.' });
+          s.news.unshift({ id: Date.now(), rotulo: 'LIGA', texto: 'Calendário recalculado no modelo oficial da NFL: 17 jogos (6 de divisão + 5 AFC×NFC), bye entre as semanas 5-14 e semana 18 100% divisão.' });
         }
       }
     } catch { /* mantém o calendário salvo se o reparo falhar */ }

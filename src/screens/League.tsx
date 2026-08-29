@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useGame } from '../state/store';
 import {
   teamById, playersOf, capUsed, capHitOf, teamStrength, standings, divisionTable,
@@ -80,6 +81,7 @@ export function ScheduleScreen() {
     const theirs = isHome ? m.placarFora : m.placarCasa;
     const res = !m.jogada ? null : mine! > theirs! ? 'V' : mine! < theirs! ? 'D' : 'E';
     const isDiv = m.fase === 'REG' && t.conf === opp.conf && t.div === opp.div;
+    const isCross = m.fase === 'REG' && t.conf !== opp.conf;
     return (
       <tr key={m.id} style={current ? { background: 'rgba(240,180,41,0.09)', boxShadow: 'inset 3px 0 0 var(--color-gold)' } : undefined}>
         <td className="font-mono text-[12px] text-faint">{label}</td>
@@ -88,6 +90,7 @@ export function ScheduleScreen() {
           {opp.cidade} <b>{opp.nome}</b>
           <span className={`tag ml-2 ${isHome ? 'border-grass/50 text-grass' : 'border-ice/50 text-ice'}`}>{isHome ? 'CASA' : 'FORA'}</span>
           {isDiv && <span className="tag ml-1.5 border-gold/60 text-gold" title="Jogo de divisão (ida-e-volta)">DIV</span>}
+          {isCross && <span className="tag ml-1.5 border-blood/50 text-blood" title="Confronto entre conferências">AFC×NFC</span>}
         </td>
         <td className="num font-mono text-[13px]">
           {m.jogada
@@ -103,16 +106,48 @@ export function ScheduleScreen() {
     const opp = teamById(g, m.casa === g.userTeam ? m.fora : m.casa);
     return t.conf === opp.conf && t.div === opp.div;
   }).length;
+  const interconfCount = reg.filter(m => {
+    const opp = teamById(g, m.casa === g.userTeam ? m.fora : m.casa);
+    return t.conf !== opp.conf;
+  }).length;
+  // semana de BYE do usuário: a única entre 1-17 sem jogo (cada time folga 1 semana, sempre entre 5-14)
+  const semanasComJogo = new Set(reg.map(m => m.rodada));
+  const byeWeek = [...Array(17)].map((_, i) => i + 1).find(w => !semanasComJogo.has(w)) ?? null;
+
+  // intercala a linha de BYE na posição correta entre as semanas 1-17
+  const linhas = [...reg].sort((a, b) => a.rodada - b.rodada);
+  const corpo: ReactNode[] = [];
+  let byeInserido = false;
+  for (const m of linhas) {
+    if (byeWeek != null && !byeInserido && m.rodada > byeWeek) {
+      byeInserido = true;
+      corpo.push(
+        <tr key="bye" className="opacity-90">
+          <td className="font-mono text-[12px] text-faint">Sem. {String(byeWeek).padStart(2, '0')}</td>
+          <td colSpan={2}>
+            <span className="tag border-gold/60 text-goldhi">BYE WEEK — folga (recuperação de lesionados)</span>
+          </td>
+        </tr>,
+      );
+    }
+    corpo.push(row(m, `Sem. ${String(m.rodada).padStart(2, '0')}`, fase === 'REG' && m.rodada === semana && !m.jogada));
+  }
 
   return (
     <div className="space-y-5">
       <Panel
         title="Temporada regular — 18 semanas (17 jogos + bye; semana 18 é 100% divisão)"
         pad={false}
-        right={<span className={`tag ${divCount === 6 ? 'border-grass/60 text-grass' : 'border-gold/60 text-gold'}`}>{divCount}/6 jogos de divisão</span>}
+        right={
+          <span className="flex gap-2">
+            <span className={`tag ${divCount === 6 ? 'border-grass/60 text-grass' : 'border-gold/60 text-gold'}`}>{divCount}/6 divisão</span>
+            <span className={`tag ${interconfCount >= 4 ? 'border-blood/50 text-blood' : 'border-gold/60 text-gold'}`}>{interconfCount} AFC×NFC</span>
+            {byeWeek != null && <span className="tag border-gold/60 text-goldhi">bye Sem. {byeWeek}</span>}
+          </span>
+        }
       >
         <table className="tbl"><tbody>
-          {reg.map(m => row(m, `Sem. ${String(m.rodada).padStart(2, '0')}`, fase === 'REG' && m.rodada === semana && !m.jogada))}
+          {corpo}
           {po.map(m => row(m, poNomes[m.rodada - 1] ?? `PO ${m.rodada}`, fase === 'PO' && m.rodada === semana && !m.jogada))}
         </tbody></table>
       </Panel>
