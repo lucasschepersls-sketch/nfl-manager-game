@@ -278,7 +278,7 @@ export class NFLMatchEngine {
         if (toGo <= goLimit && (aggr >= 45 || toGo <= 1)) {
           this.log(`4ª descida e ${toGo}: ${t.sigla} vai para a conversão!`, 'info');
           const r = this.scrimmage(off, def, ball, down, toGo);
-          ball = clamp(r.ball, 1, 100); out.secs += r.secs; out.passY += r.passY; out.rushY += r.rushY;
+          ball = clamp(r.ball, 1, 100); out.secs += r.secs; this.clock += r.secs; out.passY += r.passY; out.rushY += r.rushY;
           if (r.turnover) {
             out.tos++;
             this.log(`Conversão falha! ${def.team.sigla} assume a bola na linha de ${100 - ball}.`, 'turn');
@@ -308,7 +308,7 @@ export class NFLMatchEngine {
       const before = this.lines.length;
       const r = this.scrimmage(off, def, ball, down, toGo);
       ball = clamp(r.ball, 1, 100);
-      out.secs += r.secs; out.passY += r.passY; out.rushY += r.rushY;
+      out.secs += r.secs; this.clock += r.secs; out.passY += r.passY; out.rushY += r.rushY;
       if (r.gain) lastGain = r.gain;
       const desc = this.since(before);
 
@@ -396,9 +396,9 @@ export class NFLMatchEngine {
     if (!rb) { res.yds = 0; res.secs = 20; return; }
     this.snap(rb); this.snap(off.qb);
     const power = off.runOff - def.runDef;
-    let yds = 3.1 + power * 0.33 + this.rng.gauss(0, 2.7);
-    const big = this.rng.chance(clamp(0.07 + (rb.attrs.velocidade - def.coverage) * 0.002, 0.02, 0.16));
-    if (big) yds = 16 + this.rng.int(0, 38);
+    let yds = 3.4 + power * 0.25 + this.rng.gauss(0, 2.4);
+    const big = this.rng.chance(clamp(0.05 + (rb.attrs.velocidade - def.coverage) * 0.0015, 0.02, 0.12));
+    if (big) yds = 12 + this.rng.int(0, 25);
     else if (power < -8 && this.rng.chance(0.28)) yds = this.rng.int(-3, 0);
     yds = Math.round(yds);
 
@@ -435,8 +435,8 @@ export class NFLMatchEngine {
     this.snap(qb);
     const t = off.team;
     const pressure = clamp((def.passRush - off.passProt) / 6, -3, 4.5);
-    const complP = clamp(0.60 + (off.passOff - def.coverage) * 0.0045 - pressure * 0.045 + this.clima.pass * 0.005 - nerv * 0.12, 0.25, 0.82);
-    const sackP = clamp(0.055 + pressure * 0.028 - qb.attrs.velocidade * 0.0004, 0.02, 0.16);
+    const complP = clamp(0.58 + (off.passOff - def.coverage) * 0.0045 - pressure * 0.045 + this.clima.pass * 0.005 - nerv * 0.12, 0.25, 0.80);
+    const sackP = clamp(0.06 + pressure * 0.028 - qb.attrs.velocidade * 0.0004, 0.025, 0.16);
     const intP = clamp(0.021 + pressure * 0.008 + (def.coverage - off.passOff) * 0.0007 + nerv * 0.02, 0.007, 0.12);
     const rusher = this.rng.pick([...def.dl, ...def.lb]);
 
@@ -468,10 +468,10 @@ export class NFLMatchEngine {
     }
 
     const alvo = this.receiver(off);
-    const deep = this.rng.chance(clamp(0.13 + (off.passOff - 75) * 0.004, 0.06, 0.24));
-    let base = deep ? 19 + this.rng.int(0, 22) : this.rng.weighted([6, 10, 14], [35, 38, 27]) + this.rng.int(-2, 3);
-    base += (off.passOff - def.coverage) * 0.18;
-    const yac = clamp(Math.round((alvo.attrs.velocidade - 70) * 0.12 + this.rng.int(0, 3)), 0, 9);
+    const deep = this.rng.chance(clamp(0.08 + (off.passOff - 75) * 0.003, 0.04, 0.16));
+    let base = deep ? 15 + this.rng.int(0, 15) : this.rng.weighted([5, 8, 11], [35, 38, 27]) + this.rng.int(-1, 2);
+    base += (off.passOff - def.coverage) * 0.10;
+    const yac = clamp(Math.round((alvo.attrs.velocidade - 72) * 0.08 + this.rng.int(0, 2)), 0, 6);
     const yds = Math.max(2, Math.round(base + yac));
 
     this.addStat(qb.id, 'py', yds);
