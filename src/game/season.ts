@@ -270,25 +270,39 @@ function fallbackSchedule(teams: SchedTeam[]): Game[] {
  * rivais de divisão preferencialmente em semanas distintas e carga equilibrada.
  */
 function assignByeWeeks(teams: SchedTeam[], rng: Rng): Map<string, number> {
+  // Cada semana 5-14 (índices 4..13) deve ter um número PAR de byes para que os
+  // times restantes formem pares. Distribuímos 32 byes como pares: 8 semanas com
+  // 4 byes e 2 semanas com 0 — aqui usamos 4 por semana em 8 semanas (32 byes).
   const bye = new Map<string, number>();
-  const load = new Map<number, number>();
-  for (let w = 4; w <= 13; w++) load.set(w, 0);
+  const byeWeeks = [...Array(10)].map((_, i) => i + 4); // 4..13
+  // slots: cada semana recebe um número par (0, 2 ou 4) de byes
+  const slots: number[] = [];
+  // 8 semanas com 4 byes = 32
+  const shuffledWeeks = rng.shuffle(byeWeeks);
+  for (let i = 0; i < 8; i++) for (let k = 0; k < 4; k++) slots.push(shuffledWeeks[i]);
+
   const byDiv = new Map<string, SchedTeam[]>();
   for (const t of teams) {
     const k = `${t.conf}-${t.div}`;
     byDiv.set(k, [...(byDiv.get(k) ?? []), t]);
   }
-  for (const key of rng.shuffle([...byDiv.keys()])) {
-    const usedByDiv = new Set<number>();
-    for (const t of rng.shuffle(byDiv.get(key)!)) {
-      const weeks = [...Array(10)].map((_, i) => i + 4)
-        .filter(w => !usedByDiv.has(w))
-        .sort((a, b) => (load.get(a)! - load.get(b)!) || (rng.next() - 0.5));
-      const w = weeks[0] ?? [...Array(10)].map((_, i) => i + 4).sort((a, b) => load.get(a)! - load.get(b)!)[0];
-      bye.set(t.id, w);
-      usedByDiv.add(w);
-      load.set(w, load.get(w)! + 1);
-    }
+  // atribui evitando que dois rivais de divisão folguem na mesma semana
+  const usedByDivWeek = new Map<string, Set<number>>();
+  const slotCount = new Map<number, number>();
+  const allTeams = rng.shuffle(teams);
+  for (const t of allTeams) {
+    const divKey = `${t.conf}-${t.div}`;
+    const used = usedByDivWeek.get(divKey) ?? new Set<number>();
+    // semanas com slot livre, sem rival de divisão, menos carregadas primeiro
+    const candidates = slots
+      .filter((w, idx) => slots.indexOf(w) === idx) // únicas
+      .filter(w => !used.has(w) && (slotCount.get(w) ?? 0) < 4)
+      .sort((a, b) => (slotCount.get(a) ?? 0) - (slotCount.get(b) ?? 0) || (rng.next() - 0.5));
+    const w = candidates[0] ?? slots.find(sw => (slotCount.get(sw) ?? 0) < 4) ?? 4;
+    bye.set(t.id, w);
+    used.add(w);
+    usedByDivWeek.set(divKey, used);
+    slotCount.set(w, (slotCount.get(w) ?? 0) + 1);
   }
   return bye;
 }
@@ -329,92 +343,81 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   // divisão evitam folgar na mesma semana e a carga fica ~3-4 times por semana.
   const bye = assignByeWeeks(teams, rng);
 
-  // guloso semanas 1..17 — heurística "mais carregado primeiro" (coloração de
-  // arestas) para que as byes 5-14 sejam sempre respeitadas e os jogos de
-  // divisão se espalhem pela temporada (sem viés de empurrar divisão p/ o fim).
-  const baseLeft = new Map<string, number>();
-  for (const g of rest) {
-    baseLeft.set(g.casa, (baseLeft.get(g.casa) ?? 0) + 1);
-    baseLeft.set(g.fora, (baseLeft.get(g.fora) ?? 0) + 1);
-  }
-  let best: Game[][] | null = null;
-  for (let attempt = 0; attempt < 250 && !best; attempt++) {
-    const r2 = new Rng((rng.int(1, 0x7fffffff) + attempt * 7919) >>> 0);
+  // Agendamento em duas fases (sempre completa, espalha divisão pela temporada):
+  //   FASE 1 — semana a semana, matching que cobre o máximo de times, priorizando
+  //            jogos dos times com MAIS partidas restantes (espalha a carga e evita
+  //            amontoar divisão no fim). Byes 5-14 são respeitadas (time de bye
+  //            fica indisponível naquela semana).
+  //   FASE 2 — reparo: qualquer jogo que encalhar é realocado na semana mais vazia
+  //            onde ambos os times estão livres, mantendo o espalhamento.
+  const scheduleOnce = (r2: Rng): { weeks: Game[][]; leftover: Game[] } => {
     const weeks: Game[][] = Array.from({ length: 17 }, () => []);
     const remaining = [...rest];
-    const left = new Map(baseLeft);
-    let ok = true;
+    const left = new Map<string, number>();
+    for (const g of remaining) {
+      left.set(g.casa, (left.get(g.casa) ?? 0) + 1);
+      left.set(g.fora, (left.get(g.fora) ?? 0) + 1);
+    }
     for (let w = 0; w < 17 && remaining.length; w++) {
-      const booked = new Set<string>();
-      // times de folga nesta semana ficam indisponíveis (bye 5-14)
-      for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
-      let progress = true;
-      while (progress) {
-        progress = false;
-        const avail = new Map<string, Game[]>();
-        for (const g of remaining) {
-          if (booked.has(g.casa) || booked.has(g.fora)) continue;
-          avail.set(g.casa, [...(avail.get(g.casa) ?? []), g]);
-          avail.set(g.fora, [...(avail.get(g.fora) ?? []), g]);
-        }
-        const free = [...avail.keys()].sort((a, b) => avail.get(a)!.length - avail.get(b)!.length);
-        for (const tm of free) {
-          if (booked.has(tm)) continue;
-          const opts = (avail.get(tm) ?? []).filter(g => !booked.has(g.casa) && !booked.has(g.fora));
-          if (!opts.length) { booked.add(tm); continue; }
-          // prioriza jogos dos times com MAIS partidas restantes (espalha a carga)
-          const scored = opts.map(g => ({
-            g,
-            sc: (left.get(g.casa) ?? 0) + (left.get(g.fora) ?? 0) + r2.f(0, 3),
-          })).sort((a, b) => b.sc - a.sc);
-          const pick = scored[0].g;
+      const busy = new Set<string>();
+      for (const t of teams) if (bye.get(t.id) === w) busy.add(t.id); // bye
+      // matching guloso com augmenting: repete até não conseguir mais parear
+      let grew = true;
+      while (grew) {
+        grew = false;
+        // ordena times disponíveis pelos que têm MAIS jogos restantes (mais restritos)
+        const availTimes = [...new Set(remaining.flatMap(g => [g.casa, g.fora]))]
+          .filter(t => !busy.has(t))
+          .sort((a, b) => (left.get(b) ?? 0) - (left.get(a) ?? 0));
+        for (const tm of availTimes) {
+          if (busy.has(tm)) continue;
+          const opts = remaining
+            .filter(g => (g.casa === tm || g.fora === tm) && !busy.has(g.casa) && !busy.has(g.fora))
+            .sort((a, b) =>
+              ((left.get(b.casa) ?? 0) + (left.get(b.fora) ?? 0)) - ((left.get(a.casa) ?? 0) + (left.get(a.fora) ?? 0))
+              || (r2.next() - 0.5));
+          const pick = opts[0];
+          if (!pick) continue;
           weeks[w].push(pick);
           remaining.splice(remaining.indexOf(pick), 1);
           left.set(pick.casa, (left.get(pick.casa) ?? 0) - 1);
           left.set(pick.fora, (left.get(pick.fora) ?? 0) - 1);
-          booked.add(pick.casa); booked.add(pick.fora);
-          progress = true;
+          busy.add(pick.casa); busy.add(pick.fora);
+          grew = true;
         }
       }
-      // se algum time elegível ficou sem jogar tendo jogos restantes "atrasados",
-      // esta tentativa provavelmente falhará — continua mesmo assim e valida no fim.
-      void ok;
     }
-    // valida: tudo alocado E a semana vazia de cada time é a sua bye (5-14)
-    if (remaining.length === 0) {
-      const emptyOk = teams.every(t => {
-        const b = bye.get(t.id);
-        for (let w = 0; w < 17; w++) {
-          const plays = weeks[w].some(g => g.casa === t.id || g.fora === t.id);
-          if (!plays && w !== b) return false;
-        }
-        return true;
-      });
-      if (emptyOk) best = weeks;
+    return { weeks, leftover: remaining };
+  };
+
+  // FASE 1 — tenta algumas ordens; guarda a que deixar menos jogos encalhados
+  let best: Game[][] | null = null;
+  let bestLeft = Infinity;
+  for (let attempt = 0; attempt < 40 && bestLeft > 0; attempt++) {
+    const r2 = new Rng((rng.int(1, 0x7fffffff) + attempt * 7919) >>> 0);
+    const { weeks, leftover } = scheduleOnce(r2);
+    if (leftover.length < bestLeft) {
+      bestLeft = leftover.length;
+      best = weeks;
+      if (leftover.length === 0) break;
     }
   }
-  if (!best) {
-    // último recurso: aloca respeitando byes, sem validação de semana vazia
-    const weeks: Game[][] = Array.from({ length: 17 }, () => []);
-    const remaining = [...rest];
-    for (let w = 0; w < 17 && remaining.length; w++) {
-      const booked = new Set<string>();
-      for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
-      for (let i = remaining.length - 1; i >= 0; i--) {
-        const g = remaining[i];
-        if (booked.has(g.casa) || booked.has(g.fora)) continue;
-        weeks[w].push(g); booked.add(g.casa); booked.add(g.fora);
-        remaining.splice(i, 1);
-      }
-    }
-    for (const g of remaining) {
+  if (!best) best = Array.from({ length: 17 }, () => [] as Game[]);
+
+  // FASE 2 — reparo: realoca jogos encalhados na semana mais vazia possível,
+  // respeitando byes. Isso ESPALHA (não amontoa) qualquer jogo restante.
+  if (bestLeft > 0) {
+    const { leftover } = { leftover: rest.filter(g => !best!.some(wk => wk.includes(g))) };
+    for (const g of leftover) {
+      let target = -1; let targetLoad = Infinity;
       for (let w = 0; w < 17; w++) {
         if (bye.get(g.casa) === w || bye.get(g.fora) === w) continue;
-        const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
-        if (!busy.has(g.casa) && !busy.has(g.fora)) { weeks[w].push(g); break; }
+        const busy = new Set(best![w].flatMap(x => [x.casa, x.fora]));
+        if (busy.has(g.casa) || busy.has(g.fora)) continue;
+        if (best![w].length < targetLoad) { targetLoad = best![w].length; target = w; }
       }
+      if (target >= 0) best![target].push(g);
     }
-    best = weeks;
   }
   return { weeks: best, week18 };
 }
