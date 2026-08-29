@@ -6,7 +6,7 @@ import {
   enforceAllCompliance, generateNFLSchedule, newSeason, pushNews, userDraftPick,
   validateRoster, type RankMap,
 } from '../game/season';
-import { buildDraftClass, buildStaffPool } from '../game/generate';
+import { buildDraftClass, buildStaffPool, buildPreseason } from '../game/generate';
 import { hireStaff, renewPlayer, renewStaff, fireStaff, signWithOffer, staffTurnover } from '../game/negotiations';
 import { Rng, newSeed } from '../game/rng';
 
@@ -37,6 +37,35 @@ export function loadSave(): GameState | null {
     if (!Array.isArray(s.draftClass)) s.draftClass = [];
     if (!Array.isArray(s.staff)) s.staff = [];
     if (!Array.isArray(s.staffPool)) s.staffPool = [];
+    /* Repara saves com calendário fora do modelo oficial (fórmula antiga):
+       se nenhuma rodada da temporada regular foi jogada e alguma franquia não
+       tem exatamente 17 jogos, regenera pré-temporada + temporada regular. */
+    try {
+      const regPlayed = s.matches.some(m => m.fase === 'REG' && m.jogada);
+      if (!regPlayed) {
+        const cnt = new Map<string, number>();
+        for (const m of s.matches) if (m.fase === 'REG') {
+          cnt.set(m.casa, (cnt.get(m.casa) ?? 0) + 1);
+          cnt.set(m.fora, (cnt.get(m.fora) ?? 0) + 1);
+        }
+        if (s.teams.some(t => (cnt.get(t.id) ?? 0) !== 17)) {
+          const rng = new Rng(newSeed());
+          const ranks: RankMap = new Map();
+          for (const conf of ['AFC', 'NFC'] as const) {
+            for (let d = 0; d < 4; d++) {
+              const div = s.teams.filter(t => t.conf === conf && t.div === d)
+                .sort((a, b) => (b.histCampanha?.[0] ?? 0.5) - (a.histCampanha?.[0] ?? 0.5));
+              div.forEach((t, i) => ranks.set(t.id, i + 1));
+            }
+          }
+          s.matches = [
+            ...buildPreseason(rng),
+            ...generateNFLSchedule(s.teams.map(t => ({ id: t.id, conf: t.conf, div: t.div })), s.settings.temporada, ranks, rng),
+          ];
+          s.news.unshift({ id: Date.now(), rotulo: 'LIGA', texto: 'Calendário recalculado com o modelo oficial da NFL: 17 jogos, 6 contra a divisão.' });
+        }
+      }
+    } catch { /* mantém o calendário salvo se o reparo falhar */ }
     return s;
   } catch {
     return null;

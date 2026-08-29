@@ -139,7 +139,7 @@ function buildFaPool(rng: Rng): Player[] {
   }));
 }
 
-function buildPreseason(rng: Rng): Match[] {
+export function buildPreseason(rng: Rng): Match[] {
   const ms: Match[] = [];
   for (const rodada of [1, 2]) {
     const all = rng.shuffle(TEAMS_DEF.map(t => t.sigla.toLowerCase()));
