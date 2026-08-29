@@ -179,7 +179,11 @@ function MiniStandings() {
     .sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net);
   const seedOf = new Map(seeds.map(x => [x.teamId, x.seed]));
   const inZone = new Set(seeds.map(x => x.teamId));
-  const shown = [...rows.filter(r => inZone.has(r.teamId)), ...rows.filter(r => !inZone.has(r.teamId)).slice(0, 2)];
+  // classificados ordenados pelo SEED (#1→#7), seguidos dos 2 primeiros "na bolha"
+  const seeded = rows.filter(r => inZone.has(r.teamId))
+    .sort((a, b) => seedOf.get(a.teamId)! - seedOf.get(b.teamId)!);
+  const bubble = rows.filter(r => !inZone.has(r.teamId)).slice(0, 2);
+  const shown = [...seeded, ...bubble];
   return (
     <Panel title={`${t.conf} — zona de playoffs (7 vagas)`} pad={false}
       right={<span className="font-mono text-[10px] text-faint">#1 folga no Wild Card</span>}>
