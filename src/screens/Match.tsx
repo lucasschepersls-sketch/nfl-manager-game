@@ -166,7 +166,7 @@ export default function MatchScreen() {
   const live: LiveEvent[] = r?.live?.length ? r.live : [];
 
   const [idx, setIdx] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(1);
+  const [speedIdx, setSpeedIdx] = useState(2);
   const [tab, setTab] = useState<'narracao' | 'stats'>('narracao');
   const feedRef = useRef<HTMLDivElement>(null);
   const done = idx >= live.length;
@@ -180,6 +180,30 @@ export default function MatchScreen() {
 
   const cur = useMemo(() => derive(live, idx), [live, idx]);
   useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [idx, tab]);
+
+  // Estatísticas ACUMULADAS AO VIVO a partir dos eventos já revelados (não do box final)
+  const liveStats = useMemo(() => {
+    const s = {
+      rush: { casa: 0, fora: 0 }, pass: { casa: 0, fora: 0 },
+      tos: { casa: 0, fora: 0 }, faltas: { casa: 0, fora: 0 },
+    };
+    for (const e of live.slice(0, idx)) {
+      if (e.kind === 'play') {
+        const side = e.posse ?? 'casa';
+        s.rush[side] += e.runYds ?? 0;
+        s.pass[side] += e.passYds ?? 0;
+        s.faltas[side] += e.penalties ?? 0;
+      } else if (e.kind === 'turnover') {
+        // posse = quem GANHOU a bola; jardas/faltas/TO são de quem PERDEU
+        const loser = (e.posse ?? 'casa') === 'casa' ? 'fora' : 'casa';
+        s.rush[loser] += e.runYds ?? 0;
+        s.pass[loser] += e.passYds ?? 0;
+        s.faltas[loser] += e.penalties ?? 0;
+        s.tos[loser]++;
+      }
+    }
+    return s;
+  }, [live, idx]);
 
   const feed = useMemo(() => {
     const items: { t: string; tipo: LineTipo; nerves?: boolean }[] = [];
@@ -315,7 +339,7 @@ export default function MatchScreen() {
               {!done && <div className="blink text-gold">▮ narrando…</div>}
             </div>
           ) : (
-            <StatsTab r={r} casa={casa} fora={fora} />
+            <StatsTab r={r} casa={casa} fora={fora} ls={liveStats} done={done} />
           )}
         </div>
 
@@ -335,29 +359,43 @@ export default function MatchScreen() {
   );
 }
 
-/** Aba de Estatísticas: súmula + destaques (dados finais da engine). */
-function StatsTab({ r, casa, fora }: { r: NonNullable<GameState['lastResult']>; casa: Team; fora: Team }) {
+/** Aba de Estatísticas: números acumulados ao vivo + destaques finais. */
+type Side2 = { casa: number; fora: number };
+function StatsTab({ r, casa, fora, ls, done }: {
+  r: NonNullable<GameState['lastResult']>; casa: Team; fora: Team;
+  ls: { rush: Side2; pass: Side2; tos: Side2; faltas: Side2 };
+  done: boolean;
+}) {
+  const total: Side2 = { casa: ls.rush.casa + ls.pass.casa, fora: ls.rush.fora + ls.pass.fora };
   return (
     <div className="max-h-[460px] overflow-y-auto">
+      <div className="flex items-center gap-2 px-3.5 pt-2.5">
+        <span className={`inline-block h-2 w-2 rounded-full ${done ? 'bg-faint' : 'bg-blood live-dot'}`} />
+        <span className="font-mono text-[10.5px] uppercase tracking-wider text-faint">
+          {done ? 'Números finais' : 'Acumulando ao vivo…'}
+        </span>
+      </div>
       <table className="tbl">
         <thead><tr><th>Equipe</th><th className="num">{casa.sigla}</th><th className="num">{fora.sigla}</th></tr></thead>
         <tbody>
-          <tr><td>Jardas totais</td><td className="num">{r.box.yds.casa}</td><td className="num">{r.box.yds.fora}</td></tr>
-          <tr><td>Corrida</td><td className="num">{r.box.rush.casa}</td><td className="num">{r.box.rush.fora}</td></tr>
-          <tr><td>Passe</td><td className="num">{r.box.pass.casa}</td><td className="num">{r.box.pass.fora}</td></tr>
-          <tr><td>Turnovers</td><td className="num">{r.box.tos.casa}</td><td className="num">{r.box.tos.fora}</td></tr>
-          <tr><td>Faltas</td><td className="num">{r.box.faltas.casa}</td><td className="num">{r.box.faltas.fora}</td></tr>
+          <tr><td>Jardas totais</td><td className="num">{total.casa}</td><td className="num">{total.fora}</td></tr>
+          <tr><td>Corrida</td><td className="num">{ls.rush.casa}</td><td className="num">{ls.rush.fora}</td></tr>
+          <tr><td>Passe</td><td className="num">{ls.pass.casa}</td><td className="num">{ls.pass.fora}</td></tr>
+          <tr><td>Turnovers</td><td className="num">{ls.tos.casa}</td><td className="num">{ls.tos.fora}</td></tr>
+          <tr><td>Faltas</td><td className="num">{ls.faltas.casa}</td><td className="num">{ls.faltas.fora}</td></tr>
         </tbody>
       </table>
       <div className="border-t border-line px-3.5 py-2.5">
         <div className="mb-1.5 font-disp text-[13px] font-semibold uppercase tracking-widest text-faint">Destaques</div>
-        {r.box.leaders.map(l => (
+        {done ? r.box.leaders.map(l => (
           <div key={l.label} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
             <span className="w-[92px] shrink-0 text-faint">{l.label}</span>
             <span className="truncate text-ink">{l.casa}</span>
             <span className="ml-auto truncate pl-2 text-dim">{l.fora}</span>
           </div>
-        ))}
+        )) : (
+          <p className="py-2 font-mono text-[11.5px] text-faint">Os destaques individuais aparecem ao fim da partida.</p>
+        )}
       </div>
     </div>
   );

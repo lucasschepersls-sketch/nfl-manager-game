@@ -109,11 +109,10 @@ export interface LiveEvent {
   posse?: 'casa' | 'fora';
   placarCasa?: number; placarFora?: number;
   quarter?: number; clock: number;
-  /** metadados para a aba de Estatísticas ao vivo */
-  tipoJogada?: 'run' | 'pass' | 'outro';
-  jardas?: number;
-  portador?: string;
-  falta?: 'casa' | 'fora';
+  /** estatísticas agregadas do segmento (para a aba de Estatísticas ao vivo) */
+  runYds?: number;
+  passYds?: number;
+  penalties?: number;
 }
 
 export interface BoxScore {

@@ -269,9 +269,33 @@ export class NFLMatchEngine {
     let lastGain: ScrimRes['gain'] = null;
     let plays = 0;
 
+    // ---- acumulação por segmento: cada jogada segue narrada no texto, mas só
+    // gera um evento/frame quando é RELEVANTE (1ª descida, jogada longa, turnover,
+    // falta, red zone, 3ª/4ª descida). Mantém o minuto-a-minuto enxuto (~60 eventos).
+    let segTextos: string[] = [];
+    let segTipo: LineTipo = 'ok';
+    let segRun = 0; let segPass = 0; let segPen = 0;
+    const flush = () => {
+      if (!segTextos.length) return;
+      this.emit({
+        kind: 'play', texto: segTextos.join('\n'), tipo: segTipo,
+        ball, down, toGo: ball >= 100 ? 0 : Math.max(1, toGo),
+        posse: off === this.uc ? 'casa' : 'fora', clock: this.clock,
+        runYds: segRun, passYds: segPass, penalties: segPen,
+      });
+      segTextos = []; segTipo = 'ok'; segRun = 0; segPass = 0; segPen = 0;
+    };
+
     while (true) {
-      if (ball >= 100) { out.pts = this.touchdown(off, lastGain); break; }
-      if (plays > 24) { this.log('Drive longo se esgota no relógio.', 'info'); break; }
+      if (ball >= 100) {
+        const beforeTd = this.lines.length;
+        out.pts = this.touchdown(off, lastGain);
+        const td = this.since(beforeTd);
+        if (td.texto) { segTextos.push(td.texto); segTipo = 'score'; }
+        flush();
+        break;
+      }
+      if (plays > 24) { this.log('Drive longo se esgota no relógio.', 'info'); flush(); break; }
 
       if (down === 4) {
         const fgDist = 100 - ball + 17;
@@ -283,35 +307,56 @@ export class NFLMatchEngine {
           if (r.turnover) {
             out.tos++;
             this.log(`Conversão falha! ${def.team.sigla} assume a bola na linha de ${100 - ball}.`, 'turn');
-            this.emit({ kind: 'turnover', texto: 'Turnover on downs!', posse: off === this.uc ? 'fora' : 'casa', ball: 100 - ball, down: 1, toGo: 10, clock: this.clock });
+            segTextos.push('Conversão falha! Turnover on downs.');
+            segRun += Math.max(0, r.rushY); segPass += Math.max(0, r.passY);
+            this.emit({
+              kind: 'turnover', texto: segTextos.join('\n'), tipo: 'turn',
+              posse: off === this.uc ? 'fora' : 'casa', ball: 100 - ball, down: 1, toGo: 10, clock: this.clock,
+              runYds: segRun, passYds: segPass, penalties: segPen,
+            });
+            segTextos = []; segRun = 0; segPass = 0; segPen = 0;
             break;
           }
           toGo -= r.yds;
           if (toGo <= 0) {
             down = 1; toGo = 10; lastGain = r.gain ?? lastGain;
             this.log(`CONVERTIDO! Primeira descida do ${t.sigla}.`, 'big');
-            this.emit({
-              kind: 'play', texto: 'CONVERTIDO! Primeira descida.', tipo: 'big', ball, down: 1, toGo: 10,
-              posse: off === this.uc ? 'casa' : 'fora', clock: this.clock,
-              tipoJogada: r.passY > 0 ? 'pass' : r.rushY > 0 ? 'run' : 'outro',
-              jardas: r.yds, portador: r.gain ? shortName(r.gain.p.nome) : undefined,
-            });
-          }
-          else {
+            segTextos.push(`CONVERTIDO! Primeira descida do ${t.sigla}.`); segTipo = 'big';
+            segRun += Math.max(0, r.rushY); segPass += Math.max(0, r.passY);
+            flush();
+          } else {
             out.tos++;
             this.log(`Conversão falha! ${def.team.sigla} assume a bola na linha de ${100 - ball}.`, 'turn');
-            this.emit({ kind: 'turnover', texto: 'Turnover on downs!', posse: off === this.uc ? 'fora' : 'casa', ball: 100 - ball, down: 1, toGo: 10, clock: this.clock });
+            segTextos.push('Conversão falha! Turnover on downs.');
+            this.emit({
+              kind: 'turnover', texto: segTextos.join('\n'), tipo: 'turn',
+              posse: off === this.uc ? 'fora' : 'casa', ball: 100 - ball, down: 1, toGo: 10, clock: this.clock,
+              runYds: segRun, passYds: segPass, penalties: segPen,
+            });
+            segTextos = []; segRun = 0; segPass = 0; segPen = 0;
             break;
           }
           plays++; continue;
         }
         if (fgDist <= 55 && off.k && off.k.lesao === 0) {
+          const beforeFg = this.lines.length;
           if (this.fieldGoal(off, fgDist)) out.pts = 3;
+          const fg = this.since(beforeFg);
+          if (fg.texto) { segTextos.push(fg.texto); segTipo = 'score'; }
+          flush();
           break;
         }
-        if (off.p && off.p.lesao === 0) { this.punt(off, def, ball); break; }
+        if (off.p && off.p.lesao === 0) {
+          const beforeP = this.lines.length;
+          this.punt(off, def, ball);
+          const pu = this.since(beforeP);
+          if (pu.texto) segTextos.push(pu.texto);
+          flush();
+          break;
+        }
         out.tos++;
         this.log(`Sem kicker nem punter! ${def.team.sigla} recupera a posse.`, 'turn');
+        flush();
         break;
       }
 
@@ -324,25 +369,44 @@ export class NFLMatchEngine {
 
       if (r.turnover) {
         out.tos++;
-        this.emit({ kind: 'turnover', texto: desc.texto || 'Turnover!', tipo: 'turn', posse: off === this.uc ? 'fora' : 'casa', ball: 100 - ball, down: 1, toGo: 10, clock: this.clock });
+        segTextos.push(desc.texto || 'Turnover!');
+        segRun += Math.max(0, r.rushY); segPass += Math.max(0, r.passY);
+        this.emit({
+          kind: 'turnover', texto: segTextos.join('\n'), tipo: 'turn',
+          posse: off === this.uc ? 'fora' : 'casa', ball: 100 - ball, down: 1, toGo: 10, clock: this.clock,
+          runYds: segRun, passYds: segPass, penalties: segPen,
+        });
+        segTextos = []; segRun = 0; segPass = 0; segPen = 0;
         break;
       }
-      if (r.fgMade) { out.pts = 3; break; }
+      if (r.fgMade) { out.pts = 3; flush(); break; }
+
+      // acumula a jogada no segmento
+      if (desc.texto) segTextos.push(desc.texto);
+      if (desc.tipo === 'big' || desc.tipo === 'turn' || desc.tipo === 'pen' || desc.tipo === 'inj' || desc.tipo === 'score') segTipo = desc.tipo;
+      segRun += Math.max(0, r.rushY);
+      segPass += Math.max(0, r.passY);
+      if (r.faltaTeam) segPen++;
+
       toGo -= r.yds;
+      let firstDown = false;
       if (toGo <= 0 && ball < 100) {
-        down = 1; toGo = 10;
+        down = 1; toGo = 10; firstDown = true;
         if (this.rng.chance(0.4)) this.log(`Primeira descida: ${t.sigla} mantém o drive vivo.`, 'ok');
       } else if (ball < 100) down++;
       plays++;
-      this.emit({
-        kind: 'play', texto: desc.texto, tipo: desc.tipo, ball, down, toGo: ball >= 100 ? 0 : Math.max(1, toGo),
-        posse: off === this.uc ? 'casa' : 'fora', clock: this.clock,
-        tipoJogada: r.passY > 0 ? 'pass' : r.rushY > 0 ? 'run' : 'outro',
-        jardas: r.yds, portador: r.gain ? shortName(r.gain.p.nome) : undefined,
-        falta: r.faltaTeam === 'off' ? (off === this.uc ? 'casa' : 'fora') : r.faltaTeam === 'def' ? (off === this.uc ? 'fora' : 'casa') : undefined,
-      });
+
+      // relevância: muda o rumo do drive ou é um momento de destaque
+      const relevante =
+        firstDown || r.yds >= 8 || r.yds <= -3 ||
+        r.faltaTeam !== undefined ||
+        (r.gain !== null && r.gain.yds >= 12) ||
+        ball >= 75 || down === 3 || down === 4 ||
+        desc.tipo === 'big' || desc.tipo === 'inj';
+      if (relevante) flush();
     }
 
+    flush(); // garante que nada fique pendente ao fim do drive
     out.net = ball - start;
     if (ball >= 100) out.net = 100 - start;
     return out;
