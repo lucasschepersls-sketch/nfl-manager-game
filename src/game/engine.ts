@@ -16,6 +16,7 @@ interface ScrimRes {
   yds: number; ball: number; secs: number; turnover: boolean; td: boolean;
   fgMade: boolean; passY: number; rushY: number;
   gain: { p: Player; tipo: 'run' | 'pass'; yds: number } | null;
+  faltaTeam?: 'off' | 'def'; // qual lado cometeu a penalidade (p/ estatísticas ao vivo)
 }
 interface DriveOutcome { pts: number; secs: number; net: number; passY: number; rushY: number; tos: number; }
 
@@ -286,7 +287,16 @@ export class NFLMatchEngine {
             break;
           }
           toGo -= r.yds;
-          if (toGo <= 0) { down = 1; toGo = 10; lastGain = r.gain ?? lastGain; this.log(`CONVERTIDO! Primeira descida do ${t.sigla}.`, 'big'); }
+          if (toGo <= 0) {
+            down = 1; toGo = 10; lastGain = r.gain ?? lastGain;
+            this.log(`CONVERTIDO! Primeira descida do ${t.sigla}.`, 'big');
+            this.emit({
+              kind: 'play', texto: 'CONVERTIDO! Primeira descida.', tipo: 'big', ball, down: 1, toGo: 10,
+              posse: off === this.uc ? 'casa' : 'fora', clock: this.clock,
+              tipoJogada: r.passY > 0 ? 'pass' : r.rushY > 0 ? 'run' : 'outro',
+              jardas: r.yds, portador: r.gain ? shortName(r.gain.p.nome) : undefined,
+            });
+          }
           else {
             out.tos++;
             this.log(`Conversão falha! ${def.team.sigla} assume a bola na linha de ${100 - ball}.`, 'turn');
@@ -324,7 +334,13 @@ export class NFLMatchEngine {
         if (this.rng.chance(0.4)) this.log(`Primeira descida: ${t.sigla} mantém o drive vivo.`, 'ok');
       } else if (ball < 100) down++;
       plays++;
-      this.emit({ kind: 'play', texto: desc.texto, tipo: desc.tipo, ball, down, toGo: ball >= 100 ? 0 : Math.max(1, toGo), posse: off === this.uc ? 'casa' : 'fora', clock: this.clock });
+      this.emit({
+        kind: 'play', texto: desc.texto, tipo: desc.tipo, ball, down, toGo: ball >= 100 ? 0 : Math.max(1, toGo),
+        posse: off === this.uc ? 'casa' : 'fora', clock: this.clock,
+        tipoJogada: r.passY > 0 ? 'pass' : r.rushY > 0 ? 'run' : 'outro',
+        jardas: r.yds, portador: r.gain ? shortName(r.gain.p.nome) : undefined,
+        falta: r.faltaTeam === 'off' ? (off === this.uc ? 'casa' : 'fora') : r.faltaTeam === 'def' ? (off === this.uc ? 'fora' : 'casa') : undefined,
+      });
     }
 
     out.net = ball - start;
@@ -349,6 +365,7 @@ export class NFLMatchEngine {
       this.log(`🚩 ${tipo} do ${t.sigla} — a pressão da torcida pesa! −5 jardas.`, 'pen');
       this.nervesEvent(`${tipo} do ${t.sigla}: a torcida adversária desestabiliza o ataque!`);
       if (t === this.casa.team) this.faltasC++; else this.faltasF++;
+      res.faltaTeam = 'off';
       return res;
     }
 
@@ -379,10 +396,12 @@ export class NFLMatchEngine {
         res.ball = clamp(ball + res.yds, 1, 105);
         this.log(`🚩 Bandeira: holding da OL do ${t.sigla}. −10 jardas.`, 'pen');
         if (isHomeTeam) this.faltasC++; else this.faltasF++;
+        res.faltaTeam = 'off';
       } else {
         res.yds += 15;
         res.ball = clamp(ball + res.yds, 1, 105);
         this.log(`🚩 Interferência de passe da defesa do ${def.team.sigla}. +15 jardas e 1ª descida automática.`, 'pen');
+        res.faltaTeam = 'def';
       }
     }
     return res;

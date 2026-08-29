@@ -53,12 +53,23 @@ const fmtClock = (clock: number, quarter: number) => {
   return `${m}:${String(ss).padStart(2, '0')}`;
 };
 
+/**
+ * Campo com ENDZONES FIXAS: a casa defende a endzone esquerda e ataca →direita;
+ * o visitante defende a direita e ataca →esquerda. Conforme a posse muda, apenas
+ * a bola e a linha de scrimmage se reposicionam — o campo nunca inverte.
+ */
 function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
   const off = st.posse === 'casa' ? casa : fora;
-  const def = st.posse === 'casa' ? fora : casa;
-  const ballX = (80 + Math.min(st.ball, 100) * 8.4) / 10;
-  const chainX = (80 + Math.min(st.ball + st.toGo, 100) * 8.4) / 10;
-  const yardLabel = st.ball >= 50 ? `${100 - Math.round(st.ball)} do ${def.sigla}` : `${Math.round(st.ball)} do ${off.sigla}`;
+  // posição absoluta da bola (0 = endzone esquerda/casa, 100 = endzone direita/fora)
+  const ballAbs = st.posse === 'casa' ? st.ball : 100 - st.ball;
+  // linha de 1ª descida, `toGo` jardas à frente da bola, na direção do ataque
+  const chainAbs = st.posse === 'casa'
+    ? Math.min(100, st.ball + st.toGo)
+    : Math.max(0, (100 - st.ball) - st.toGo);
+  const toX = (abs: number) => (80 + Math.min(Math.max(abs, 0), 100) * 8.4) / 10;
+  const ballX = toX(ballAbs);
+  const chainX = toX(chainAbs);
+  const scrimmage = 100 - Math.round(st.ball); // jardas até a endzone de ataque
 
   return (
     <div className="panel relative overflow-hidden" style={{ background: '#0b2114' }}>
@@ -67,9 +78,9 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
         <span className="text-dim">Posse:</span>
         <TeamCrest cor={off.cor} cor2={off.cor2} sigla={off.sigla} conf={off.conf} size={18} />
         <span style={{ color: off.cor === '#A5ACAF' || off.cor === '#D3BC8D' || off.cor === '#FFB612' ? '#fff' : off.cor }}>{off.sigla}</span>
-        <span className="text-faint">atacando →</span>
+        <span className="text-faint">{st.posse === 'casa' ? 'atacando →' : '← atacando'}</span>
         <span className="ml-auto font-mono text-[11px] font-normal normal-case tracking-normal text-faint">
-          {ORD[st.down - 1]} descida &amp; {st.toGo > 0 ? st.toGo : 'goal'} · {yardLabel}
+          {ORD[st.down - 1]} descida &amp; {st.toGo > 0 ? st.toGo : 'goal'} · linha de {scrimmage}
         </span>
       </div>
 
@@ -79,12 +90,13 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
           {[...Array(10)].map((_, i) => i % 2 === 0 && (
             <rect key={i} x={80 + i * 84} y="0" width="84" height="240" fill="#123320" />
           ))}
-          <rect x="0" y="0" width="80" height="240" fill={off.cor} opacity="0.55" />
-          <rect x="920" y="0" width="80" height="240" fill={def.cor} opacity="0.55" />
+          {/* endzones FIXAS: casa à esquerda, visitante à direita */}
+          <rect x="0" y="0" width="80" height="240" fill={casa.cor} opacity="0.55" />
+          <rect x="920" y="0" width="80" height="240" fill={fora.cor} opacity="0.55" />
           <text x="40" y="130" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="30"
-            fill="#fff" opacity="0.85" transform="rotate(-90 40 130)">{off.sigla}</text>
+            fill="#fff" opacity="0.85" transform="rotate(-90 40 130)">{casa.sigla}</text>
           <text x="960" y="130" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="30"
-            fill="#fff" opacity="0.85" transform="rotate(90 960 130)">{def.sigla}</text>
+            fill="#fff" opacity="0.85" transform="rotate(90 960 130)">{fora.sigla}</text>
           {[...Array(11)].map((_, i) => {
             const x = 80 + i * 84;
             const num = i <= 5 ? i * 10 : (10 - i) * 10;
@@ -109,8 +121,10 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
           <ellipse cx="500" cy="120" rx="20" ry="11" fill="none" stroke="var(--color-gold)" strokeWidth="2" opacity="0.5" />
         </svg>
 
+        {/* linha de scrimmage */}
         <div className="absolute bottom-0 top-0 w-[2px] bg-ice/80" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }} />
-        {st.ball < 100 && (
+        {/* corrente da 1ª descida */}
+        {st.toGo > 0 && st.ball < 100 && (
           <div className="absolute bottom-0 top-0 w-[3px]" style={{
             left: `${chainX}%`, background: 'var(--color-goldhi)',
             boxShadow: '0 0 8px rgba(255,211,94,0.6)', transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)',
@@ -118,6 +132,7 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
             <div className="absolute -left-[5px] top-1 h-[10px] w-[13px]" style={{ background: 'var(--color-goldhi)' }} />
           </div>
         )}
+        {/* a bola */}
         <div className="absolute top-1/2 -translate-y-1/2" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }}>
           <div className="relative -translate-x-1/2">
             <div className="h-[15px] w-[26px] rounded-[50%] border border-[#f3ead8]/70" style={{
@@ -137,6 +152,13 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
   );
 }
 
+const SPEEDS = [
+  { label: 'Lento', ms: 320, step: 1 },
+  { label: 'Normal', ms: 150, step: 1 },
+  { label: 'Rápido', ms: 60, step: 2 },
+  { label: 'Turbo', ms: 16, step: 5 },
+];
+
 export default function MatchScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
@@ -144,18 +166,20 @@ export default function MatchScreen() {
   const live: LiveEvent[] = r?.live?.length ? r.live : [];
 
   const [idx, setIdx] = useState(0);
-  const [speed, setSpeed] = useState(150);
+  const [speedIdx, setSpeedIdx] = useState(1);
+  const [tab, setTab] = useState<'narracao' | 'stats'>('narracao');
   const feedRef = useRef<HTMLDivElement>(null);
   const done = idx >= live.length;
+  const speed = SPEEDS[speedIdx];
 
   useEffect(() => {
     if (!live.length || done) return;
-    const t = setInterval(() => setIdx(i => Math.min(live.length, i + (speed < 60 ? 4 : 1))), speed);
+    const t = setInterval(() => setIdx(i => Math.min(live.length, i + speed.step)), speed.ms);
     return () => clearInterval(t);
   }, [done, live.length, speed]);
 
   const cur = useMemo(() => derive(live, idx), [live, idx]);
-  useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [idx]);
+  useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [idx, tab]);
 
   const feed = useMemo(() => {
     const items: { t: string; tipo: LineTipo; nerves?: boolean }[] = [];
@@ -251,11 +275,17 @@ export default function MatchScreen() {
           {done && [...Array(Math.max(r.box.quartos.casa.length, r.box.quartos.fora.length))].map((_, i) => (
             <span key={i} className="tabular-nums">{i < 4 ? `${i + 1}ºQ` : 'OT'}: <b className="text-ink">{r.box.quartos.casa[i] ?? 0}</b>–<b className="text-ink">{r.box.quartos.fora[i] ?? 0}</b></span>
           ))}
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {!done && (
               <>
-                <button className="btn btn-sm" onClick={() => setSpeed(s => (s === 150 ? 45 : 150))}>{speed === 150 ? 'Rápido' : 'Normal'}</button>
-                <button className="btn btn-sm btn-gold" onClick={() => setIdx(live.length)}>Pular »</button>
+                <div className="flex overflow-hidden border border-line">
+                  {SPEEDS.map((s, i) => (
+                    <button key={s.label}
+                      className={`px-2.5 py-1 font-disp text-[12px] font-bold uppercase tracking-wide transition-colors ${i === speedIdx ? 'bg-gold text-[#241a02]' : 'text-dim hover:text-ink'}`}
+                      onClick={() => setSpeedIdx(i)}>{s.label}</button>
+                  ))}
+                </div>
+                <button className="btn btn-sm btn-gold" onClick={() => setIdx(live.length)}>Placar final »</button>
               </>
             )}
             {done && <button className="btn btn-sm btn-gold" onClick={() => dispatch({ type: 'DISMISS_RESULT' })}>Voltar ao escritório »</button>}
@@ -266,38 +296,28 @@ export default function MatchScreen() {
       <Field st={cur} casa={casa} fora={fora} />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        <Panel title="Narração em tempo real" pad={false}
-          right={<span className="font-mono text-[11px] text-faint">{idx}/{live.length} eventos</span>}>
-          <div ref={feedRef} className="max-h-[460px] overflow-y-auto px-4 py-3 font-mono text-[12.5px] leading-[1.75]">
-            {feed.map((l, i) => <div key={i} className={`feed-line ${l.nerves ? NERVES_STYLE : LINE_STYLE[l.tipo]}`}>{l.t}</div>)}
-            {!done && <div className="blink text-gold">▮ narrando…</div>}
+        {/* coluna principal: abas Narração / Estatísticas */}
+        <div className="panel overflow-hidden">
+          <div className="flex items-center border-b border-line">
+            {([['narracao', 'Narração'], ['stats', 'Estatísticas']] as const).map(([k, l]) => (
+              <button key={k}
+                className={`border-b-2 px-5 py-2.5 font-disp text-[15px] font-bold uppercase tracking-wider transition-colors ${tab === k ? 'border-gold text-goldhi' : 'border-transparent text-dim hover:text-ink'}`}
+                onClick={() => setTab(k)}>{l}</button>
+            ))}
+            <span className="ml-auto pr-4 font-mono text-[11px] text-faint">{idx}/{live.length} eventos</span>
           </div>
-        </Panel>
+
+          {tab === 'narracao' ? (
+            <div ref={feedRef} className="max-h-[460px] overflow-y-auto px-4 py-3 font-mono text-[12.5px] leading-[1.75]">
+              {feed.map((l, i) => <div key={i} className={`feed-line ${l.nerves ? NERVES_STYLE : LINE_STYLE[l.tipo]}`}>{l.t}</div>)}
+              {!done && <div className="blink text-gold">▮ narrando…</div>}
+            </div>
+          ) : (
+            <StatsTab r={r} casa={casa} fora={fora} />
+          )}
+        </div>
 
         <div className="space-y-4">
-          <Panel title="Súmula" pad={false}>
-            <table className="tbl">
-              <thead><tr><th>Equipe</th><th className="num">{casa.sigla}</th><th className="num">{fora.sigla}</th></tr></thead>
-              <tbody>
-                <tr><td>Jardas totais</td><td className="num">{r.box.yds.casa}</td><td className="num">{r.box.yds.fora}</td></tr>
-                <tr><td>Corrida</td><td className="num">{r.box.rush.casa}</td><td className="num">{r.box.rush.fora}</td></tr>
-                <tr><td>Passe</td><td className="num">{r.box.pass.casa}</td><td className="num">{r.box.pass.fora}</td></tr>
-                <tr><td>Turnovers</td><td className="num">{r.box.tos.casa}</td><td className="num">{r.box.tos.fora}</td></tr>
-                <tr><td>Faltas</td><td className="num">{r.box.faltas.casa}</td><td className="num">{r.box.faltas.fora}</td></tr>
-              </tbody>
-            </table>
-            <div className="border-t border-line px-3.5 py-2.5">
-              <div className="mb-1.5 font-disp text-[13px] font-semibold uppercase tracking-widest text-faint">Destaques</div>
-              {r.box.leaders.map(l => (
-                <div key={l.label} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
-                  <span className="w-[92px] shrink-0 text-faint">{l.label}</span>
-                  <span className="truncate text-ink">{l.casa}</span>
-                  <span className="ml-auto truncate pl-2 text-dim">{l.fora}</span>
-                </div>
-              ))}
-            </div>
-          </Panel>
-
           {r.lesoes.length > 0 && (
             <Panel title="Boletim médico da partida">
               <ul className="space-y-1.5 font-mono text-[12px]">
@@ -308,6 +328,34 @@ export default function MatchScreen() {
             </Panel>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Aba de Estatísticas: súmula + destaques (dados finais da engine). */
+function StatsTab({ r, casa, fora }: { r: NonNullable<GameState['lastResult']>; casa: Team; fora: Team }) {
+  return (
+    <div className="max-h-[460px] overflow-y-auto">
+      <table className="tbl">
+        <thead><tr><th>Equipe</th><th className="num">{casa.sigla}</th><th className="num">{fora.sigla}</th></tr></thead>
+        <tbody>
+          <tr><td>Jardas totais</td><td className="num">{r.box.yds.casa}</td><td className="num">{r.box.yds.fora}</td></tr>
+          <tr><td>Corrida</td><td className="num">{r.box.rush.casa}</td><td className="num">{r.box.rush.fora}</td></tr>
+          <tr><td>Passe</td><td className="num">{r.box.pass.casa}</td><td className="num">{r.box.pass.fora}</td></tr>
+          <tr><td>Turnovers</td><td className="num">{r.box.tos.casa}</td><td className="num">{r.box.tos.fora}</td></tr>
+          <tr><td>Faltas</td><td className="num">{r.box.faltas.casa}</td><td className="num">{r.box.faltas.fora}</td></tr>
+        </tbody>
+      </table>
+      <div className="border-t border-line px-3.5 py-2.5">
+        <div className="mb-1.5 font-disp text-[13px] font-semibold uppercase tracking-widest text-faint">Destaques</div>
+        {r.box.leaders.map(l => (
+          <div key={l.label} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+            <span className="w-[92px] shrink-0 text-faint">{l.label}</span>
+            <span className="truncate text-ink">{l.casa}</span>
+            <span className="ml-auto truncate pl-2 text-dim">{l.fora}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
