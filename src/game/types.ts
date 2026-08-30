@@ -39,6 +39,26 @@ export interface ProspectInfo {
   onBoard: boolean;
 }
 
+/* ---------- contratos (Fase: Sistema de Contratos) ---------- */
+export type ContractStructure = 'FRONT' | 'BALANCED' | 'BACK';
+
+/** Oferta de contrato: anos, salário-base anual, bônus de assinatura e estrutura. */
+export interface ContractOffer {
+  years: number;          // 1..5
+  base: number;           // $/ano (média)
+  bonus: number;          // bônus de assinatura (amortizado igualmente)
+  structure: ContractStructure;
+}
+
+/** Contrato estruturado vigente. */
+export interface PlayerContract {
+  years: number;
+  total: number;
+  bonus: number;
+  structure: ContractStructure;
+  capHits: number[];      // cap hit por ano (base_i + bônus amortizado)
+}
+
 export interface Player {
   id: string;
   teamId: string | null;
@@ -50,6 +70,7 @@ export interface Player {
   pot: number;
   salario: number;
   contrato: number;
+  contract?: PlayerContract;
   status: PStatus;
   lesao: number;
   lesaoTipo: string | null;
@@ -57,6 +78,7 @@ export interface Player {
   tag: boolean;
   rookie: boolean;
   jogosCarreira: number;
+  holdout?: boolean;
   stats: PlayerStats;
   scout?: ProspectInfo;
   origem?: string;

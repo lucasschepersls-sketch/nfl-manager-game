@@ -4,7 +4,7 @@
  * ============================================================ */
 
 import type {
-  Conf, Focus, GameResult, GameState, Match, Player, Pos, Screen, Staff, Team,
+  Conf, ContractOffer, Focus, GameResult, GameState, Match, Player, Pos, Screen, Staff, Team,
 } from './types';
 import { zeroStats } from './types';
 import { Rng, clamp, newSeed } from './rng';
@@ -12,6 +12,11 @@ import { computeOvr, genName, POS_ORDER, rookieSalary, salaryFor } from './data'
 import type { Side } from './engine';
 import { NFLMatchEngine } from './engine';
 import { applyDraftSurprise, resetScouting, scoutBudgetMaxFor } from './scouting';
+import {
+  acceptanceRoll, calcExpectations, franchiseTagValue, happinessVerdict,
+  makeContract, makeTagContract, negotiationHappiness, shouldHoldout,
+  STRUCT_LABEL,
+} from './contracts';
 
 /* ================= helpers ================= */
 export const teamById = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -19,9 +24,11 @@ export const playersOf = (s: GameState, teamId: string): Player[] => s.players.f
 export const staffOf = (s: GameState, teamId: string): Staff[] => s.staff.filter(st => st.teamId === teamId);
 export const fmtM = (v: number) => `$${v.toFixed(1).replace('.', ',')}M`;
 
-export const capHitOf = (p: Player) => p.salario;
+/** Cap hit atual: contrato estruturado (ano 1) ou salário simples. */
+export const capHitOf = (p: Player) =>
+  p.contract && p.contract.capHits.length ? p.contract.capHits[0] : p.salario;
 export const capUsed = (s: GameState, teamId: string) =>
-  Math.round(playersOf(s, teamId).reduce((sum, p) => sum + p.salario, 0) * 10) / 10;
+  Math.round(playersOf(s, teamId).reduce((sum, p) => sum + capHitOf(p), 0) * 10) / 10;
 
 export const crowdPressure = (t: Team) => {
   const h = t.histCampanha ?? [0.5];
