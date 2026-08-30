@@ -11,6 +11,7 @@ import { Rng, clamp, newSeed } from './rng';
 import { computeOvr, genName, POS_ORDER, rookieSalary, salaryFor } from './data';
 import type { Side } from './engine';
 import { NFLMatchEngine } from './engine';
+import { applyDraftSurprise, resetScouting, scoutBudgetMaxFor } from './scouting';
 
 /* ================= helpers ================= */
 export const teamById = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -748,7 +749,36 @@ export function autoFixRoster(s: GameState): { msg: string } {
   return { msg: feitas.length ? `Auto-Fix aplicado: ${feitas.join(', ')}.` : 'Auto-Fix: nada a ajustar — elenco e cap já em ordem.' };
 }
 
+/* ---------- contratação de olheiro (aumenta o budget de scouting) ---------- */
+export const SCOUT_HIRE_COST = 3.5; // $M por temporada
+export function hireScoutStaff(s: GameState): { ok: boolean; msg: string } {
+  const t = teamById(s, s.userTeam);
+  if (t.dinheiro < SCOUT_HIRE_COST)
+    return { ok: false, msg: `Caixa insuficiente: olheiro extra custa ${fmtM(SCOUT_HIRE_COST)}/ano.` };
+  const myStaff = s.staff.filter(x => x.teamId === t.id);
+  const extras = myStaff.filter(x => x.funcao === 'Olheiro Extra').length;
+  if (extras >= 3) return { ok: false, msg: 'Limite de 3 olheiros extras atingido.' };
+  t.dinheiro = Math.round((t.dinheiro - SCOUT_HIRE_COST) * 10) / 10;
+  s.staff.push({
+    id: `st${Date.now()}${Math.floor(Math.random() * 999)}`, teamId: t.id,
+    nome: genName(new Rng(newSeed())), funcao: 'Olheiro Extra', nivel: 3,
+    experiencia: 8, salario: SCOUT_HIRE_COST, bonus: 0, contrato: 2, moral: 70,
+  });
+  s.scoutBudgetMax = scoutBudgetMaxFor(s.staff.filter(x => x.teamId === t.id));
+  s.scoutBudget += 2;
+  pushNews(s, 'SCOUTING', `${t.sigla} contrata olheiro extra por ${fmtM(SCOUT_HIRE_COST)}/ano. Budget de scouting +2.`);
+  return { ok: true, msg: `Olheiro extra contratado! Budget agora é ${s.scoutBudget} ponto(s).` };
+}
+
 /* ---------- draft ---------- */
+/** Adiciona um prospecto ao time, aplicando a surpresa de combine (se houver). */
+function commitPick(s: GameState, p: Player, teamId: string, rng: Rng): string | null {
+  s.draftClass = s.draftClass.filter(x => x.id !== p.id);
+  p.teamId = teamId; p.status = 'RES'; p.contrato = 4; p.salario = rookieSalary(p.ovr);
+  s.players.push(p);
+  return applyDraftSurprise(p, rng);
+}
+
 export function aiPickFor(s: GameState, teamId: string): Player | null {
   if (!s.draftClass.length) return null;
   const roster = playersOf(s, teamId);
@@ -764,6 +794,24 @@ export function aiPickFor(s: GameState, teamId: string): Player | null {
   return scored[0].p;
 }
 
+/** Avança a escolha da IA até chegar na vez do usuário (ou fim). */
+function runAiPicks(s: GameState, untilUser: boolean, rng: Rng) {
+  const d = s.draftState!;
+  let guard = 0;
+  while (!d.done && guard++ < 400 && s.draftClass.length) {
+    if (untilUser && d.order[d.pick] === s.userTeam) break;
+    const teamId = d.order[d.pick];
+    const pick = aiPickFor(s, teamId);
+    if (!pick) { d.done = true; break; }
+    commitPick(s, pick, teamId, rng);
+    d.pick++;
+    if (d.pick >= 32) {
+      d.pick = 0; d.round++;
+      if (d.round > 7) { d.done = true; pushNews(s, 'DRAFT', `Draft ${s.settings.temporada + 1} encerrado após 7 rodadas.`); }
+    }
+  }
+}
+
 function advanceDraft(s: GameState) {
   const d = s.draftState!;
   if (!s.draftClass.length) { d.done = true; return; }
@@ -772,17 +820,7 @@ function advanceDraft(s: GameState) {
     d.pick = 0; d.round++;
     if (d.round > 7) { d.done = true; pushNews(s, 'DRAFT', `Draft ${s.settings.temporada + 1} encerrado após 7 rodadas.`); return; }
   }
-  let guard = 0;
-  while (!d.done && d.order[d.pick] !== s.userTeam && guard++ < 400 && s.draftClass.length) {
-    const teamId = d.order[d.pick];
-    const pick = aiPickFor(s, teamId);
-    if (!pick) { d.done = true; break; }
-    s.draftClass = s.draftClass.filter(x => x.id !== pick.id);
-    pick.teamId = teamId; pick.status = 'RES'; pick.contrato = 4; pick.salario = rookieSalary(pick.ovr);
-    s.players.push(pick);
-    d.pick++;
-    if (d.pick >= 32) { d.pick = 0; d.round++; if (d.round > 7) { d.done = true; pushNews(s, 'DRAFT', `Draft ${s.settings.temporada + 1} encerrado após 7 rodadas.`); } }
-  }
+  runAiPicks(s, true, new Rng(newSeed()));
 }
 
 export function userDraftPick(s: GameState, playerId: string): { ok: boolean; msg: string } {
@@ -793,43 +831,23 @@ export function userDraftPick(s: GameState, playerId: string): { ok: boolean; ms
   if (!p) return { ok: false, msg: 'Prospecto indisponível.' };
   const ativos = playersOf(s, s.userTeam).filter(x => x.status !== 'PS').length;
   if (ativos >= 53) return { ok: false, msg: 'Elenco cheio (53). Dispense alguém antes de draftar.' };
-  s.draftClass = s.draftClass.filter(x => x.id !== playerId);
-  p.teamId = s.userTeam; p.status = 'RES'; p.contrato = 4; p.salario = rookieSalary(p.ovr);
-  s.players.push(p);
+  const rng = new Rng(newSeed());
+  const surprise = commitPick(s, p, s.userTeam, rng);
   pushNews(s, 'DRAFT', `Rodada ${d.round}: ${teamById(s, s.userTeam).sigla} escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}).`);
+  if (surprise) pushNews(s, 'COMBINE', surprise);
   advanceDraft(s);
-  return { ok: true, msg: `${p.nome} draftado!` };
+  return { ok: true, msg: surprise ? `${p.nome} draftado! ${surprise}` : `${p.nome} draftado!` };
 }
 
 export function autoDraftUntilUser(s: GameState) {
   const d = s.draftState;
   if (!d || d.done) return;
-  let guard = 0;
-  while (!d.done && d.order[d.pick] !== s.userTeam && guard++ < 400 && s.draftClass.length) {
-    const teamId = d.order[d.pick];
-    const pick = aiPickFor(s, teamId);
-    if (!pick) { d.done = true; break; }
-    s.draftClass = s.draftClass.filter(x => x.id !== pick.id);
-    pick.teamId = teamId; pick.status = 'RES'; pick.contrato = 4; pick.salario = rookieSalary(pick.ovr);
-    s.players.push(pick);
-    d.pick++;
-    if (d.pick >= 32) { d.pick = 0; d.round++; if (d.round > 7) d.done = true; }
-  }
+  runAiPicks(s, true, new Rng(newSeed()));
 }
 export function autoDraftAll(s: GameState) {
   const d = s.draftState;
   if (!d || d.done) return;
-  let guard = 0;
-  while (!d.done && guard++ < 300 && s.draftClass.length) {
-    const teamId = d.order[d.pick];
-    const pick = aiPickFor(s, teamId);
-    if (!pick) { d.done = true; break; }
-    s.draftClass = s.draftClass.filter(x => x.id !== pick.id);
-    pick.teamId = teamId; pick.status = 'RES'; pick.contrato = 4; pick.salario = rookieSalary(pick.ovr);
-    s.players.push(pick);
-    d.pick++;
-    if (d.pick >= 32) { d.pick = 0; d.round++; if (d.round > 7) d.done = true; }
-  }
+  runAiPicks(s, false, new Rng(newSeed()));
   d.done = true;
 }
 
@@ -890,6 +908,7 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
   s.lastResult = null;
   s.weekResults = [];
   s.offPhase = undefined;
+  resetScouting(s);   // restaura o orçamento de scouting e zera relatórios
 
   // renova as escolhas de draft: cada franquia volta a deter as próprias picks
   s.pickOwners = Array.from({ length: 7 }, () =>

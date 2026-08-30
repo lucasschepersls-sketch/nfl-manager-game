@@ -34,6 +34,26 @@ export function Ovr({ v, pot }: { v: number; pot?: number }) {
   );
 }
 
+const GRADE_COLOR: Record<string, string> = {
+  'A+': 'var(--color-goldhi)', 'A': 'var(--color-goldhi)', 'A-': 'var(--color-goldhi)',
+  'B+': 'var(--color-grass)', 'B': 'var(--color-grass)', 'B-': 'var(--color-grass)',
+  'C+': 'var(--color-ink)', 'C': 'var(--color-ink)', 'C-': 'var(--color-ink)',
+  'D': 'var(--color-dim)', 'F': 'var(--color-blood)',
+};
+
+/** Nota de scout em letra (A+..F) com cor por tier. */
+export function GradeBadge({ grade, title, exact }: { grade: string; title?: string; exact?: boolean }) {
+  return (
+    <span
+      className={`ovr ${exact ? 'underline decoration-dotted underline-offset-2' : ''}`}
+      style={{ color: GRADE_COLOR[grade] ?? 'var(--color-ink)' }}
+      title={title ?? `Nota ${grade}`}
+    >
+      {grade}
+    </span>
+  );
+}
+
 export function Bar({ pct, color = 'var(--color-grass)', h }: { pct: number; color?: string; h?: number }) {
   const p = Math.min(100, Math.max(0, pct));
   return (

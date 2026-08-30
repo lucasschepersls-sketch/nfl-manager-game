@@ -14,6 +14,7 @@ import {
   generateNFLSchedule, initialRanks, type RankMap, type SchedTeam,
 } from './season';
 import { initialPickOwners } from './trades';
+import { balanceElite } from './scouting';
 
 const ATTR_LIST: (keyof Attrs)[] = ['passe', 'corrida', 'recepcao', 'bloqueio', 'tackle', 'chute', 'velocidade', 'resistencia'];
 
@@ -111,6 +112,7 @@ export function buildDraftClass(rng: Rng): Player[] {
       });
     }
   }
+  balanceElite(rng, out);   // garante 3-5 prospectos A+ (franchise players)
   return rng.shuffle(out);
 }
 

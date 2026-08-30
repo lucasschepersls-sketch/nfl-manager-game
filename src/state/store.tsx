@@ -3,11 +3,12 @@ import type { Focus, GameState, PStatus, Screen, TradeAsset } from '../game/type
 import { newGame, buildWorldFor } from '../game/generate';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser, autoFixRoster,
-  enforceAllCompliance, newSeason, releasePlayer, renewPlayer, setStatus, setTactics,
-  signFA, upgrade, userDraftPick,
+  enforceAllCompliance, hireScoutStaff, newSeason, releasePlayer, renewPlayer, setStatus,
+  setTactics, signFA, upgrade, userDraftPick,
 } from '../game/season';
 import { newSeed, Rng } from '../game/rng';
 import { executeProposal } from '../game/trades';
+import { investigate, toggleBoard } from '../game/scouting';
 
 const SAVE_KEY = 'gridiron-nfl-save-v1';
 
@@ -59,6 +60,9 @@ export type Action =
   | { type: 'START_SEASON' }
   | { type: 'AUTO_FIX' }
   | { type: 'TRADE_PROPOSE'; to: string; give: TradeAsset[]; get: TradeAsset[] }
+  | { type: 'INVESTIGATE'; playerId: string }
+  | { type: 'TOGGLE_BOARD'; playerId: string }
+  | { type: 'HIRE_SCOUT' }
   | { type: 'TOAST_CLEAR' };
 
 interface StoreState {
@@ -176,6 +180,24 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       const r = executeProposal(g, {
         from: g.userTeam, to: a.to, give: a.give, get: a.get,
       }, new Rng(newSeed()));
+      return { ...st, game: r.ok ? g : st.game, toast: r.msg };
+    }
+    case 'INVESTIGATE': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = investigate(g, a.playerId);
+      return { ...st, game: r.ok ? g : st.game, toast: r.msg };
+    }
+    case 'TOGGLE_BOARD': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = toggleBoard(g, a.playerId);
+      return { ...st, game: r.ok ? g : st.game, toast: r.msg };
+    }
+    case 'HIRE_SCOUT': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = hireScoutStaff(g);
       return { ...st, game: r.ok ? g : st.game, toast: r.msg };
     }
     case 'TOAST_CLEAR':

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../state/store';
 import { teamById, playersOf } from '../game/season';
-import { Panel, PosBadge, Ovr, Bar } from '../components/ui';
+import { estimateAspect, GRADE_MEANING } from '../game/scouting';
+import { Panel, PosBadge, Ovr, GradeBadge, Bar } from '../components/ui';
 import type { Player } from '../game/types';
 
 export function DraftScreen() {
@@ -35,6 +36,16 @@ export function DraftScreen() {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-3 border border-line bg-panel2 px-4 py-2.5">
+        <span className="font-mono text-[12px] text-dim">
+          As notas de <b className="text-ink">Overall</b> e <b className="text-ink">Potencial</b> são estimativas do seu scouting.
+          Prospectos com <span className="text-goldhi">3 relatórios</span> podem surpreender no combine (±5).
+        </span>
+        <button className="btn btn-sm btn-ghost ml-auto" onClick={() => dispatch({ type: 'SCREEN', screen: 'scouting' })}>
+          Abrir Scouting Board »
+        </button>
+      </div>
+
       <div className="panel px-5 py-4">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div>
@@ -84,23 +95,46 @@ export function DraftScreen() {
           }>
           <div className="max-h-[560px] overflow-y-auto">
             <table className="tbl">
-              <thead><tr><th>POS</th><th>Prospecto</th><th>College</th><th className="num">Idade</th><th className="num">OVR</th><th className="num">POT</th><th /></tr></thead>
+              <thead><tr><th>POS</th><th>Prospecto</th><th>College</th><th className="num">Idade</th><th className="num">Overall</th><th className="num">Potencial</th><th className="num">Rel.</th><th /></tr></thead>
               <tbody>
-                {prospects.slice(0, 120).map((p: Player) => (
-                  <tr key={p.id}>
-                    <td><PosBadge pos={p.pos} /></td>
-                    <td>{p.nome}</td>
-                    <td className="text-dim">{p.scout?.college ?? '—'}</td>
-                    <td className="num">{p.idade}</td>
-                    <td className="num"><Ovr v={p.ovr} /></td>
-                    <td className="num font-bold text-ice">{p.pot}</td>
-                    <td>
-                      {isUser && !d.done && (
-                        <button className="btn btn-sm btn-gold" onClick={() => dispatch({ type: 'DRAFT_PICK', playerId: p.id })}>Draftar</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {prospects.slice(0, 120).map((p: Player) => {
+                  const ovr = estimateAspect(p, 'ovr');
+                  const pot = estimateAspect(p, 'pot');
+                  const isElite = p.ovr >= 90;
+                  return (
+                    <tr key={p.id} style={isElite ? { boxShadow: 'inset 3px 0 0 var(--color-goldhi)' } : undefined}>
+                      <td><PosBadge pos={p.pos} /></td>
+                      <td>
+                        {p.nome}
+                        {isElite && <span className="tag ml-2 border-goldhi/70 text-goldhi">★ A+</span>}
+                        {p.scout?.onBoard && <span className="ml-1.5 text-grass" title="No seu board">📌</span>}
+                      </td>
+                      <td className="text-dim">{p.scout?.college ?? '—'}</td>
+                      <td className="num">{p.idade}</td>
+                      <td className="num" title={ovr.exact ? `OVR exato: ${ovr.center}` : 'Estimativa do scout — investigue para refinar'}>
+                        <GradeBadge grade={ovr.grade} exact={ovr.exact} title={GRADE_MEANING[ovr.grade]} />
+                        <span className="ml-1.5 font-mono text-[10.5px] text-faint">{ovr.label}</span>
+                      </td>
+                      <td className="num" title={pot.exact ? `Potencial exato: ${pot.center}` : 'Estimativa do scout — investigue para refinar'}>
+                        <GradeBadge grade={pot.grade} exact={pot.exact} title={GRADE_MEANING[pot.grade]} />
+                        <span className="ml-1.5 font-mono text-[10.5px] text-faint">{pot.label}</span>
+                      </td>
+                      <td className="num">
+                        <span className="inline-flex gap-[3px]" title={`${p.scout?.reports ?? 0}/3 relatórios`}>
+                          {[...Array(p.scout?.maxReports ?? 3)].map((_, i) => (
+                            <span key={i} className="inline-block h-[8px] w-[8px] rounded-full"
+                              style={{ background: i < (p.scout?.reports ?? 0) ? 'var(--color-goldhi)' : 'rgba(255,255,255,0.12)' }} />
+                          ))}
+                        </span>
+                      </td>
+                      <td>
+                        {isUser && !d.done && (
+                          <button className="btn btn-sm btn-gold" onClick={() => dispatch({ type: 'DRAFT_PICK', playerId: p.id })}>Draftar</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
