@@ -159,6 +159,7 @@ export const Icons = {
   play: ic('M7 4 L19 12 L7 20 Z'),
   staff: ic('M12 4 a4 4 0 1 0 0 8 a4 4 0 0 0 0 -8 M4 20 c0 -4 4 -6 8 -6 s8 2 8 6'),
   trade: ic('M4 8 H17 M17 8 L13 4 M17 8 L13 12 M20 16 H7 M7 16 L11 12 M7 16 L11 20'),
+  contract: ic('M6 3 H15 L18 6 V21 H6 Z M15 3 V6 H18 M9 11 H15 M9 14 H15 M9 17 H12'),
   scout: ic('M10.5 4 a6.5 6.5 0 1 0 0 13 a6.5 6.5 0 0 0 0 -13 Z M15.2 15.2 L21 21'),
   offseason: ic('M20 12 a8 8 0 1 1 -2.3 -5.7 M20 3 V9 H14'),
   out: ic('M14 4 H5 V20 H14 M10 12 H21 M18 8 L22 12 L18 16'),

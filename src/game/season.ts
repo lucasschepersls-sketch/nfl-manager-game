@@ -586,20 +586,41 @@ function endSeason(s: GameState, rng: Rng) {
     pushNews(s, 'APOSENTADORIAS', `${aposentados.length} veteranos penduram as chuteiras, incluindo ${aposentados.slice(0, 2).join(' e ')}.`);
 
   for (const p of [...s.players]) {
+    // consome a temporada que passou do contrato estruturado
+    if (p.contract && p.contract.capHits.length > 1) {
+      p.contract.capHits.shift();
+      p.contract.years = p.contract.capHits.length;
+      p.salario = p.contract.capHits[0];
+    }
     p.contrato--;
     if (p.contrato > 0) continue;
     if (p.tag) {
+      // franchise tag: 1 ano pelo valor de mercado da posição (top 5)
+      const value = franchiseTagValue(p.pos, s.players);
       p.contrato = 1;
-      p.salario = Math.max(Math.round(p.salario * 1.2 * 10) / 10, 8);
+      p.salario = value;
+      p.contract = makeTagContract(value);
       p.tag = false;
       continue;
     }
-    if (p.teamId === s.userTeam) { /* avisado abaixo */ }
     p.origem = p.teamId ?? undefined;
     p.teamId = null; p.status = 'RES';
+    p.contract = undefined;
     s.faPool.push(p);
     s.players = s.players.filter(x => x.id !== p.id);
   }
+
+  // holdouts: estrelas em último ano mal pagas (happiness-baseline < 40%) se recusam a jogar
+  const holdouts: string[] = [];
+  for (const p of s.players) {
+    if (p.holdout) { holdouts.push(p.nome); continue; }
+    if (shouldHoldout(p, s.settings.inflacao)) {
+      p.holdout = true;
+      holdouts.push(p.nome);
+    }
+  }
+  if (holdouts.length)
+    pushNews(s, 'HOLDOUT', `${holdouts.slice(0, 3).join(', ')}${holdouts.length > 3 ? ` e mais ${holdouts.length - 3}` : ''} em holdout — recusam jogar até renovar. Negocie em Contratos.`);
 
   s.offPhase = 1;
   s.draftState = null;
@@ -995,28 +1016,81 @@ export function releasePlayer(s: GameState, playerId: string): { ok: boolean; ms
   return { ok: true, msg: `${p.nome} dispensado — agora é free agent.` };
 }
 
+/* ================= 💼 negociações (sistema de contratos) ================= */
+
+/**
+ * Apresenta uma oferta estruturada ao jogador e resolve com a fórmula de
+ * happiness (±10 de personalidade). Vale para renovação e extensão antecipada.
+ */
+export function negotiateContract(
+  s: GameState, playerId: string, o: ContractOffer,
+): { ok: boolean; msg: string; aceita?: boolean; hap?: number } {
+  const p = s.players.find(x => x.id === playerId);
+  if (!p || p.teamId !== s.userTeam) return { ok: false, msg: 'Jogador inválido.' };
+  if (p.tag) return { ok: false, msg: 'Jogador com franchise tag — a tag já define o contrato.' };
+  if (o.years < 1 || o.years > 5) return { ok: false, msg: 'Contratos têm de 1 a 5 anos.' };
+  if (o.base <= 0) return { ok: false, msg: 'Salário-base precisa ser positivo.' };
+
+  // o cap precisa comportar o novo cap hit (ano 1)
+  const usadoSemEle = capUsed(s, s.userTeam) - capHitOf(p);
+  const novoHit = makeContract(o).capHits[0];
+  if (usadoSemEle + novoHit > s.settings.cap) {
+    return {
+      ok: false,
+      msg: `Cap insuficiente: a oferta pesa ${fmtM(novoHit)} no ano 1 e restam ${fmtM(Math.max(0, Math.round((s.settings.cap - usadoSemEle) * 10) / 10))}.`,
+    };
+  }
+
+  const hap = negotiationHappiness(p, o, s.settings.inflacao, { lealdade: true });
+  const aceita = acceptanceRoll(hap.total, new Rng(newSeed()));
+  const veredicto = happinessVerdict(hap.total);
+
+  if (!aceita) {
+    p.moral = clamp(p.moral - 4, 25, 95);
+    const motivo = hap.salary < 50 ? 'salário abaixo do pedido'
+      : hap.years < 50 ? 'duração diferente da esperada'
+        : hap.structure < 50 ? 'estrutura de pagamento'
+          : 'conjunto da proposta';
+    pushNews(s, 'NEGOCIAÇÃO', `${p.nome} recusa a oferta (${hap.total}% de felicidade — pesou o ${motivo}).`);
+    return { ok: false, msg: `${p.nome} recusou: ${veredicto.label.toLowerCase()} (${hap.total}%). O agente quer ${fmtM(Math.round(calcExpectations(p, s.settings.inflacao).aav * 10) / 10)}/ano por ${calcExpectations(p, s.settings.inflacao).anos} ano(s).`, aceita, hap: hap.total };
+  }
+
+  p.contract = makeContract(o);
+  p.contrato = o.years;
+  p.salario = o.base;
+  p.holdout = false;
+  p.moral = clamp(p.moral + 8, 25, 95);
+  pushNews(
+    s, 'CONTRATO',
+    `${p.nome} (${p.pos}, OVR ${p.ovr}) assina: ${o.years} ano(s), ${fmtM(o.base)}/ano, ${STRUCT_LABEL[o.structure].toLowerCase()}` +
+    (o.bonus > 0 ? `, ${fmtM(o.bonus)} de luvas` : '') + ` (felicidade ${hap.total}%).`,
+  );
+  return { ok: true, msg: `${p.nome} assinou! ${o.years} ano(s) por ${fmtM(o.base)}/ano (${hap.total}%).`, aceita, hap: hap.total };
+}
+
+/** Atalho: renova na hora pela expectativa do agente (usa o sistema de happiness). */
 export function renewPlayer(s: GameState, playerId: string): { ok: boolean; msg: string } {
   const p = s.players.find(x => x.id === playerId);
   if (!p || p.teamId !== s.userTeam) return { ok: false, msg: 'Jogador inválido.' };
-  if (p.contrato !== 1 || p.tag) return { ok: false, msg: 'Este contrato não está na última temporada.' };
-  const contender = teamStrength(s, s.userTeam) >= 78;
-  let ask = marketValue(p, s.settings.inflacao) * (contender ? 1.08 : 1) * (p.moral >= 75 ? 0.97 : 1);
-  ask = Math.max(0.75, Math.round(ask * 10) / 10);
-  const usadoSemEle = capUsed(s, s.userTeam) - p.salario;
-  if (usadoSemEle + ask > s.settings.cap) {
-    return { ok: false, msg: `Cap insuficiente: ${p.nome} pede ${fmtM(ask)}/ano (inflação ${Math.round((s.settings.inflacao - 1) * 100)}%). Resta ${fmtM(Math.max(0, Math.round((s.settings.cap - usadoSemEle) * 10) / 10))}. Dispense contratos ou use a tag.` };
-  }
-  const years = p.idade >= 31 ? 1 : p.ovr >= 82 ? 3 : 2;
-  p.salario = ask; p.contrato = years; p.moral = clamp(p.moral + 6, 25, 95);
-  pushNews(s, 'RENOVAÇÃO', `${p.nome} (${p.pos}, OVR ${p.ovr}) renova: ${years} ano(s) por ${fmtM(ask)}/ano.`);
-  return { ok: true, msg: `${p.nome} renovou: ${years} ano(s), ${fmtM(ask)}/ano.` };
+  if (p.contrato > 2) return { ok: false, msg: 'Renovação antecipada só com ≤2 anos restantes.' };
+  if (p.tag) return { ok: false, msg: 'Jogador com franchise tag.' };
+  const exp = calcExpectations(p, s.settings.inflacao);
+  return negotiateContract(s, playerId, {
+    years: exp.anos,
+    base: exp.aav,
+    bonus: Math.round(exp.aav * exp.anos * 0.1 * 10) / 10,
+    structure: exp.structure,
+  });
 }
 
+/** Franchise Tag: 1 ano, salário médio dos top 5 da posição na liga. */
 export function applyTag(s: GameState, playerId: string): boolean {
   const p = s.players.find(x => x.id === playerId);
   if (!p || p.teamId !== s.userTeam || p.contrato !== 1 || p.tag) return false;
+  const value = franchiseTagValue(p.pos, s.players);
   p.tag = true;
-  pushNews(s, 'FRANCHISE TAG', `${p.nome} recebe a franchise tag: garantido por +1 temporada (~${fmtM(Math.max(p.salario * 1.2, 8))}).`);
+  p.contract = makeTagContract(value);
+  pushNews(s, 'FRANCHISE TAG', `${p.nome} recebe a franchise tag: 1 ano garantido por ${fmtM(value)} (média dos top 5 de ${p.pos}).`);
   return true;
 }
 
