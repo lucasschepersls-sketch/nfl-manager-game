@@ -4,7 +4,7 @@
  * ============================================================ */
 
 import type {
-  Conf, ContractOffer, Focus, GameResult, GameState, Match, Player, Pos, Screen, Staff, Team,
+  Conf, ContractOffer, ContractStructure, Focus, GameResult, GameState, Match, Player, Pos, Screen, Staff, Team,
 } from './types';
 import { zeroStats } from './types';
 import { Rng, clamp, newSeed } from './rng';
@@ -606,6 +606,9 @@ function endSeason(s: GameState, rng: Rng) {
     p.origem = p.teamId ?? undefined;
     p.teamId = null; p.status = 'RES';
     p.contract = undefined;
+    // RFA: menos de 3 temporadas completas (~51 jogos) — time de origem tem direito de match.
+    // UFA: 3+ temporadas — livre para assinar com qualquer franquia.
+    p.rfa = p.jogosCarreira < 51;
     s.faPool.push(p);
     s.players = s.players.filter(x => x.id !== p.id);
   }
@@ -656,33 +659,138 @@ export function setupDraftOrder(s: GameState) {
 }
 
 export function aiFreeAgency(s: GameState, rng: Rng) {
-  const assinaturas: string[] = [];
+  const matches = rfaMatchPass(s, rng);
+  const disputas = biddingPass(s, rng);
+  if (matches.length)
+    pushNews(s, 'RFA', `Direito de match exercido: ${matches.slice(0, 2).join('; ')}${matches.length > 2 ? `… e mais ${matches.length - 2}.` : '.'}`);
+  if (disputas.length)
+    pushNews(s, 'FREE AGENCY', `Mercado em leilão: ${disputas.slice(0, 3).join('; ')}${disputas.length > 3 ? `… e mais ${disputas.length - 3}.` : '.'}`);
+}
+
+const structPorIdade = (idade: number): ContractStructure => idade >= 30 ? 'FRONT' : idade <= 27 ? 'BACK' : 'BALANCED';
+
+/** Assina um FA por um time (remove do pool, aplica contrato estruturado). */
+function assina(s: GameState, f: Player, teamId: string, base: number, years: number) {
+  s.faPool = s.faPool.filter(x => x.id !== f.id);
+  f.teamId = teamId; f.status = 'RES'; f.origem = undefined; f.rfa = false;
+  f.salario = base; f.contrato = years;
+  f.contract = makeContract({ years, base, bonus: Math.round(base * years * 0.08 * 10) / 10, structure: structPorIdade(f.idade) });
+  s.players.push(f);
+}
+
+/** FASE 1 · passo 1 — times de origem exercem o direito de match sobre seus RFAs. */
+function rfaMatchPass(s: GameState, rng: Rng): string[] {
+  const feitos: string[] = [];
+  for (const f of [...s.faPool]) {
+    if (!f.rfa || !f.origem || f.origem === s.userTeam) continue; // RFAs do usuário ficam no mercado p/ match manual
+    const t = s.teams.find(x => x.id === f.origem);
+    if (!t) continue;
+    const space = s.settings.cap - capUsed(s, t.id);
+    const ativos = playersOf(s, t.id).filter(p => p.status !== 'PS').length;
+    const need = playersOf(s, t.id).filter(p => p.pos === f.pos && p.status !== 'PS').length <= 2;
+    const ask = marketValue(f, s.settings.inflacao);
+    if (ativos >= 53 || space < ask) continue;
+    if (f.ovr < 68 && !need && !rng.chance(0.25)) continue;
+    assina(s, f, t.id, ask, calcExpectations(f, s.settings.inflacao).anos);
+    feitos.push(`${t.sigla} segura ${f.nome} (${f.pos}, OVR ${f.ovr})`);
+  }
+  return feitos;
+}
+
+interface AiOffer { teamId: string; base: number; years: number; }
+
+/** FASE 1 · passo 2 — GMs fazem ofertas simultâneas; o jogador escolhe
+ *  (salário 60% · duração 20% · competitividade 20%). */
+function biddingPass(s: GameState, rng: Rng): string[] {
+  const offers = new Map<string, AiOffer[]>();
   for (const t of s.teams) {
     if (t.id === s.userTeam) continue;
     let space = s.settings.cap - capUsed(s, t.id);
     if (space < 1) continue;
     const moves = 1 + Math.min(2, Math.floor(space / 25));
-    for (let m = 0; m < moves && s.faPool.length; m++) {
-      const ativos = playersOf(s, t.id).filter(p => p.status !== 'PS').length;
-      if (ativos >= 53) break;
-      const cabem = s.faPool.filter(f => f.salario <= space);
-      if (!cabem.length) break;
-      const meus = cabem.filter(f => f.origem === t.id).sort((a, b) => b.ovr - a.ovr);
-      const pool = meus.length ? meus : [...cabem].sort((a, b) => b.ovr - a.ovr);
-      const reconstruindo = teamStrength(s, t.id) < 68;
-      pool.sort((a, b) => reconstruindo ? (a.idade - b.idade) || (b.ovr - a.ovr) : (b.ovr - a.ovr));
-      const f = pool[0];
-      s.faPool = s.faPool.filter(x => x.id !== f.id);
-      const wasMine = f.origem === t.id;
-      f.teamId = t.id; f.status = 'RES'; f.origem = undefined;
-      f.contrato = wasMine ? rng.int(1, 3) : 1;
-      s.players.push(f);
-      space = s.settings.cap - capUsed(s, t.id);
-      if (f.ovr >= 76) assinaturas.push(`${t.sigla} ${wasMine ? 'renova com' : 'contrata'} ${f.nome} (${f.pos}, OVR ${f.ovr})`);
+    const reconstruindo = teamStrength(s, t.id) < 68;
+    // GM considera: necessidade da posição, cap space, rating (e juventude se rebuild)
+    const ranked = [...s.faPool].map(f => {
+      const n = playersOf(s, t.id).filter(p => p.pos === f.pos && p.status !== 'PS').length;
+      const need = n <= 1 ? 22 : n <= 2 ? 12 : 0;
+      const juventude = reconstruindo ? Math.max(0, 27 - f.idade) * 1.6 : f.idade >= 28 ? 5 : 0;
+      return { f, score: f.ovr + need + juventude + rng.f(0, 10) };
+    }).sort((a, b) => b.score - a.score);
+
+    let feitos = 0; let projetado = space;
+    for (const { f } of ranked) {
+      if (feitos >= moves) break;
+      const ask = marketValue(f, s.settings.inflacao);
+      const offerBase = Math.round(ask * rng.f(0.92, 1.12) * 10) / 10;
+      if (offerBase > projetado) continue;
+      const anos = clamp(calcExpectations(f, s.settings.inflacao).anos + (rng.chance(0.3) ? 1 : 0), 1, 5);
+      const list = offers.get(f.id) ?? [];
+      list.push({ teamId: t.id, base: offerBase, years: anos });
+      offers.set(f.id, list);
+      projetado -= offerBase; feitos++;
     }
   }
-  if (assinaturas.length)
-    pushNews(s, 'FREE AGENCY', `Mercado aquecido: ${assinaturas.slice(0, 3).join('; ')}${assinaturas.length > 3 ? `… e mais ${assinaturas.length - 3}.` : '.'}`);
+
+  const assinaturas: string[] = [];
+  for (const [pid, list] of offers) {
+    const f = s.faPool.find(x => x.id === pid);
+    if (!f || !list.length) continue;
+    const mv = Math.max(0.1, marketValue(f, s.settings.inflacao));
+    const expAnos = Math.max(1, calcExpectations(f, s.settings.inflacao).anos);
+    let best: AiOffer | null = null; let bestScore = -1;
+    for (const o of list) {
+      const sal = clamp(o.base / mv, 0.4, 1.4);
+      const dur = clamp(o.years / expAnos, 0.4, 1.3);
+      const comp = 0.5 + teamStrength(s, o.teamId) / 200;
+      const score = sal * 0.6 + dur * 0.2 + comp * 0.2 + rng.f(0, 0.05);
+      if (score > bestScore) { bestScore = score; best = o; }
+    }
+    if (!best) continue;
+    const t = s.teams.find(x => x.id === best.teamId)!;
+    const space = s.settings.cap - capUsed(s, t.id);
+    const ativos = playersOf(s, t.id).filter(p => p.status !== 'PS').length;
+    if (ativos >= 53 || best.base > space) continue;
+    assina(s, f, t.id, best.base, clamp(best.years, 1, 5));
+    if (f.ovr >= 74 || list.length >= 3)
+      assinaturas.push(`${t.sigla} vence disputa de ${list.length} oferta${list.length > 1 ? 's' : ''} e leva ${f.nome} (${f.pos}, OVR ${f.ovr}, ${fmtM(best.base)}/ano)`);
+  }
+  return assinaturas;
+}
+
+/** RFAs do usuário que não tiveram match exercido são levados pela melhor oferta da IA. */
+export function stealUnmatchedRfas(s: GameState, rng: Rng): number {
+  let perdidos = 0;
+  for (const f of [...s.faPool]) {
+    if (!f.rfa || f.origem !== s.userTeam) continue;
+    const ask = marketValue(f, s.settings.inflacao);
+    const candidatos = s.teams.filter(t => t.id !== s.userTeam
+      && playersOf(s, t.id).filter(p => p.status !== 'PS').length < 53
+      && s.settings.cap - capUsed(s, t.id) >= ask * 0.95);
+    if (!candidatos.length) continue;
+    const t = [...candidatos].sort((a, b) => (s.settings.cap - capUsed(s, b.id)) - (s.settings.cap - capUsed(s, a.id)))[0];
+    assina(s, f, t.id, Math.round(ask * rng.f(0.95, 1.1) * 10) / 10, calcExpectations(f, s.settings.inflacao).anos);
+    pushNews(s, 'RFA PERDIDO', `${f.nome} (${f.pos}, OVR ${f.ovr}) assina com ${t.cidade} ${t.nome} — o direito de match não foi exercido a tempo.`);
+    perdidos++;
+  }
+  return perdidos;
+}
+
+/** IA faz scouting durante a offseason: cada GM "investiga" 2 prospectos do seu board. */
+export function aiScoutingWave(s: GameState, rng: Rng) {
+  if (!s.draftClass.length) return;
+  for (const t of s.teams) {
+    if (t.id === s.userTeam) continue;
+    const alvos = [...s.draftClass].map(p => {
+      const n = playersOf(s, t.id).filter(x => x.pos === p.pos && x.status !== 'PS').length;
+      return { p, score: p.pot * 0.6 + p.ovr * 0.4 + (n <= 2 ? 12 : 0) + rng.f(0, 8) };
+    }).sort((a, b) => b.score - a.score).slice(0, 2);
+    for (const { p } of alvos) {
+      if (!p.scout) continue;
+      p.scout.aiHeat = (p.scout.aiHeat ?? 0) + 1;
+    }
+  }
+  const top = [...s.draftClass].sort((a, b) => (b.scout?.aiHeat ?? 0) - (a.scout?.aiHeat ?? 0))[0];
+  pushNews(s, 'SCOUTING', `Os 31 GMs enviaram olheiros pelo país${top ? ` — ${top.nome} (${top.pos}, ${top.scout?.college}) é o nome mais cotado nos boards da liga.` : '.'}`);
 }
 
 export function advanceOffPhase(s: GameState): { ok: boolean; msg: string } {
@@ -691,12 +799,15 @@ export function advanceOffPhase(s: GameState): { ok: boolean; msg: string } {
   if (s.settings.fase !== 'OFF') return { ok: false, msg: 'A offseason ainda não começou.' };
   if (ph === 1) {
     aiFreeAgency(s, rng);
+    const perdidos = stealUnmatchedRfas(s, rng);
+    aiScoutingWave(s, rng);
     s.offPhase = 2;
-    pushNews(s, 'OFFSEASON', 'Free Agency encerrada. Fase 2: Renovações aberta.');
-    return { ok: true, msg: 'Fase 2 — Renovações aberta.' };
+    pushNews(s, 'OFFSEASON', `Free Agency encerrada${perdidos ? ` — você perdeu ${perdidos} RFA(s) sem exercer o match` : ''}. Fase 2: Renovações aberta.`);
+    return { ok: true, msg: perdidos ? `Fase 2 aberta — ${perdidos} RFA(s) perdidos no mercado.` : 'Fase 2 — Renovações aberta.' };
   }
   if (ph === 2) {
     setupDraftOrder(s);
+    aiScoutingWave(s, rng);
     s.offPhase = 3;
     pushNews(s, 'OFFSEASON', 'Renovações concluídas. Fase 3: Draft aberto em 7 rodadas.');
     return { ok: true, msg: 'Fase 3 — Draft aberto.' };
@@ -714,18 +825,62 @@ export function advanceOffPhase(s: GameState): { ok: boolean; msg: string } {
 
 /* ---------- validação e auto-fix ---------- */
 export interface RosterCheck { ok: boolean; erros: string[]; }
-export function validateRoster(s: GameState): RosterCheck {
-  const erros: string[] = [];
+export interface RosterRule {
+  id: string; label: string; ok: boolean; detalhe: string;
+  destino?: Screen; acao?: string;
+}
+
+/** Validação final obrigatória: cada regra traz o diagnóstico e a ação sugerida. */
+export function validateRosterDetailed(s: GameState): RosterRule[] {
   const roster = playersOf(s, s.userTeam);
-  const ativos = roster.filter(p => p.status !== 'PS').length;
-  const ps = roster.filter(p => p.status === 'PS').length;
+  const ativosArr = roster.filter(p => p.status !== 'PS');
+  const ativos = ativosArr.length;
+  const ps = roster.length - ativos;
   const cap = capUsed(s, s.userTeam);
-  if (ativos !== 53) erros.push(`Elenco ativo tem ${ativos} jogadores — a liga exige exatamente 53.`);
-  if (ps > 10) erros.push(`Practice Squad com ${ps} jogadores — o máximo é 10.`);
-  if (cap > s.settings.cap)
-    erros.push(`Folha de ${fmtM(cap)} estoura o cap de ${fmtM(s.settings.cap)} em ${fmtM(Math.round((cap - s.settings.cap) * 10) / 10)}.`);
-  if (!roster.some(p => p.pos === 'QB' && p.status !== 'PS'))
-    erros.push('É preciso ter ao menos 1 QB no elenco ativo.');
+  const espaco = Math.max(0, Math.round((s.settings.cap - cap) * 10) / 10);
+  const nQB = ativosArr.filter(p => p.pos === 'QB').length;
+  const nK = ativosArr.filter(p => p.pos === 'K').length;
+  const nP = ativosArr.filter(p => p.pos === 'P').length;
+  return [
+    {
+      id: 'roster', label: 'Elenco ativo com exatamente 53', ok: ativos === 53,
+      detalhe: ativos > 53 ? `${ativos - 53} acima do limite — corte ${ativos - 53} jogador(es)`
+        : ativos < 53 ? `${53 - ativos} abaixo — contrate ${53 - ativos} free agent(s)` : `${ativos}/53 jogadores`,
+      destino: 'elenco', acao: 'Gerenciar Roster',
+    },
+    {
+      id: 'cap', label: 'Folha salarial dentro do teto', ok: cap <= s.settings.cap,
+      detalhe: cap > s.settings.cap
+        ? `estourado em ${fmtM(Math.round((cap - s.settings.cap) * 10) / 10)} — reestruture ou corte`
+        : `espaço livre de ${fmtM(espaco)}`,
+      destino: 'negociacoes', acao: 'Reestruturar Contratos',
+    },
+    {
+      id: 'qb', label: 'Ao menos 2 QBs', ok: nQB >= 2,
+      detalhe: nQB < 2 ? `apenas ${nQB}/2 — contrate 1 QB` : `${nQB}/2 — titular e reserva garantidos`,
+      destino: 'mercado', acao: 'Contratar QB',
+    },
+    {
+      id: 'k', label: 'Ao menos 1 Kicker', ok: nK >= 1,
+      detalhe: nK < 1 ? 'nenhum K — contrate 1 Kicker' : `${nK}/1 — field goals garantidos`,
+      destino: 'mercado', acao: 'Contratar K',
+    },
+    {
+      id: 'p', label: 'Ao menos 1 Punter', ok: nP >= 1,
+      detalhe: nP < 1 ? 'nenhum P — contrate 1 Punter' : `${nP}/1 — punts garantidos`,
+      destino: 'mercado', acao: 'Contratar P',
+    },
+    {
+      id: 'ps', label: 'Practice Squad até 10', ok: ps <= 10,
+      detalhe: ps > 10 ? `${ps - 10} acima do limite — corte ${ps - 10}` : `${ps}/10 jogadores`,
+      destino: 'elenco', acao: 'Gerenciar PS',
+    },
+  ];
+}
+
+export function validateRoster(s: GameState): RosterCheck {
+  const rules = validateRosterDetailed(s);
+  const erros = rules.filter(r => !r.ok).map(r => `${r.label}: ${r.detalhe}.`);
   return { ok: erros.length === 0, erros };
 }
 
@@ -755,18 +910,39 @@ export function autoFixRoster(s: GameState): { msg: string } {
   const feitas: string[] = [];
   const cortesCap = enforceCapCompliance(s, s.userTeam);
   if (cortesCap.length) feitas.push(`${cortesCap.length} corte(s) para caber no cap`);
+
+  const contratar = (f: Player) => {
+    s.faPool = s.faPool.filter(x => x.id !== f.id);
+    f.teamId = s.userTeam; f.status = 'RES'; f.contrato = 1; f.origem = undefined; f.rfa = false;
+    s.players.push(f);
+  };
+
+  // 1) garante posições obrigatórias primeiro: 2 QBs, 1 K, 1 P
+  const alvo = (pos: Pos, min: number) => {
+    const n = playersOf(s, s.userTeam).filter(p => p.pos === pos && p.status !== 'PS').length;
+    for (let i = n; i < min; i++) {
+      const ativosAgora = playersOf(s, s.userTeam).filter(p => p.status !== 'PS').length;
+      if (ativosAgora >= 53) break;
+      const space = s.settings.cap - capUsed(s, s.userTeam);
+      const c = s.faPool.filter(f => f.pos === pos && f.salario <= space).sort((a, b) => b.ovr - a.ovr)[0];
+      if (!c) break;
+      contratar(c); feitas.push(`${pos} contratado (${c.nome})`);
+    }
+  };
+  alvo('QB', 2); alvo('K', 1); alvo('P', 1);
+
+  // 2) completa até 53 com os mais baratos disponíveis
   let ativos = playersOf(s, s.userTeam).filter(p => p.status !== 'PS').length;
   let guard = 0;
   while (ativos < 53 && s.faPool.length && guard++ < 60) {
     const space = s.settings.cap - capUsed(s, s.userTeam);
     const cabem = s.faPool.filter(f => f.salario <= space).sort((a, b) => a.salario - b.salario);
     if (!cabem.length) break;
-    const f = cabem[0];
-    s.faPool = s.faPool.filter(x => x.id !== f.id);
-    f.teamId = s.userTeam; f.status = 'RES'; f.contrato = 1; f.origem = undefined;
-    s.players.push(f); ativos++;
+    contratar(cabem[0]); ativos++;
   }
   if (ativos > 0) feitas.push(`elenco ativo em ${playersOf(s, s.userTeam).filter(p => p.status !== 'PS').length}/53`);
+
+  // 3) corta excesso de Practice Squad
   const psJog = playersOf(s, s.userTeam).filter(p => p.status === 'PS').sort((a, b) => a.ovr - b.ovr);
   while (psJog.length > 10) {
     const c = psJog.shift()!;
@@ -817,7 +993,8 @@ export function aiPickFor(s: GameState, teamId: string): Player | null {
   const bpa = s.draftState!.round <= 2;
   const scored = s.draftClass.map(p => ({
     p,
-    score: (bpa ? p.pot * 0.7 + p.ovr * 0.3 : p.pot * 0.4 + p.ovr * 0.3 + need(p.pos) * 22) + Math.random() * 6,
+    // BPA nas 2 primeiras rodadas · need-based nas finais · viés do scouting da IA (aiHeat)
+    score: (bpa ? p.pot * 0.7 + p.ovr * 0.3 : p.pot * 0.4 + p.ovr * 0.3 + need(p.pos) * 22) + (p.scout?.aiHeat ?? 0) * 1.2 + Math.random() * 6,
   })).sort((a, b) => b.score - a.score);
   return scored[0].p;
 }
@@ -919,9 +1096,9 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
 
   for (const p of s.players) {
     p.stats = zeroStats(); p.lesao = 0; p.lesaoTipo = null; p.tag = false;
-    p.moral = clamp(p.moral + rng.int(-3, 5), 40, 90);
+    p.moral = 75;   // reset de moral e fadiga na virada de temporada
   }
-  for (const t of s.teams) t.moral = clamp(60 + rng.int(-5, 8), 30, 90);
+  for (const t of s.teams) t.moral = 75;
 
   const w = buildWorld(s, rng, ranks);
   s.matches = w.matches;
@@ -1028,6 +1205,7 @@ export function negotiateContract(
   const p = s.players.find(x => x.id === playerId);
   if (!p || p.teamId !== s.userTeam) return { ok: false, msg: 'Jogador inválido.' };
   if (p.tag) return { ok: false, msg: 'Jogador com franchise tag — a tag já define o contrato.' };
+  if (p.contrato > 2) return { ok: false, msg: 'Extensão antecipada só é permitida com ≤2 anos restantes no contrato.' };
   if (o.years < 1 || o.years > 5) return { ok: false, msg: 'Contratos têm de 1 a 5 anos.' };
   if (o.base <= 0) return { ok: false, msg: 'Salário-base precisa ser positivo.' };
 

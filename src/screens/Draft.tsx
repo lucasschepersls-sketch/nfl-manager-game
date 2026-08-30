@@ -108,6 +108,7 @@ export function DraftScreen() {
                         {p.nome}
                         {isElite && <span className="tag ml-2 border-goldhi/70 text-goldhi">★ A+</span>}
                         {p.scout?.onBoard && <span className="ml-1.5 text-grass" title="No seu board">📌</span>}
+                        {(p.scout?.aiHeat ?? 0) > 0 && <span className="ml-1.5 text-goldhi" title={`${p.scout?.aiHeat} GM(s) da IA investigaram`}>🔥{p.scout?.aiHeat}</span>}
                       </td>
                       <td className="text-dim">{p.scout?.college ?? '—'}</td>
                       <td className="num">{p.idade}</td>

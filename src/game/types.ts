@@ -37,6 +37,7 @@ export interface ProspectInfo {
   reports: number;
   maxReports: number;
   onBoard: boolean;
+  aiHeat?: number;   // quantas franquias da IA investigaram este prospecto
 }
 
 /* ---------- contratos (Fase: Sistema de Contratos) ---------- */
@@ -82,6 +83,7 @@ export interface Player {
   stats: PlayerStats;
   scout?: ProspectInfo;
   origem?: string;
+  rfa?: boolean;   // Restricted FA: time de origem tem direito de match
 }
 
 export interface Tactics { corrida: number; agressividade: number; }

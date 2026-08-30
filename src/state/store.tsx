@@ -4,7 +4,7 @@ import { newGame, buildWorldFor } from '../game/generate';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser, autoFixRoster,
   enforceAllCompliance, hireScoutStaff, negotiateContract, newSeason, releasePlayer, renewPlayer,
-  setStatus, setTactics, signFA, upgrade, userDraftPick,
+  setStatus, setTactics, signFA, upgrade, userDraftPick, validateRoster,
 } from '../game/season';
 import { newSeed, Rng } from '../game/rng';
 import { executeProposal } from '../game/trades';
@@ -166,6 +166,9 @@ function reducerCore(st: StoreState, a: Action): StoreState {
     }
     case 'START_SEASON': {
       if (!st.game) return st;
+      // bloqueio obrigatório: só inicia com todas as validações da Fase 4 passando
+      const chk = validateRoster(st.game);
+      if (!chk.ok) return { ...st, toast: `Não dá para iniciar: ${chk.erros[0]}` };
       const g = newSeason(st.game, buildWorldFor);
       return { ...st, game: g, screen: 'home', toast: `Temporada ${g.settings.temporada} iniciada!` };
     }
