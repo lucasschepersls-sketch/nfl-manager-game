@@ -144,6 +144,23 @@ export class NFLMatchEngine {
     this.say(`Pressão da torcida: ${pressao}/100 — ${quente}.`, pressao >= 80 ? 'big' : 'info');
     const moralDesc = (m: number) => m >= 75 ? 'em alta — vestiário confiante' : m >= 55 ? 'estável' : m >= 40 ? 'abalada — clima tenso' : 'em crise';
     this.say(`Moral: ${t.sigla} ${Math.round(t.moral)} (${moralDesc(t.moral)}) × ${o.sigla} ${Math.round(o.moral)} (${moralDesc(o.moral)}).`, 'info');
+    // Fator de nervosismo do time visitante (Away Game Pressure)
+    {
+      const vqb = this.uf.qb;
+      const nerv = this.nervousness(this.uf);
+      if (vqb) {
+        const vet = vqb.ovr > 85 && vqb.jogosCarreira >= 50;
+        const fatores: string[] = [];
+        if (vet) fatores.push('veterano imune à pressão');
+        else {
+          if (vqb.jogosCarreira < 10) fatores.push('inexperiente (<10 jogos)');
+          if (vqb.ovr < 70) fatores.push('rating baixo');
+          if (this.uf.qbBackup) fatores.push('QB reserva');
+        }
+        const nivel = nerv >= 0.75 ? 'EXTREMO' : nerv >= 0.55 ? 'ALTO' : nerv >= 0.35 ? 'MODERADO' : 'BAIXO';
+        this.say(`Nervosismo do ${o.sigla}: ${nivel} (${Math.round(nerv * 100)}%)${fatores.length ? ' — ' + fatores.join(', ') : ''}.`, nerv >= 0.55 ? 'big' : 'info');
+      }
+    }
     for (const u of [this.uc, this.uf]) for (const g of u.gaps)
       this.say(`Desfalque no ${u.team.sigla}: ${g}!`, 'pen');
     if (this.uc.qbBackup) this.say(`${t.sigla}: QB reserva em campo — ataque limitado.`, 'pen');
