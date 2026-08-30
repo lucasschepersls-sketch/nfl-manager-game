@@ -12,7 +12,7 @@ export type Focus = 'CORRIDA' | 'PASSE' | 'DEFESA' | 'FISICO';
 export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'calendario' | 'classificacao'
   | 'mercado' | 'draft' | 'financas' | 'dm' | 'partida' | 'scouting'
-  | 'offseason' | 'staff' | 'negociacoes';
+  | 'offseason' | 'staff' | 'negociacoes' | 'trades';
 
 export interface Attrs {
   passe: number; corrida: number; recepcao: number; bloqueio: number;
@@ -177,6 +177,40 @@ export interface DraftState {
   done: boolean;
 }
 
+/* ---------- trades ---------- */
+/** Posse de uma escolha de draft (permite trocas; `from` indica a franquia original). */
+export interface PickOwner {
+  owner: string;          // quem detém a escolha agora
+  from: string | null;    // franquia original (quando veio de troca)
+  consumed?: boolean;     // já foi usada no draft (não pode ser re-trocada)
+}
+
+export type TradeAssetKind = 'player' | 'pick';
+export interface TradeAsset {
+  kind: TradeAssetKind;
+  playerId?: string;      // quando kind === 'player'
+  round?: number;         // quando kind === 'pick' (1..7)
+  slot?: number;          // quando kind === 'pick' (0..31 dentro da rodada)
+}
+
+export interface TradeProposal {
+  from: string;           // time do usuário
+  to: string;             // time parceiro
+  give: TradeAsset[];     // o que o usuário entrega
+  get: TradeAsset[];      // o que o usuário recebe
+}
+
+export interface TradeLogItem {
+  id: number;
+  temporada: number;
+  semana: number;
+  fase: Phase;
+  a: string; b: string;
+  aGives: string;         // descrição legível
+  bGives: string;
+  aceita: boolean;
+}
+
 export type OffPhase = 1 | 2 | 3 | 4;
 
 export interface GameState {
@@ -198,4 +232,6 @@ export interface GameState {
   offPhase?: OffPhase;
   scoutBudget: number;
   scoutBudgetMax: number;
+  pickOwners: PickOwner[][];   // [round-1][slot] → posse atual das escolhas
+  tradeLog: TradeLogItem[];
 }

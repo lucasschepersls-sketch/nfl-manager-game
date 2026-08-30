@@ -11,6 +11,7 @@ import MatchScreen from './screens/Match';
 import { MarketScreen } from './screens/Market';
 import { DraftScreen } from './screens/Draft';
 import { OffseasonScreen } from './screens/Offseason';
+import { TradesScreen } from './screens/Trades';
 
 const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }[] = [
   { s: 'home', label: 'Visão Geral', icon: 'home', grupo: 'CLUBE' },
@@ -19,6 +20,7 @@ const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }
   { s: 'taticas', label: 'Táticas & Treino', icon: 'tactics', grupo: 'CLUBE' },
   { s: 'dm', label: 'Depto. Médico', icon: 'medical', grupo: 'CLUBE' },
   { s: 'mercado', label: 'Free Agency', icon: 'market', grupo: 'CLUBE' },
+  { s: 'trades', label: 'Trades', icon: 'trade', grupo: 'CLUBE' },
   { s: 'financas', label: 'Finanças', icon: 'money', grupo: 'CLUBE' },
   { s: 'draft', label: 'Draft', icon: 'draft', grupo: 'LIGA' },
   { s: 'calendario', label: 'Calendário', icon: 'calendar', grupo: 'LIGA' },
@@ -146,6 +148,7 @@ function Content() {
     case 'classificacao': return <StandingsScreen />;
     case 'financas': return <FinanceScreen />;
     case 'mercado': return <MarketScreen />;
+    case 'trades': return <TradesScreen />;
     case 'draft': return <DraftScreen />;
     case 'offseason': return <OffseasonScreen />;
     case 'partida': return <MatchScreen />;

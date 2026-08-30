@@ -13,6 +13,7 @@ import {
 import {
   generateNFLSchedule, initialRanks, type RankMap, type SchedTeam,
 } from './season';
+import { initialPickOwners } from './trades';
 
 const ATTR_LIST: (keyof Attrs)[] = ['passe', 'corrida', 'recepcao', 'bloqueio', 'tackle', 'chute', 'velocidade', 'resistencia'];
 
@@ -205,5 +206,7 @@ export function newGame(userTeamId: string, seed: number): GameState {
     weekResults: [],
     scoutBudget: 10,
     scoutBudgetMax: 10,
+    pickOwners: initialPickOwners(teams.map(t => t.id)),
+    tradeLog: [],
   };
 }

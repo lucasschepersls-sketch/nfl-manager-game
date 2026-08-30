@@ -1,12 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode, type Dispatch } from 'react';
-import type { Focus, GameState, PStatus, Screen } from '../game/types';
+import type { Focus, GameState, PStatus, Screen, TradeAsset } from '../game/types';
 import { newGame, buildWorldFor } from '../game/generate';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser, autoFixRoster,
   enforceAllCompliance, newSeason, releasePlayer, renewPlayer, setStatus, setTactics,
   signFA, upgrade, userDraftPick,
 } from '../game/season';
-import { newSeed } from '../game/rng';
+import { newSeed, Rng } from '../game/rng';
+import { executeProposal } from '../game/trades';
 
 const SAVE_KEY = 'gridiron-nfl-save-v1';
 
@@ -22,6 +23,15 @@ export function loadSave(): GameState | null {
     if (!Array.isArray(s.draftClass)) s.draftClass = [];
     if (!Array.isArray(s.staff)) s.staff = [];
     if (typeof s.scoutBudget !== 'number') { s.scoutBudget = 10; s.scoutBudgetMax = 10; }
+    // saves antigos podem não ter posse de picks nem log de trocas
+    if (!Array.isArray(s.pickOwners)) {
+      s.pickOwners = Array.from({ length: 7 }, () =>
+        Array.from({ length: 32 }, (_, slot) => ({
+          owner: s.teams[slot % s.teams.length].id,
+          from: null,
+        })));
+    }
+    if (!Array.isArray(s.tradeLog)) s.tradeLog = [];
     return s;
   } catch {
     return null;
@@ -48,6 +58,7 @@ export type Action =
   | { type: 'ADVANCE_OFFPHASE' }
   | { type: 'START_SEASON' }
   | { type: 'AUTO_FIX' }
+  | { type: 'TRADE_PROPOSE'; to: string; give: TradeAsset[]; get: TradeAsset[] }
   | { type: 'TOAST_CLEAR' };
 
 interface StoreState {
@@ -158,6 +169,14 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       const g = structuredClone(st.game);
       const r = autoFixRoster(g);
       return { ...st, game: g, toast: r.msg };
+    }
+    case 'TRADE_PROPOSE': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = executeProposal(g, {
+        from: g.userTeam, to: a.to, give: a.give, get: a.get,
+      }, new Rng(newSeed()));
+      return { ...st, game: r.ok ? g : st.game, toast: r.msg };
     }
     case 'TOAST_CLEAR':
       return { ...st, toast: null };

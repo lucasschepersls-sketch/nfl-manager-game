@@ -674,6 +674,8 @@ export function advanceOffPhase(s: GameState): { ok: boolean; msg: string } {
   }
   if (ph === 3) {
     if (!s.draftState?.done) return { ok: false, msg: 'Conclua as 7 rodadas do Draft antes de avançar.' };
+    // todas as escolhas foram usadas no draft — não podem mais ser trocadas
+    for (const round of s.pickOwners) for (const cell of round) cell.consumed = true;
     s.offPhase = 4;
     pushNews(s, 'OFFSEASON', 'Draft encerrado. Fase 4: valide elenco (53) e salary cap.');
     return { ok: true, msg: 'Fase 4 — Validação final.' };
@@ -888,6 +890,13 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
   s.lastResult = null;
   s.weekResults = [];
   s.offPhase = undefined;
+
+  // renova as escolhas de draft: cada franquia volta a deter as próprias picks
+  s.pickOwners = Array.from({ length: 7 }, () =>
+    Array.from({ length: 32 }, (_, slot) => ({
+      owner: s.teams[slot % s.teams.length].id,
+      from: null,
+    })));
 
   // completa elencos das IAs até 53 com FAs baratos
   for (const t of s.teams) {
