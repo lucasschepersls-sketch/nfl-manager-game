@@ -171,7 +171,17 @@ function MiniStandings() {
   const seeds = conferenceSeeds(g, t.conf);
   const seedOf = new Map(seeds.map(x => [x.teamId, x.seed]));
   const rows = standings(g).filter(r => teamById(g, r.teamId).conf === t.conf)
-    .sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net).slice(0, 9);
+    .sort((a, b) => {
+      const sa = seedOf.get(a.teamId);
+      const sb = seedOf.get(b.teamId);
+      // classificados primeiro, na ordem do seed (#1 → #7)
+      if (sa !== undefined && sb !== undefined) return sa - sb;
+      if (sa !== undefined) return -1;
+      if (sb !== undefined) return 1;
+      // ambos na bolha: ordena por campanha
+      return (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net;
+    })
+    .slice(0, 9);
   return (
     <Panel title={`${t.conf} — zona de playoffs (7 vagas)`} pad={false}
       right={<span className="font-mono text-[10px] text-faint">#1 folga no Wild Card</span>}>
