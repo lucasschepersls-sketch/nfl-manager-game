@@ -12,6 +12,7 @@ import { computeOvr, genName, POS_ORDER, rookieSalary, salaryFor } from './data'
 import type { Side } from './engine';
 import { NFLMatchEngine } from './engine';
 import { applyDraftSurprise, resetScouting, scoutBudgetMaxFor } from './scouting';
+import { emptyProBowl, runWeeklyProBowlVoting, selectProBowlRoster, type WeekBox } from './probowl';
 import {
   acceptanceRoll, calcExpectations, franchiseTagValue, happinessVerdict,
   makeContract, makeTagContract, negotiationHappiness, shouldHoldout,
@@ -468,6 +469,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
 
   const rng = new Rng(newSeed());
   const results: Match[] = [];
+  const weekBoxes: WeekBox[] = [];
   let userRes: GameResult | null = null;
 
   for (const m of weekMatches) {
@@ -480,10 +482,14 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
     m.placarCasa = r.placarCasa; m.placarFora = r.placarFora; m.jogada = true;
     mergeStats(s, r);
     results.push({ ...m });
+    if (fase === 'REG') weekBoxes.push({ casaId: m.casa, foraId: m.fora, rich: r.rich });
     if (user) { userRes = r; out.match = r; }
   }
   s.weekResults = results.filter(m => !isUser(m));
   s.lastResult = userRes;
+
+  // 🏆 Pro Bowl: votação após cada semana da temporada regular
+  if (fase === 'REG') runWeeklyProBowlVoting(s, semana, weekBoxes);
 
   if (fase === 'PRE') {
     if (semana >= 2) {
@@ -491,7 +497,10 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
       pushNews(s, 'TEMPORADA REGULAR', 'A pré-temporada acabou! 18 semanas valem a vaga nos playoffs. Semana 18 é 100% divisão.');
     } else s.settings.semana++;
   } else if (fase === 'REG') {
-    if (semana >= 18) startPlayoffs(s);
+    if (semana >= 18) {
+      selectProBowlRoster(s);   // 🏆 anuncia o roster do Pro Bowl
+      startPlayoffs(s);
+    }
     else s.settings.semana++;
   } else if (fase === 'PO') {
     const stillIn = s.bracket ? s.bracket[Math.min(semana - 1, s.bracket.length - 1)].jogos.some(j => (j.casa === s.userTeam || j.fora === s.userTeam) && !j.jogada) : false;
@@ -1150,6 +1159,7 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
   }
   for (const t of s.teams) t.moral = 75;
   s.teamSeasonStats = [];  // zera acumuladores de franquia para a nova temporada
+  s.probowl = emptyProBowl(s.settings.temporada);  // nova votação do Pro Bowl
 
   const w = buildWorld(s, rng, ranks);
   s.matches = w.matches;

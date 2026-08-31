@@ -9,6 +9,7 @@ import {
 } from '../game/season';
 import { newSeed, Rng } from '../game/rng';
 import { executeProposal } from '../game/trades';
+import { castFanVote } from '../game/probowl';
 import { investigate, toggleBoard } from '../game/scouting';
 
 const SAVE_KEY = 'gridiron-nfl-save-v1';
@@ -35,6 +36,7 @@ export function loadSave(): GameState | null {
     }
     if (!Array.isArray(s.tradeLog)) s.tradeLog = [];
     if (!Array.isArray(s.teamSeasonStats)) s.teamSeasonStats = [];
+    if (!s.probowl) s.probowl = { season: s.settings.temporada, lastWeek: 0, votes: [], userFanVote: null, announced: false };
     // saves antigos: preenche campos novos de PlayerStats e TeamSeasonStats
     for (const p of s.players) {
       p.stats = { ...zeroStats(), ...p.stats };
@@ -70,6 +72,7 @@ export type Action =
   | { type: 'INVESTIGATE'; playerId: string }
   | { type: 'TOGGLE_BOARD'; playerId: string }
   | { type: 'HIRE_SCOUT' }
+  | { type: 'PROBOWL_VOTE'; playerId: string }
   | { type: 'TOAST_CLEAR' };
 
 interface StoreState {
@@ -208,6 +211,12 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       if (!st.game) return st;
       const g = structuredClone(st.game);
       const r = hireScoutStaff(g);
+      return { ...st, game: r.ok ? g : st.game, toast: r.msg };
+    }
+    case 'PROBOWL_VOTE': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = castFanVote(g, a.playerId);
       return { ...st, game: r.ok ? g : st.game, toast: r.msg };
     }
     case 'NEGOTIATE': {

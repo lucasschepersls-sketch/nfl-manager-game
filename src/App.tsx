@@ -17,6 +17,7 @@ import { ScoutingScreen } from './screens/Scouting';
 import { NegotiationsScreen } from './screens/Negotiations';
 import { TradesScreen } from './screens/Trades';
 import { WeekLeagueScreen } from './screens/WeekLeague';
+import { ProBowlScreen } from './screens/ProBowl';
 
 /* ---------- navegação ---------- */
 const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }[] = [
@@ -31,6 +32,7 @@ const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }
   { s: 'calendario', label: 'Calendário', icon: 'calendar', grupo: 'LIGA' },
   { s: 'calendario-liga', label: 'Semana da Liga', icon: 'grid', grupo: 'LIGA' },
   { s: 'classificacao', label: 'Classificação', icon: 'standings', grupo: 'LIGA' },
+  { s: 'probowl', label: 'Pro Bowl', icon: 'trophy', grupo: 'LIGA' },
   { s: 'scouting', label: 'Scouting', icon: 'scout', grupo: 'LIGA' },
   { s: 'draft', label: 'Draft', icon: 'draft', grupo: 'LIGA' },
   { s: 'stats-teams', label: 'Ranking Times', icon: 'standings', grupo: 'RANKINGS' },
@@ -161,6 +163,7 @@ function Content() {
     case 'calendario': return <ScheduleScreen />;
     case 'calendario-liga': return <WeekLeagueScreen />;
     case 'classificacao': return <StandingsScreen />;
+    case 'probowl': return <ProBowlScreen />;
     case 'scouting': return <ScoutingScreen />;
     case 'draft': return <DraftScreen />;
     case 'offseason': return <OffseasonScreen />;

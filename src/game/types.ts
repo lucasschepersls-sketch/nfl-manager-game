@@ -13,7 +13,7 @@ export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'calendario' | 'classificacao'
   | 'mercado' | 'draft' | 'financas' | 'dm' | 'partida' | 'scouting'
   | 'offseason' | 'staff' | 'negociacoes' | 'trades' | 'calendario-liga'
-  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st';
+  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st' | 'probowl';
 
 export type StatsTab = 'teams' | 'off' | 'def' | 'st';
 
@@ -194,6 +194,30 @@ export interface InjuryReport {
   playerId: string; nome: string; pos: Pos; semanas: number; tipo: string; teamId: string;
 }
 
+/* ---------- Pro Bowl (espelha ProBowlVoting) ---------- */
+export interface ProBowlVote {
+  playerId: string;
+  season: number;
+  week: number;                 // última semana processada
+  fanVotes: number;             // fãs (peso 75%)
+  playerVotes: number;          // jogadores (peso 25%)
+  coachVotes: number;           // técnicos (peso 25%)
+  totalWeighted: number;        // fan*0.75 + players*0.25 + coaches*0.25
+  rankInPosition: number;
+  momentum: boolean;            // semana excepcional (bônus aplicado)
+  summary: { yards: number; tds: number; rating: number };
+  isStarter?: boolean;          // titular do Pro Bowl (líder da conferência)
+  isReserve?: boolean;          // reserva selecionado
+}
+
+export interface ProBowlState {
+  season: number;
+  lastWeek: number;             // última semana votada
+  votes: ProBowlVote[];
+  userFanVote: { week: number; playerId: string } | null;
+  announced: boolean;           // roster final divulgado (fim da temporada regular)
+}
+
 /* ---------- estatísticas acumuladas da temporada (espelha TeamSeasonStats) ---------- */
 export interface TeamSeasonStats {
   teamId: string;
@@ -325,4 +349,5 @@ export interface GameState {
   pickOwners: PickOwner[][];   // [round-1][slot] → posse atual das escolhas
   tradeLog: TradeLogItem[];
   teamSeasonStats: TeamSeasonStats[];  // acumuladas a cada partida (Fase: Estatísticas)
+  probowl: ProBowlState;               // votação semanal do Pro Bowl
 }

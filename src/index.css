@@ -274,9 +274,9 @@ input[type="range"] { accent-color: var(--color-gold); }
 .highlight-num { color: var(--color-goldhi); font-weight: 700; font-variant-numeric: tabular-nums; }
 .sortable-th { cursor: pointer; user-select: none; transition: color 0.12s ease; }
 .sortable-th:hover { color: var(--color-goldhi); }
-.medal-1 { color: var(--color-goldhi); font-weight: 700; }
-.medal-2 { color: #c3cbd4; font-weight: 700; }
-.medal-3 { color: #cd8f52; font-weight: 700; }
+.medal-1 { color: #ffd35e; border-color: rgba(255, 211, 94, 0.7) !important; background: rgba(255, 211, 94, 0.14); box-shadow: 0 0 8px rgba(255, 211, 94, 0.35); }
+.medal-2 { color: #dbe3ea; border-color: rgba(219, 227, 234, 0.6) !important; background: rgba(219, 227, 234, 0.10); }
+.medal-3 { color: #e0a06a; border-color: rgba(224, 160, 106, 0.6) !important; background: rgba(224, 160, 106, 0.10); }
 
 /* selects retrô */
 .sel {

@@ -13,6 +13,7 @@ import {
 import {
   generateNFLSchedule, initialRanks, type RankMap, type SchedTeam,
 } from './season';
+import { emptyProBowl } from './probowl';
 import { initialPickOwners } from './trades';
 import { balanceElite } from './scouting';
 
@@ -211,5 +212,6 @@ export function newGame(userTeamId: string, seed: number): GameState {
     pickOwners: initialPickOwners(teams.map(t => t.id)),
     tradeLog: [],
     teamSeasonStats: [],
+    probowl: emptyProBowl(2026),
   };
 }
