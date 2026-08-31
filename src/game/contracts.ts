@@ -52,13 +52,18 @@ export function baseMarketValue(ovr: number, pos: Pos, idade: number, inflacao =
 }
 
 /* ---------- contrato ---------- */
+/** Fração do base do ano 1 que fica garantida, por estrutura (frontloaded protege mais). */
+const GUARANTEED_FACTOR: Record<ContractStructure, number> = { FRONT: 0.6, BALANCED: 0.4, BACK: 0.2 };
+
 export function makeContract(o: ContractOffer): PlayerContract {
   const years = clamp(o.years, 1, 5);
   const total = Math.round(o.base * years * 10) / 10;
   const ws = weightsFor(o.structure, years);
   const amort = o.bonus / years;
   const capHits = ws.map(w => Math.round((total * w / 100 + amort) * 10) / 10);
-  return { years, total, bonus: o.bonus, structure: o.structure, capHits };
+  const baseAno1 = total * ws[0] / 100;
+  const guaranteed = Math.round((o.bonus + baseAno1 * GUARANTEED_FACTOR[o.structure]) * 10) / 10;
+  return { years, total, bonus: o.bonus, structure: o.structure, capHits, guaranteed };
 }
 export const offerCapHit = (o: ContractOffer): number => makeContract(o).capHits[0];
 

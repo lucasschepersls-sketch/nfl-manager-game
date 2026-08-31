@@ -16,6 +16,11 @@ export const ATTR_KEYS: { k: AttrKey; s: string }[] = [
   { k: 'bloqueio', s: 'BLO' }, { k: 'tackle', s: 'TAC' }, { k: 'chute', s: 'CHU' },
   { k: 'velocidade', s: 'VEL' }, { k: 'resistencia', s: 'RES' },
 ];
+export const ATTR_FULL: Record<AttrKey, string> = {
+  passe: 'Precisão de passe', corrida: 'Corrida com a bola', recepcao: 'Recepção / cobertura',
+  bloqueio: 'Bloqueio / uso de mãos', tackle: 'Tackle / pressão', chute: 'Chute (FG / punt)',
+  velocidade: 'Velocidade', resistencia: 'Resistência',
+};
 export const OVR_WEIGHTS: Record<Pos, [AttrKey, number][]> = {
   QB: [['passe', 50], ['corrida', 12], ['velocidade', 10], ['resistencia', 18], ['recepcao', 10]],
   RB: [['corrida', 38], ['recepcao', 20], ['velocidade', 20], ['bloqueio', 12], ['resistencia', 10]],

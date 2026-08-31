@@ -27,9 +27,11 @@ export function PosBadge({ pos }: { pos: Pos }) {
 export function Ovr({ v, pot }: { v: number; pot?: number }) {
   const cls = v >= 85 ? 'ovr-elite' : v >= 75 ? 'ovr-good' : v >= 65 ? 'ovr-mid' : 'ovr-low';
   return (
-    <span className={`ovr ${cls}`}>
+    <span className={`ovr ${cls}`} title={`Overall ${v} — média ponderada dos atributos${pot != null ? ` · potencial ${pot}` : ''}`}>
       {v}
-      {pot != null && pot > v + 3 && <span className="ml-1 font-normal text-ice" title={`Potencial ${pot}`}>↗{pot}</span>}
+      {pot != null && pot > v + 3 && (
+        <span className="ml-1 font-normal text-ice" title={`Potencial ${pot} — teto que este jogador pode atingir com desenvolvimento`}>↗{pot}</span>
+      )}
     </span>
   );
 }

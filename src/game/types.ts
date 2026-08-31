@@ -58,6 +58,7 @@ export interface PlayerContract {
   bonus: number;
   structure: ContractStructure;
   capHits: number[];      // cap hit por ano (base_i + bônus amortizado)
+  guaranteed: number;     // dinheiro garantido (bônus + base do ano 1 protegido)
 }
 
 export interface Player {

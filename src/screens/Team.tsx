@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../state/store';
 import { teamById, playersOf, staffOf, capUsed, fmtM } from '../game/season';
-import { ATTR_KEYS, UNIT_OF, POS_LABEL } from '../game/data';
+import { ATTR_KEYS, ATTR_FULL, UNIT_OF, POS_LABEL } from '../game/data';
 import { Panel, PosBadge, Ovr, Bar, AttrCell } from '../components/ui';
 import type { AttrKey, Focus, Player, Unit } from '../game/types';
 
@@ -39,8 +39,9 @@ export function RosterScreen() {
 
   const clickSort = (k: SortKey) =>
     setSort(s => (s.k === k ? { k, dir: s.dir === 1 ? -1 : 1 } : { k, dir: k === 'nome' || k === 'pos' ? 1 : -1 }));
-  const th = (k: SortKey, label: string, num = false) => (
-    <th className={`${num ? 'num' : ''} cursor-pointer select-none hover:text-goldhi`} onClick={() => clickSort(k)} title="Clique para ordenar">
+  const th = (k: SortKey, label: string, num = false, full?: string) => (
+    <th className={`${num ? 'num' : ''} cursor-pointer select-none hover:text-goldhi`} onClick={() => clickSort(k)}
+      title={full ? `${full} — clique para ordenar` : 'Clique para ordenar'}>
       {label}{sort.k === k ? (sort.dir === -1 ? ' ▾' : ' ▴') : ''}
     </th>
   );
@@ -76,13 +77,13 @@ export function RosterScreen() {
           <table className="tbl">
             <thead>
               <tr>
-                {th('pos', 'POS')}
-                {th('nome', 'Jogador')}
-                {th('idade', 'Idade', true)}
-                {th('ovr', 'OVR', true)}
-                {ATTR_KEYS.map(a => th(a.k as AttrKey, a.s, true))}
-                {th('salario', 'Salário', true)}
-                {th('contrato', 'Contr.', true)}
+                {th('pos', 'POS', false, 'Posição')}
+                {th('nome', 'Jogador', false, 'Nome')}
+                {th('idade', 'Idade', true, 'Idade — jovens evoluem com tempo de jogo, veteranos declinam')}
+                {th('ovr', 'OVR', true, 'Overall — média ponderada dos atributos (85+ elite, 75+ titular)')}
+                {ATTR_KEYS.map(a => th(a.k as AttrKey, a.s, true, ATTR_FULL[a.k]))}
+                {th('salario', 'Salário', true, 'Salário-base anual (cap hit inclui bônus amortizado)')}
+                {th('contrato', 'Contr.', true, 'Anos restantes de contrato — 1 ano = pode renovar ou usar tag')}
                 <th>Sit.</th>
                 <th>Status</th>
                 <th />

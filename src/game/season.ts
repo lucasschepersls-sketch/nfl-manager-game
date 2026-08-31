@@ -563,6 +563,12 @@ function endSeason(s: GameState, rng: Rng) {
     let growth = p.idade <= 23 ? 2.1 : p.idade <= 26 ? 1.2 : p.idade <= 29 ? 0.2 : p.idade <= 31 ? -1.1 : p.idade <= 33 ? -2.3 : -3.6;
     growth += (ct - 2) * 0.45;
     if (growth > 0 && p.ovr >= p.pot - 2) growth *= 0.25;
+    // 💪 Playing time: jovens que entram em campo evoluem mais.
+    // 0 jogos (banco) = 0.5× · temporada completa (17) = 1.3×.
+    if (growth > 0 && p.idade <= 26) {
+      const tempo = clamp(p.stats.jogos / 17, 0, 1);
+      growth *= 0.5 + 0.8 * tempo;
+    }
     const focusAttrs: Record<Focus, (keyof Player['attrs'])[]> = {
       CORRIDA: ['corrida', 'bloqueio'], PASSE: ['passe', 'recepcao'],
       DEFESA: ['tackle', 'velocidade'], FISICO: ['resistencia', 'velocidade'],

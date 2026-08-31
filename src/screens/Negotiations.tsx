@@ -263,6 +263,9 @@ export function NegotiationsScreen() {
                       ))}
                     </div>
                     <div className="mt-2.5 space-y-1 font-mono text-[11.5px]">
+                      <div className="flex justify-between text-dim" title="Soma de todos os anos (bônus incluído)"><span>Valor total do contrato</span><span className="text-ink">{fmtM(contrato.total)}</span></div>
+                      <div className="flex justify-between text-dim" title="Bônus de assinatura + base do ano 1 protegido — o clube paga mesmo se dispensar"><span>Dinheiro garantido</span><span className="text-ice">{fmtM(contrato.guaranteed)}</span></div>
+                      <div className="my-1 border-t border-line2" />
                       <div className="flex justify-between text-dim"><span>Cap usado (sem ele)</span><span>{fmtM(usadoSemEle)}</span></div>
                       <div className="flex justify-between text-dim"><span>+ ano 1 da oferta</span><span className="text-goldhi">{fmtM(novoHit)}</span></div>
                       <div className="flex justify-between font-bold" style={{ color: estoura ? 'var(--color-blood)' : 'var(--color-grass)' }}>
