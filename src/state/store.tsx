@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode, type Dispatch } from 'react';
 import type { ContractOffer, Focus, GameState, PStatus, Screen, TradeAsset } from '../game/types';
+import { zeroStats } from '../game/types';
 import { newGame, buildWorldFor } from '../game/generate';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser, autoFixRoster,
@@ -33,6 +34,11 @@ export function loadSave(): GameState | null {
         })));
     }
     if (!Array.isArray(s.tradeLog)) s.tradeLog = [];
+    if (!Array.isArray(s.teamSeasonStats)) s.teamSeasonStats = [];
+    // saves antigos: preenche campos novos de PlayerStats e TeamSeasonStats
+    for (const p of s.players) {
+      p.stats = { ...zeroStats(), ...p.stats };
+    }
     return s;
   } catch {
     return null;

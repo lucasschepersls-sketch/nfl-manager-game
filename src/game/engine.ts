@@ -497,6 +497,7 @@ export class NFLMatchEngine {
       if (nerv > 0.25) this.nervesEvent(`Sob pressão da torcida, ${shortName(rb.nome)} solta a bola — FUMBLE!`);
       res.turnover = true; res.yds = 0; res.secs = 34;
       if (rec) this.addStat(rec.id, 'tackles', 1);
+      if (tackler) { const tl = this.line(tackler); tl.ff = (tl.ff ?? 0) + 1; }
       this.maybeInjury(off, def);
       return;
     }
@@ -654,6 +655,9 @@ export class NFLMatchEngine {
     const p = off.p!;
     const yds = 36 + Math.round(p.attrs.chute * 0.16) + this.rng.int(0, 12);
     void ball;
+    const pl = this.line(p);
+    pl.punts = (pl.punts ?? 0) + 1;
+    pl.puntYds = (pl.puntYds ?? 0) + yds;
     this.log(`Punt de ${yds} jardas de ${shortName(p.nome)}. ${def.team.sigla} assume a posse.`, 'ok');
   }
 

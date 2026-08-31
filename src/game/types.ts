@@ -12,7 +12,10 @@ export type Focus = 'CORRIDA' | 'PASSE' | 'DEFESA' | 'FISICO';
 export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'calendario' | 'classificacao'
   | 'mercado' | 'draft' | 'financas' | 'dm' | 'partida' | 'scouting'
-  | 'offseason' | 'staff' | 'negociacoes' | 'trades';
+  | 'offseason' | 'staff' | 'negociacoes' | 'trades'
+  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st';
+
+export type StatsTab = 'teams' | 'off' | 'def' | 'st';
 
 export interface Attrs {
   passe: number; corrida: number; recepcao: number; bloqueio: number;
@@ -24,10 +27,15 @@ export interface PlayerStats {
   jogos: number; py: number; ptd: number; int: number;
   ry: number; rtd: number; rec: number; recYds: number; recTD: number;
   sacks: number; tackles: number; fgM: number; fgT: number;
+  /* acumulados do box score rico (Fase: Estatísticas da Temporada) */
+  cmp: number; att: number; car: number;
+  intDef: number; ff: number;
+  punts: number; puntYds: number;
 }
 export const zeroStats = (): PlayerStats => ({
   jogos: 0, py: 0, ptd: 0, int: 0, ry: 0, rtd: 0, rec: 0, recYds: 0,
   recTD: 0, sacks: 0, tackles: 0, fgM: 0, fgT: 0,
+  cmp: 0, att: 0, car: 0, intDef: 0, ff: 0, punts: 0, puntYds: 0,
 });
 
 export type GradeLetter = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D' | 'F';
@@ -168,6 +176,7 @@ export interface PlayerLine {
   rec?: number; recYds?: number; recTD?: number; longRec?: number;
   sacks?: number; sackYds?: number; tackles?: number; intDef?: number;
   fgM?: number; fgT?: number;
+  ff?: number; punts?: number; puntYds?: number;
 }
 
 export interface GameStory {
@@ -184,6 +193,30 @@ export interface RichBox {
 export interface InjuryReport {
   playerId: string; nome: string; pos: Pos; semanas: number; tipo: string; teamId: string;
 }
+
+/* ---------- estatísticas acumuladas da temporada (espelha TeamSeasonStats) ---------- */
+export interface TeamSeasonStats {
+  teamId: string;
+  season: number;
+  /* ofensiva */
+  pointsScored: number;
+  totalYards: number;
+  passingYards: number;
+  rushingYards: number;
+  turnovers: number;
+  thirdAtt: number;
+  thirdConv: number;
+  /* defensiva */
+  pointsAllowed: number;
+  sacks: number;
+  interceptions: number;
+}
+export const zeroTeamStats = (teamId: string, season: number): TeamSeasonStats => ({
+  teamId, season,
+  pointsScored: 0, totalYards: 0, passingYards: 0, rushingYards: 0,
+  turnovers: 0, thirdAtt: 0, thirdConv: 0,
+  pointsAllowed: 0, sacks: 0, interceptions: 0,
+});
 
 export interface GameResult {
   matchId: string;
@@ -291,4 +324,5 @@ export interface GameState {
   scoutBudgetMax: number;
   pickOwners: PickOwner[][];   // [round-1][slot] → posse atual das escolhas
   tradeLog: TradeLogItem[];
+  teamSeasonStats: TeamSeasonStats[];  // acumuladas a cada partida (Fase: Estatísticas)
 }

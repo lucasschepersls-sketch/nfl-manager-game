@@ -4,9 +4,9 @@
  * ============================================================ */
 
 import type {
-  Conf, ContractOffer, ContractStructure, Focus, GameResult, GameState, Match, Player, Pos, Screen, Staff, Team,
+  Conf, ContractOffer, ContractStructure, Focus, GameResult, GameState, Match, Player, Pos, Screen, Staff, Team, TeamBox, TeamSeasonStats,
 } from './types';
-import { zeroStats } from './types';
+import { zeroStats, zeroTeamStats } from './types';
 import { Rng, clamp, newSeed } from './rng';
 import { computeOvr, genName, POS_ORDER, rookieSalary, salaryFor } from './data';
 import type { Side } from './engine';
@@ -387,6 +387,21 @@ export function playoffZone(s: GameState, conf: Conf): Set<string> {
   return new Set(conferenceSeeds(s, conf).map(x => x.teamId));
 }
 
+/* ================= estatísticas acumuladas da temporada ================= */
+/** Retorna (ou cria) o acumulador de estatísticas de uma franquia. */
+export function getTeamStats(s: GameState, teamId: string): TeamSeasonStats {
+  let st = s.teamSeasonStats.find(x => x.teamId === teamId);
+  if (!st) { st = zeroTeamStats(teamId, s.settings.temporada); s.teamSeasonStats.push(st); }
+  return st;
+}
+/** Todas as franquias com seus acumuladores (times sem jogo ainda aparecem zerados). */
+export function teamStatsTable(s: GameState): TeamSeasonStats[] {
+  return s.teams.map(t => {
+    const found = s.teamSeasonStats.find(x => x.teamId === t.id);
+    return found ?? zeroTeamStats(t.id, s.settings.temporada);
+  });
+}
+
 /* ================= avanço de semana ================= */
 export interface AdvanceOutcome { match?: GameResult; eliminado?: boolean; }
 
@@ -396,6 +411,35 @@ function mergeStats(s: GameState, r: GameResult) {
     if (!p) continue;
     for (const [k, v] of Object.entries(delta)) (p.stats as unknown as Record<string, number>)[k] = ((p.stats as unknown as Record<string, number>)[k] ?? 0) + v;
   }
+  // campos novos (não presentes em statDeltas) acumulados do box score rico
+  for (const l of r.rich.lines) {
+    const p = s.players.find(x => x.id === l.id);
+    if (!p) continue;
+    p.stats.cmp += l.cmp ?? 0;
+    p.stats.att += l.att ?? 0;
+    p.stats.car += l.rAtt ?? 0;
+    p.stats.intDef += l.intDef ?? 0;
+    p.stats.ff += l.ff ?? 0;
+    p.stats.punts += l.punts ?? 0;
+    p.stats.puntYds += l.puntYds ?? 0;
+  }
+  // estatísticas acumuladas da temporada por franquia
+  const acc = (teamId: string, tb: TeamBox, oppPts: number) => {
+    const st = getTeamStats(s, teamId);
+    st.pointsScored += tb.pts;
+    st.totalYards += tb.yds;
+    st.passingYards += tb.passYds;
+    st.rushingYards += tb.rushYds;
+    st.turnovers += tb.tos;
+    st.thirdAtt += tb.thirdAtt;
+    st.thirdConv += tb.thirdConv;
+    st.pointsAllowed += oppPts;
+    for (const l of r.rich.lines) {
+      if (l.teamId === teamId) { st.sacks += l.sacks ?? 0; st.interceptions += l.intDef ?? 0; }
+    }
+  };
+  acc(r.casaId, r.rich.casa, r.placarFora);
+  acc(r.foraId, r.rich.fora, r.placarCasa);
   for (const pid of r.participantes) {
     const p = s.players.find(x => x.id === pid);
     if (p) { p.stats.jogos++; p.jogosCarreira++; }
@@ -1105,6 +1149,7 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
     p.moral = 75;   // reset de moral e fadiga na virada de temporada
   }
   for (const t of s.teams) t.moral = 75;
+  s.teamSeasonStats = [];  // zera acumuladores de franquia para a nova temporada
 
   const w = buildWorld(s, rng, ranks);
   s.matches = w.matches;

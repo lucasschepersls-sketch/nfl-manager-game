@@ -210,5 +210,6 @@ export function newGame(userTeamId: string, seed: number): GameState {
     scoutBudgetMax: 10,
     pickOwners: initialPickOwners(teams.map(t => t.id)),
     tradeLog: [],
+    teamSeasonStats: [],
   };
 }
