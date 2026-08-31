@@ -164,8 +164,8 @@ export class NFLMatchEngine {
           if (vqb.ovr < 70) fatores.push('rating baixo');
           if (this.uf.qbBackup) fatores.push('QB reserva');
         }
-        const nivel = nerv >= 0.75 ? 'EXTREMO' : nerv >= 0.55 ? 'ALTO' : nerv >= 0.35 ? 'MODERADO' : 'BAIXO';
-        this.say(`Nervosismo do ${o.sigla}: ${nivel} (${Math.round(nerv * 100)}%)${fatores.length ? ' — ' + fatores.join(', ') : ''}.`, nerv >= 0.55 ? 'big' : 'info');
+        const nivel = nerv >= 0.48 ? 'EXTREMO' : nerv >= 0.35 ? 'ALTO' : nerv >= 0.24 ? 'MODERADO' : 'BAIXO';
+        this.say(`Nervosismo do ${o.sigla}: ${nivel} (${Math.round(nerv * 100)}%)${fatores.length ? ' — ' + fatores.join(', ') : ''}.`, nerv >= 0.45 ? 'big' : 'info');
       }
     }
     for (const u of [this.uc, this.uf]) for (const g of u.gaps)
@@ -243,8 +243,10 @@ export class NFLMatchEngine {
 
   private applyMods(u: Unit, side: Side, isCasa: boolean) {
     const staffLvl = (fn: string) => side.staff.find(s => s.funcao === fn)?.nivel ?? 3;
-    const moral = (side.team.moral - 55) / 14;
-    const home = isCasa && !this.opts?.neutro ? 2.5 + Math.max(0, side.pressao - 55) / 25 : 0;
+    // moral suavizado (±1.4, antes ±2.5) — não pode transformar jogo em elástico
+    const moral = (side.team.moral - 55) / 25;
+    // "12º homem" balanceado: +1.0 a +2.2 de rating (≈ +3 pts reais), cresce com a pressão
+    const home = isCasa && !this.opts?.neutro ? clamp(1.0 + side.pressao / 85, 1.0, 2.2) : 0;
     const oc = (staffLvl('Coordenador Ofensivo') - 3) * 1.4;
     const dc = (staffLvl('Coordenador Defensivo') - 3) * 1.2;
     u.passOff += home + moral + this.clima.pass + oc;
@@ -254,18 +256,24 @@ export class NFLMatchEngine {
     u.coverage += home + moral * 0.6 + this.clima.pass * 0.3 + dc;
   }
 
+  /**
+   * Nervosismo (Away Game Pressure) — versão balanceada.
+   * Antes chegava a 1.0 (≈ −10% de precisão + turnover extra) e, somado ao
+   * mando de campo forte, produzia elásticos. Agora o teto é 0.55 e os
+   * fatores são menores: pressão pesa, mas não decide o jogo sozinha.
+   */
   private nervousness(off: Unit): number {
     if (off === this.uc) return 0;
     const qb = off.qb;
-    if (!qb) return 0.5;
+    if (!qb) return 0.4;
     const veteranoImune = qb.ovr > 85 && qb.jogosCarreira >= 50;
-    let nerv = 0.25 + this.casa.pressao / 200;
+    let nerv = 0.10 + this.casa.pressao / 400;      // base: 0.25–0.35 conforme o estádio
     if (!veteranoImune) {
-      if (qb.jogosCarreira < 10) nerv += 0.3;
-      if (qb.ovr < 70) nerv += 0.2;
-      if (off.qbBackup) nerv += 0.4;
+      if (qb.jogosCarreira < 10) nerv += 0.12;      // inexperiente (antes +0.30)
+      if (qb.ovr < 70) nerv += 0.08;                // rating baixo (antes +0.20)
+      if (off.qbBackup) nerv += 0.20;               // reserva em campo (antes +0.40)
     }
-    return clamp(nerv, 0, 1);
+    return clamp(nerv, 0, 0.55);
   }
 
   private drive(off: Unit, def: Unit): DriveOutcome {
@@ -426,7 +434,7 @@ export class NFLMatchEngine {
     };
     const nerv = this.nervousness(off);
 
-    if (nerv > 0.3 && this.rng.chance(nerv * 0.05)) {
+    if (nerv > 0.32 && this.rng.chance(nerv * 0.03)) {
       res.yds = -5;
       res.ball = clamp(ball + res.yds, 1, 105);
       const tipo = this.rng.chance(0.6) ? 'False start' : 'Delay of game';
@@ -490,7 +498,7 @@ export class NFLMatchEngine {
     const tackler = this.rng.pick([...def.lb, ...def.dl, ...def.s]);
     if (tackler && yds < 8) this.addStat(tackler.id, 'tackles', 1);
 
-    const fumP = clamp(0.011 + (qn < 0 ? 0.008 : 0) + nerv * 0.012, 0.005, 0.04) * this.injFactor;
+    const fumP = clamp(0.011 + (qn < 0 ? 0.008 : 0) + nerv * 0.006, 0.005, 0.04) * this.injFactor;
     if (this.rng.chance(fumP)) {
       const rec = this.rng.pick([...def.lb, ...def.dl, ...def.s]);
       this.log(`${dn}, ${spot} — ${shortName(rb.nome)} sofre FUMBLE! ${rec ? shortName(rec.nome) : def.team.sigla} recupera para o ${def.team.sigla}.`, 'turn');
@@ -531,9 +539,9 @@ export class NFLMatchEngine {
     this.addStat(qb.id, 'att', 1);
     const qn = clamp((off.passOff - def.coverage) / 15, -1, 1);
     const pressure = clamp((def.passRush - off.passProt) / 6, -3, 4.5);
-    const complP = clamp(0.53 + qn * 0.08 - pressure * 0.04 + this.clima.pass * 0.004 - nerv * 0.10, 0.28, 0.68);
+    const complP = clamp(0.53 + qn * 0.08 - pressure * 0.04 + this.clima.pass * 0.004 - nerv * 0.06, 0.28, 0.68);
     const sackP = clamp(0.06 + pressure * 0.025 - qn * 0.008 - qb.attrs.velocidade * 0.0003, 0.02, 0.15);
-    const intP = clamp(0.02 + pressure * 0.006 - qn * 0.006 + nerv * 0.018, 0.006, 0.10);
+    const intP = clamp(0.02 + pressure * 0.006 - qn * 0.006 + nerv * 0.010, 0.006, 0.10);
     const rusher = this.rng.pick([...def.dl, ...def.lb]);
 
     if (this.rng.chance(sackP)) {

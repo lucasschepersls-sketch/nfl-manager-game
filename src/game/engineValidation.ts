@@ -20,6 +20,10 @@ export const NFL_RANGES = {
   rushAtt: { min: 25, max: 30, alvo: 27 } as ValidationRange,
   totalYds: { min: 280, max: 400, alvo: 340 } as ValidationRange,
   possMin: { min: 27, max: 33, alvo: 30 } as ValidationRange,
+  /* competitividade (Problema 2): mando de campo balanceado */
+  homeWinPct: { min: 50, max: 63, alvo: 57 } as ValidationRange,   // NFL real: 57%
+  margemVitoria: { min: 8, max: 12, alvo: 10 } as ValidationRange, // não 20+
+  jogoPosse: { min: 40, max: 55, alvo: 45 } as ValidationRange,    // decididos por ≤8 pts
 };
 
 export interface ValidationReport {
@@ -32,6 +36,9 @@ export interface ValidationReport {
   rushYds: number;
   possMin: number;
   placarMedio: number;
+  homeWinPct: number;
+  margemVitoria: number;
+  jogoPossePct: number;
   checks: { nome: string; valor: number; range: ValidationRange; ok: boolean }[];
   aprovado: boolean;
 }
@@ -43,6 +50,7 @@ export function runEngineValidation(games = 100): ValidationReport {
   const ids = state.teams.map(t => t.id);
 
   let passAtt = 0, rushAtt = 0, totalYds = 0, passYds = 0, rushYds = 0, possSecs = 0, pontos = 0;
+  let vitoriasCasa = 0, somaMargemVitoria = 0, jogosDecididos = 0, jogosPosseUnica = 0;
 
   for (let i = 0; i < games; i++) {
     const a = ids[rng.int(0, ids.length - 1)];
@@ -64,6 +72,12 @@ export function runEngineValidation(games = 100): ValidationReport {
       passAtt += l.att ?? 0;
       rushAtt += l.rAtt ?? 0;
     }
+
+    // competitividade: mando de campo, margem e jogos de 1 posse
+    const diff = r.placarCasa - r.placarFora;
+    if (diff > 0) { vitoriasCasa++; somaMargemVitoria += diff; jogosDecididos++; }
+    else if (diff < 0) { somaMargemVitoria += -diff; jogosDecididos++; }
+    if (Math.abs(diff) <= 8) jogosPosseUnica++;
   }
 
   const perTeam = games * 2; // médias por time por jogo
@@ -77,6 +91,9 @@ export function runEngineValidation(games = 100): ValidationReport {
     rushYds: Math.round(rushYds / perTeam),
     possMin: Math.round((possSecs / perTeam / 60) * 10) / 10,
     placarMedio: Math.round((pontos / perTeam) * 10) / 10,
+    homeWinPct: Math.round((vitoriasCasa / games) * 1000) / 10,
+    margemVitoria: jogosDecididos > 0 ? Math.round((somaMargemVitoria / jogosDecididos) * 10) / 10 : 0,
+    jogoPossePct: Math.round((jogosPosseUnica / games) * 1000) / 10,
     checks: [],
     aprovado: true,
   };
@@ -90,6 +107,9 @@ export function runEngineValidation(games = 100): ValidationReport {
   avaliar('Rush attempts', report.rushAtt, NFL_RANGES.rushAtt);
   avaliar('Total yards', report.totalYds, NFL_RANGES.totalYds);
   avaliar('Posse (min)', report.possMin, NFL_RANGES.possMin);
+  avaliar('Vitória da casa %', report.homeWinPct, NFL_RANGES.homeWinPct);
+  avaliar('Margem de vitória', report.margemVitoria, NFL_RANGES.margemVitoria);
+  avaliar('Jogos de 1 posse %', report.jogoPossePct, NFL_RANGES.jogoPosse);
 
   return report;
 }
