@@ -61,11 +61,19 @@ const fmtClock = (clock: number, quarter: number) => {
 
 function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
   const off = st.posse === 'casa' ? casa : fora;
-  // endzones FIXAS: casa à esquerda, visitante à direita
-  const ballX = (80 + Math.min(st.ball, 100) * 8.4) / 10;
-  const chainX = (80 + Math.min(st.ball + st.toGo, 100) * 8.4) / 10;
-  const scrimmage = 100 - Math.round(st.ball);
-  const yardLabel = st.ball >= 50 ? `${100 - Math.round(st.ball)} do ${fora.sigla}` : `${Math.round(st.ball)} do ${casa.sigla}`;
+  const isHome = st.posse === 'casa';
+  // A engine manda `ball` RELATIVO ao ataque (0 = endzone de quem tem a bola).
+  // Convertemos para coordenada ABSOLUTA fixa (0 = endzone da casa, à esquerda)
+  // para que a linha de scrimmage permaneça no MESMO lugar físico quando a posse
+  // inverte — só a direção do ataque muda, como na transmissão real da NFL.
+  const rel = Math.max(0, Math.min(st.ball, 100));
+  const abs = isHome ? rel : 100 - rel;
+  const ballX = (80 + abs * 8.4) / 10;
+  // a corrente (1ª descida) fica `toGo` jardas à frente, na direção do ataque
+  const chainAbs = isHome ? Math.min(rel + st.toGo, 100) : Math.max(rel - st.toGo, 0);
+  const chainX = (80 + chainAbs * 8.4) / 10;
+  const scrimmage = abs <= 50 ? Math.round(abs) : Math.round(100 - abs);
+  const yardLabel = abs <= 50 ? `${Math.round(abs)} do ${casa.sigla}` : `${Math.round(100 - abs)} do ${fora.sigla}`;
 
   return (
     <div className="panel relative overflow-hidden" style={{ background: '#0b2114' }}>
@@ -74,7 +82,7 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
         <span className="text-dim">Posse:</span>
         <TeamCrest cor={off.cor} cor2={off.cor2} sigla={off.sigla} conf={off.conf} size={18} />
         <span style={{ color: off.cor }}>{off.sigla}</span>
-        <span className="text-faint">atacando →</span>
+        <span className="text-faint">{isHome ? 'atacando →' : '← atacando'}</span>
         <span className="ml-auto font-mono text-[11px] font-normal normal-case tracking-normal text-faint">
           {ORD[st.down - 1]} descida &amp; {st.toGo > 0 ? st.toGo : 'goal'} · {yardLabel}
         </span>
@@ -111,7 +119,8 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
           <ellipse cx="500" cy="120" rx="20" ry="11" fill="none" stroke="var(--color-gold)" strokeWidth="2" opacity="0.5" />
         </svg>
 
-        <div className="absolute bottom-0 top-0 w-[2px] bg-ice/80" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }} />
+        {/* linha de scrimmage na cor do time com a posse — inverte a cor (não o lugar) na troca */}
+        <div className="absolute bottom-0 top-0 w-[2px]" style={{ left: `${ballX}%`, background: off.cor, boxShadow: `0 0 8px ${off.cor}`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1), background 0.3s, box-shadow 0.3s' }} />
         {st.ball < 100 && (
           <div className="absolute bottom-0 top-0 w-[3px]" style={{
             left: `${chainX}%`, background: 'var(--color-goldhi)',
@@ -129,6 +138,12 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
               <div className="absolute left-1/2 top-1/2 h-[2px] w-[12px] -translate-x-1/2 -translate-y-1/2 bg-[#f3ead8]" />
             </div>
           </div>
+        </div>
+        {/* direção do ataque: a bola não muda de lado, só o sentido da seta */}
+        <div className="absolute top-[30%] -translate-y-1/2" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }}>
+          <svg width="26" height="16" viewBox="0 0 26 16" className="-translate-x-1/2" style={{ transform: `translateX(-50%) ${isHome ? '' : 'scaleX(-1)'}`, filter: `drop-shadow(0 0 4px ${off.cor})`, transition: 'transform 0.3s' }}>
+            <path d="M2 8 H18 M12 2 L20 8 L12 14" fill="none" stroke={off.cor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </div>
         <div className="absolute bottom-1 left-1/2 -translate-x-1/2 font-disp text-[12px] font-bold uppercase text-goldhi" style={{ textShadow: '0 1px 4px #000' }}>
           linha de {scrimmage}
