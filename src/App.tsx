@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { useGame } from './state/store';
+import { GameProvider, useGame } from './state/store';
 import { teamById } from './game/season';
 import { Icons, TeamCrest } from './components/ui';
 import type { Screen } from './game/types';
@@ -210,5 +210,9 @@ function Shell() {
 }
 
 export default function App() {
-  return <Shell />;
+  return (
+    <GameProvider>
+      <Shell />
+    </GameProvider>
+  );
 }
