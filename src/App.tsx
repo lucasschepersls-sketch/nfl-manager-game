@@ -12,6 +12,7 @@ import { MarketScreen } from './screens/Market';
 import { DraftScreen } from './screens/Draft';
 import { OffseasonScreen } from './screens/Offseason';
 import { TradesScreen } from './screens/Trades';
+import StatsScreen from './screens/Stats';
 import { ScoutingScreen } from './screens/Scouting';
 import { NegotiationsScreen } from './screens/Negotiations';
 
@@ -29,6 +30,10 @@ const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }
   { s: 'scouting', label: 'Scouting', icon: 'scout', grupo: 'LIGA' },
   { s: 'calendario', label: 'Calendário', icon: 'calendar', grupo: 'LIGA' },
   { s: 'classificacao', label: 'Classificação', icon: 'standings', grupo: 'LIGA' },
+  { s: 'stats-teams', label: 'Ranking Times', icon: 'standings', grupo: 'RANKINGS' },
+  { s: 'stats-off', label: 'Ofensiva', icon: 'tactics', grupo: 'RANKINGS' },
+  { s: 'stats-def', label: 'Defensiva', icon: 'shield', grupo: 'RANKINGS' },
+  { s: 'stats-st', label: 'Special Teams', icon: 'whistle', grupo: 'RANKINGS' },
 ];
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { erro: string | null }> {
@@ -155,6 +160,10 @@ function Content() {
     case 'trades': return <TradesScreen />;
     case 'negociacoes': return <NegotiationsScreen />;
     case 'draft': return <DraftScreen />;
+    case 'stats-teams': return <StatsScreen tab="teams" />;
+    case 'stats-off': return <StatsScreen tab="off" />;
+    case 'stats-def': return <StatsScreen tab="def" />;
+    case 'stats-st': return <StatsScreen tab="st" />;
     case 'scouting': return <ScoutingScreen />;
     case 'offseason': return <OffseasonScreen />;
     case 'partida': return <MatchScreen />;

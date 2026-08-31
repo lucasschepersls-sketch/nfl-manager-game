@@ -243,3 +243,25 @@ body::before {
 }
 
 input[type="range"] { accent-color: var(--color-gold); }
+
+/* ---------- planilha de dados retrô (Estatísticas) ---------- */
+.highlight-num { color: var(--color-goldhi); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sortable-th { cursor: pointer; user-select: none; transition: color 0.12s ease; }
+.sortable-th:hover { color: var(--color-goldhi); }
+.medal-1 { color: var(--color-goldhi); font-weight: 700; }
+.medal-2 { color: #c3cbd4; font-weight: 700; }
+.medal-3 { color: #cd8f52; font-weight: 700; }
+
+/* selects retrô */
+.sel {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-ink);
+  background: var(--color-panel2);
+  border: 1px solid var(--color-line);
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+.sel:hover { border-color: var(--color-gold); }
+.sel:focus { outline: none; border-color: var(--color-gold); }

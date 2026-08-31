@@ -497,7 +497,10 @@ export class NFLMatchEngine {
       if (nerv > 0.25) this.nervesEvent(`Sob pressão da torcida, ${shortName(rb.nome)} solta a bola — FUMBLE!`);
       res.turnover = true; res.yds = 0; res.secs = 34;
       if (rec) this.addStat(rec.id, 'tackles', 1);
-      if (tackler) { const tl = this.line(tackler); tl.ff = (tl.ff ?? 0) + 1; }
+      if (tackler) {
+        const tl = this.line(tackler); tl.ff = (tl.ff ?? 0) + 1;
+        this.addStat(tackler.id, 'ff', 1);
+      }
       this.maybeInjury(off, def);
       return;
     }
@@ -506,6 +509,7 @@ export class NFLMatchEngine {
     else if (yds <= 0) this.log(`${dn}, ${spot} — ${shortName(rb.nome)} é parado no backfield (${yds} jd). A defesa do ${def.team.sigla} segura.`, 'ok');
     else this.log(`${dn}, ${spot} — ${shortName(rb.nome)} corre pelo meio e ganha ${yds} jardas.`, 'ok');
     this.addStat(rb.id, 'ry', Math.max(0, yds));
+    this.addStat(rb.id, 'car', 1);
     const rl = this.line(rb);
     rl.rAtt = (rl.rAtt ?? 0) + 1;
     rl.ry = (rl.ry ?? 0) + Math.max(0, yds);
@@ -524,6 +528,7 @@ export class NFLMatchEngine {
     if (!qb) { this.playRun(off, def, dn, spot, res, nerv); return; }
     this.snap(qb);
     this.line(qb).att = (this.line(qb).att ?? 0) + 1;
+    this.addStat(qb.id, 'att', 1);
     const qn = clamp((off.passOff - def.coverage) / 15, -1, 1);
     const pressure = clamp((def.passRush - off.passProt) / 6, -3, 4.5);
     const complP = clamp(0.53 + qn * 0.08 - pressure * 0.04 + this.clima.pass * 0.004 - nerv * 0.10, 0.28, 0.68);
@@ -555,6 +560,7 @@ export class NFLMatchEngine {
       this.line(qb).int = (this.line(qb).int ?? 0) + 1;
       if (db) {
         this.addStat(db.id, 'tackles', 1);
+        this.addStat(db.id, 'intDef', 1);
         const dl = this.line(db);
         dl.intDef = (dl.intDef ?? 0) + 1;
         dl.tackles = (dl.tackles ?? 0) + 1;
@@ -577,6 +583,7 @@ export class NFLMatchEngine {
     yds = Math.max(2, yds + yac);
 
     this.addStat(qb.id, 'py', yds);
+    this.addStat(qb.id, 'cmp', 1);
     this.addStat(alvo.id, 'rec', 1);
     this.addStat(alvo.id, 'recYds', yds);
     const ql = this.line(qb);
@@ -658,6 +665,8 @@ export class NFLMatchEngine {
     const pl = this.line(p);
     pl.punts = (pl.punts ?? 0) + 1;
     pl.puntYds = (pl.puntYds ?? 0) + yds;
+    this.addStat(p.id, 'punts', 1);
+    this.addStat(p.id, 'puntYds', yds);
     this.log(`Punt de ${yds} jardas de ${shortName(p.nome)}. ${def.team.sigla} assume a posse.`, 'ok');
   }
 
