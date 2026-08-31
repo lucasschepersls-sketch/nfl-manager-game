@@ -163,6 +163,7 @@ export const Icons = {
   trade: ic('M4 8 H17 M17 8 L13 4 M17 8 L13 12 M20 16 H7 M7 16 L11 12 M7 16 L11 20'),
   contract: ic('M6 3 H15 L18 6 V21 H6 Z M15 3 V6 H18 M9 11 H15 M9 14 H15 M9 17 H12'),
   shield: ic('M12 3 L20 6 V11 C20 16 16.5 19.5 12 21 C7.5 19.5 4 16 4 11 V6 Z'),
+  grid: ic('M4 4 H10 V10 H4 Z M14 4 H20 V10 H14 Z M4 14 H10 V20 H4 Z M14 14 H20 V20 H14 Z'),
   whistle: ic('M13 9 L21 5 M13 9 a5 5 0 1 0 3.5 8.6 a5 5 0 0 0 -3.5 -8.6 Z M11 13.5 h2'),
   scout: ic('M10.5 4 a6.5 6.5 0 1 0 0 13 a6.5 6.5 0 0 0 0 -13 Z M15.2 15.2 L21 21'),
   offseason: ic('M20 12 a8 8 0 1 1 -2.3 -5.7 M20 3 V9 H14'),

@@ -12,7 +12,7 @@ export type Focus = 'CORRIDA' | 'PASSE' | 'DEFESA' | 'FISICO';
 export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'calendario' | 'classificacao'
   | 'mercado' | 'draft' | 'financas' | 'dm' | 'partida' | 'scouting'
-  | 'offseason' | 'staff' | 'negociacoes' | 'trades'
+  | 'offseason' | 'staff' | 'negociacoes' | 'trades' | 'calendario-liga'
   | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st';
 
 export type StatsTab = 'teams' | 'off' | 'def' | 'st';
