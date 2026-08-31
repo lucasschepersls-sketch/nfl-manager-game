@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from '../state/store';
 import { teamById, crowdPressure } from '../game/season';
-import { Panel, TeamCrest } from '../components/ui';
-import type { GameState, LineTipo, LiveEvent, Team } from '../game/types';
+import { Panel, TeamCrest, PosBadge } from '../components/ui';
+import type { GameState, LineTipo, LiveEvent, PlayerLine, Team } from '../game/types';
 
 const LINE_STYLE: Record<LineTipo, string> = {
   info: 'text-faint italic',
@@ -148,7 +148,7 @@ export default function MatchScreen() {
 
   const [idx, setIdx] = useState(0);
   const [speedIdx, setSpeedIdx] = useState(2);
-  const [tab, setTab] = useState<'narracao' | 'stats'>('narracao');
+  const [tab, setTab] = useState<'narracao' | 'stats' | 'box'>('narracao');
   const feedRef = useRef<HTMLDivElement>(null);
   const done = idx >= live.length;
   const speed = SPEEDS[speedIdx];
@@ -284,20 +284,24 @@ export default function MatchScreen() {
 
       <div className="panel">
         <div className="flex border-b border-line">
-          {([['narracao', 'Narração'], ['stats', 'Estatísticas']] as const).map(([k, l]) => (
+          {([['narracao', 'Narração'], ['stats', 'Ao Vivo'], ['box', 'Box Score']] as const).map(([k, l]) => (
             <button key={k}
               className={`border-b-2 px-5 py-2.5 font-disp text-[15px] font-bold uppercase tracking-wider transition-colors ${tab === k ? 'border-gold text-goldhi' : 'border-transparent text-dim hover:text-ink'}`}
               onClick={() => setTab(k)}>{l}</button>
           ))}
         </div>
 
-        {tab === 'narracao' ? (
+        {tab === 'narracao' && (
           <div ref={feedRef} className="max-h-[460px] overflow-y-auto px-4 py-3 font-mono text-[12.5px] leading-[1.75]">
             {feed.map((l, i) => <div key={i} className={`feed-line ${l.nerves ? NERVES_STYLE : LINE_STYLE[l.tipo]}`}>{l.t}</div>)}
             {!done && <div className="blink text-gold">▮ narrando…</div>}
           </div>
-        ) : (
+        )}
+        {tab === 'stats' && (
           <StatsView r={r} casa={casa} fora={fora} ls={liveStats} done={done} />
+        )}
+        {tab === 'box' && (
+          <BoxScoreView r={r} casa={casa} fora={fora} done={done} />
         )}
       </div>
     </div>

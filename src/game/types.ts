@@ -150,6 +150,37 @@ export interface BoxScore {
   leaders: { label: string; casa: string; fora: string }[];
 }
 
+/* ---------- box score rico (estilo NFL) ---------- */
+export interface TeamBox {
+  pts: number; yds: number; rushYds: number; passYds: number;
+  firstDowns: number;
+  thirdAtt: number; thirdConv: number;
+  rzAtt: number; rzTd: number;
+  tos: number;
+  pens: number; penYds: number;
+  possSecs: number;
+}
+
+export interface PlayerLine {
+  id: string; nome: string; pos: Pos; teamId: string;
+  cmp?: number; att?: number; py?: number; ptd?: number; int?: number; longPass?: number; rating?: number;
+  rAtt?: number; ry?: number; rtd?: number; longRush?: number;
+  rec?: number; recYds?: number; recTD?: number; longRec?: number;
+  sacks?: number; sackYds?: number; tackles?: number; intDef?: number;
+  fgM?: number; fgT?: number;
+}
+
+export interface GameStory {
+  mvp: { nome: string; pos: Pos; teamId: string; linha: string } | null;
+  jogada: { texto: string; teamId: string } | null;
+}
+
+export interface RichBox {
+  casa: TeamBox; fora: TeamBox;
+  lines: PlayerLine[];
+  story: GameStory;
+}
+
 export interface InjuryReport {
   playerId: string; nome: string; pos: Pos; semanas: number; tipo: string; teamId: string;
 }
@@ -163,6 +194,7 @@ export interface GameResult {
   log: PlayLine[];
   live: LiveEvent[];
   box: BoxScore;
+  rich: RichBox;
   lesoes: InjuryReport[];
   statDeltas: Record<string, Partial<PlayerStats>>;
   participantes: string[];
