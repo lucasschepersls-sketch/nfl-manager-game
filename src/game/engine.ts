@@ -421,7 +421,7 @@ export class NFLMatchEngine {
   private scrimmage(off: Unit, def: Unit, ball: number, down: number, toGo: number): ScrimRes {
     const t = off.team;
     const res: ScrimRes = {
-      yds: 0, ball, secs: 30 + this.rng.int(0, 20), turnover: false, td: false,
+      yds: 0, ball, secs: 29 + this.rng.int(0, 4), turnover: false, td: false,
       fgMade: false, passY: 0, rushY: 0, gain: null,
     };
     const nerv = this.nervousness(off);
@@ -479,7 +479,7 @@ export class NFLMatchEngine {
     const t = off.team;
     const fresh = off.rbs.filter(p => p.lesao === 0);
     const rb = this.rng.chance(0.7) ? (fresh[0] ?? off.qb) : (fresh[1] ?? fresh[0] ?? off.qb);
-    if (!rb) { res.yds = 0; res.secs = 20; return; }
+    if (!rb) { res.yds = 0; res.secs = 25; return; }
     this.snap(rb); this.snap(off.qb);
     const qn = clamp((off.runOff - def.runDef) / 15, -1, 1);
     const weights = [12 - qn * 5, 20 - qn * 4, 26, 20 + qn * 4, 12 + qn * 4, 6 + qn * 3, 3 + qn * 2, 1 + qn];
@@ -495,7 +495,7 @@ export class NFLMatchEngine {
       const rec = this.rng.pick([...def.lb, ...def.dl, ...def.s]);
       this.log(`${dn}, ${spot} — ${shortName(rb.nome)} sofre FUMBLE! ${rec ? shortName(rec.nome) : def.team.sigla} recupera para o ${def.team.sigla}.`, 'turn');
       if (nerv > 0.25) this.nervesEvent(`Sob pressão da torcida, ${shortName(rb.nome)} solta a bola — FUMBLE!`);
-      res.turnover = true; res.yds = 0; res.secs = 34;
+      res.turnover = true; res.yds = 0; res.secs = 33;
       if (rec) this.addStat(rec.id, 'tackles', 1);
       if (tackler) {
         const tl = this.line(tackler); tl.ff = (tl.ff ?? 0) + 1;
@@ -519,7 +519,7 @@ export class NFLMatchEngine {
     res.rushY += Math.max(0, yds);
     res.yds = yds;
     res.gain = { p: rb, tipo: 'run', yds: Math.max(1, yds) };
-    res.secs = this.rng.chance(0.2) ? 12 : 30 + this.rng.int(0, 18);
+    res.secs = this.rng.chance(0.2) ? 18 : 29 + this.rng.int(0, 4);
     this.maybeInjury(off, def, 0.006);
   }
 
@@ -545,7 +545,7 @@ export class NFLMatchEngine {
         rl.sacks = (rl.sacks ?? 0) + 1;
         rl.sackYds = (rl.sackYds ?? 0) + (-loss);
       }
-      res.yds = loss; res.secs = 36;
+      res.yds = loss; res.secs = 33;
       this.maybeInjury(off, def, 0.02);
       return;
     }
@@ -565,13 +565,13 @@ export class NFLMatchEngine {
         dl.intDef = (dl.intDef ?? 0) + 1;
         dl.tackles = (dl.tackles ?? 0) + 1;
       }
-      res.turnover = true; res.yds = 0; res.secs = 32;
+      res.turnover = true; res.yds = 0; res.secs = 33;
       return;
     }
     if (!this.rng.chance(complP)) {
       const alvo = this.receiver(off);
       this.log(`${dn}, ${spot} — passe incompleto de ${shortName(qb.nome)} para ${shortName(alvo.nome)}${pressure > 1.5 ? ' sob pressão' : ''}.`, 'ok');
-      res.yds = 0; res.secs = 9;
+      res.yds = 0; res.secs = 20;
       return;
     }
 
@@ -600,7 +600,7 @@ export class NFLMatchEngine {
     if (yds >= 20) this.log(`${dn}, ${spot} — BOMBA! ${shortName(qb.nome)} conecta passe de ${yds} jardas para ${shortName(alvo.nome)}!`, 'big');
     else this.log(`${dn}, ${spot} — ${shortName(qb.nome)} completa passe de ${yds} jardas para ${shortName(alvo.nome)}.`, 'ok');
     res.yds = yds;
-    res.secs = this.rng.chance(0.25) ? 14 : 30 + this.rng.int(0, 16);
+    res.secs = this.rng.chance(0.25) ? 20 : 30 + this.rng.int(0, 4);
     this.maybeInjury(off, def, 0.004);
   }
 

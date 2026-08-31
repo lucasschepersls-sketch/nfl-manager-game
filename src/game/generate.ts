@@ -158,7 +158,7 @@ export function newGame(userTeamId: string, seed: number): GameState {
     centroTreino: Math.min(4, Math.max(1, d.forca + rng.int(-1, 1))),
     hostilidade: HOSTILITY[d.sigla] ?? 65,
     histCampanha: [d.camp, d.camp, d.camp],
-    tactics: { corrida: d.sigla.toLowerCase() === userTeamId ? 52 : rng.int(38, 64), agressividade: rng.int(35, 70) },
+    tactics: { corrida: d.sigla.toLowerCase() === userTeamId ? 44 : rng.int(38, 50), agressividade: rng.int(35, 70) },
   }));
 
   const players: Player[] = [];
