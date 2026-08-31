@@ -89,9 +89,9 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
           {/* endzones fixas: casa esquerda, visitante direita */}
           <rect x="0" y="0" width="80" height="240" fill={casa.cor} opacity="0.55" />
           <rect x="920" y="0" width="80" height="240" fill={fora.cor} opacity="0.55" />
-          <text x="40" y="130" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="28"
+          <text x="40" y="130" textAnchor="middle" fontFamily="Anton" fontWeight="800" fontSize="28"
             fill="#fff" opacity="0.85" transform="rotate(-90 40 130)">{casa.sigla}</text>
-          <text x="960" y="130" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="28"
+          <text x="960" y="130" textAnchor="middle" fontFamily="Anton" fontWeight="800" fontSize="28"
             fill="#fff" opacity="0.85" transform="rotate(90 960 130)">{fora.sigla}</text>
           {[...Array(11)].map((_, i) => {
             const x = 80 + i * 84;
