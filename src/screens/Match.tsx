@@ -347,3 +347,187 @@ function StatsView({ r, casa, fora, ls, done }: {
     </div>
   );
 }
+
+/* ============================================================
+ * BOX SCORE CLÁSSICO — estatística no centro, times nas laterais
+ * ============================================================ */
+function fmtPoss(secs: number): string {
+  const m = Math.floor(secs / 60); const s = Math.floor(secs % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function StatRow({ label, casa, fora, winCasa, winFora, sub }: {
+  label: string; casa: string; fora: string;
+  winCasa?: boolean; winFora?: boolean; sub?: string;
+}) {
+  return (
+    <div className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-3 border-b border-line2/60 px-4 py-[7px] last:border-0">
+      <span className={`text-right font-mono text-[14px] tabular-nums ${winCasa ? 'font-bold text-goldhi' : 'text-ink'}`}>{casa}</span>
+      <span className="text-center">
+        <span className="font-disp text-[12px] font-semibold uppercase tracking-[0.12em] text-dim">{label}</span>
+        {sub && <span className="ml-1.5 font-mono text-[9.5px] text-faint">{sub}</span>}
+      </span>
+      <span className={`font-mono text-[14px] tabular-nums ${winFora ? 'font-bold text-goldhi' : 'text-ink'}`}>{fora}</span>
+    </div>
+  );
+}
+
+function BoxScoreView({ r, casa, fora, done }: {
+  r: NonNullable<GameState['lastResult']>; casa: Team; fora: Team; done: boolean;
+}) {
+  const { rich } = r;
+  const c = rich.casa; const f = rich.fora;
+  if (!done) {
+    return (
+      <div className="px-4 py-8 text-center font-mono text-[12.5px] text-faint">
+        O box score completo é fechado ao término da partida.
+      </div>
+    );
+  }
+
+  // líderes por categoria (maior valor de cada time)
+  const leader = (key: (l: PlayerLine) => number, tid: string): PlayerLine | null => {
+    let best: PlayerLine | null = null; let bv = 0;
+    for (const l of rich.lines) if (l.teamId === tid) {
+      const v = key(l);
+      if (v > bv) { bv = v; best = l; }
+    }
+    return best;
+  };
+  const qbL = (tid: string) => leader(l => l.att ?? 0, tid);
+  const rushL = (tid: string) => leader(l => l.ry ?? 0, tid);
+  const recL = (tid: string) => leader(l => l.recYds ?? 0, tid);
+  const sackL = (tid: string) => leader(l => l.sacks ?? 0, tid);
+  const tackL = (tid: string) => leader(l => l.tackles ?? 0, tid);
+  const intL = (tid: string) => leader(l => l.intDef ?? 0, tid);
+
+  const thirdC = c.thirdAtt ? `${c.thirdConv}/${c.thirdAtt}` : '0/0';
+  const thirdF = f.thirdAtt ? `${f.thirdConv}/${f.thirdAtt}` : '0/0';
+  const rzC = c.rzAtt ? `${c.rzTd}/${c.rzAtt}` : '0/0';
+  const rzF = f.rzAtt ? `${f.rzTd}/${f.rzAtt}` : '0/0';
+
+  const qbCasa = qbL(casa.id); const qbFora = qbL(fora.id);
+  const rushCasa = rushL(casa.id); const rushFora = rushL(fora.id);
+  const recCasa = recL(casa.id); const recFora = recL(fora.id);
+
+  return (
+    <div className="max-h-[520px] space-y-5 overflow-y-auto px-1 py-3">
+      {/* ---------- estatísticas de equipe ---------- */}
+      <div className="panel2 mx-3 border border-line2">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-line px-4 py-2.5">
+          <span className="flex items-center justify-end gap-2 font-disp text-[16px] font-bold uppercase">
+            {casa.sigla} <TeamCrest cor={casa.cor} cor2={casa.cor2} sigla={casa.sigla} conf={casa.conf} size={20} />
+          </span>
+          <span className="font-disp text-[12px] font-semibold uppercase tracking-[0.2em] text-faint">Equipe</span>
+          <span className="flex items-center gap-2 font-disp text-[16px] font-bold uppercase">
+            <TeamCrest cor={fora.cor} cor2={fora.cor2} sigla={fora.sigla} conf={fora.conf} size={20} /> {fora.sigla}
+          </span>
+        </div>
+        <StatRow label="Jardas Totais" casa={String(c.yds)} fora={String(f.yds)} winCasa={c.yds > f.yds} winFora={f.yds > c.yds} />
+        <StatRow label="Corrida" casa={String(c.rushYds)} fora={String(f.rushYds)} winCasa={c.rushYds > f.rushYds} winFora={f.rushYds > c.rushYds} sub="jd" />
+        <StatRow label="Passe" casa={String(c.passYds)} fora={String(f.passYds)} winCasa={c.passYds > f.passYds} winFora={f.passYds > c.passYds} sub="jd" />
+        <StatRow label="1ºs Downs" casa={String(c.firstDowns)} fora={String(f.firstDowns)} winCasa={c.firstDowns > f.firstDowns} winFora={f.firstDowns > c.firstDowns} />
+        <StatRow label="3ª Descida" casa={thirdC} fora={thirdF}
+          winCasa={c.thirdAtt ? c.thirdConv / c.thirdAtt > (f.thirdAtt ? f.thirdConv / f.thirdAtt : 0) : false}
+          winFora={f.thirdAtt ? f.thirdConv / f.thirdAtt > (c.thirdAtt ? c.thirdConv / c.thirdAtt : 0) : false} sub="conv" />
+        <StatRow label="Zona Vermelha" casa={rzC} fora={rzF}
+          winCasa={c.rzAtt ? c.rzTd / c.rzAtt > (f.rzAtt ? f.rzTd / f.rzAtt : 0) : false}
+          winFora={f.rzAtt ? f.rzTd / f.rzAtt > (c.rzAtt ? c.rzTd / c.rzAtt : 0) : false} sub="TD" />
+        <StatRow label="Turnovers" casa={String(c.tos)} fora={String(f.tos)} winCasa={c.tos < f.tos} winFora={f.tos < c.tos} />
+        <StatRow label="Penalidades" casa={`${c.pens} / ${c.penYds} jd`} fora={`${f.pens} / ${f.penYds} jd`} winCasa={c.penYds < f.penYds} winFora={f.penYds < c.penYds} />
+        <StatRow label="Posse de Bola" casa={fmtPoss(c.possSecs)} fora={fmtPoss(f.possSecs)} winCasa={c.possSecs > f.possSecs} winFora={f.possSecs > c.possSecs} />
+      </div>
+
+      {/* ---------- destaques individuais ---------- */}
+      <div className="grid gap-3 px-3 md:grid-cols-2">
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Passe</div>
+          {[{ t: casa, l: qbCasa }, { t: fora, l: qbFora }].map(({ t, l }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              {l && (l.att ?? 0) > 0 ? (
+                <span className="truncate text-ink">
+                  <b>{l.nome}</b> {l.cmp}/{l.att}, {l.py} jd, {l.ptd} TD{(l.int ?? 0) ? `, ${l.int} INT` : ''}
+                  <span className="ml-1.5 text-dim">· RTG <b className="text-goldhi">{l.rating}</b></span>
+                </span>
+              ) : <span className="text-faint">—</span>}
+            </div>
+          ))}
+        </div>
+
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Corrida</div>
+          {[{ t: casa, l: rushCasa }, { t: fora, l: rushFora }].map(({ t, l }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              {l && (l.ry ?? 0) > 0 ? (
+                <span className="truncate text-ink">
+                  <b>{l.nome}</b> {l.rAtt} att, {l.ry} jd{(l.rtd ?? 0) ? `, ${l.rtd} TD` : ''}
+                  <span className="ml-1.5 text-dim">· longa <b className="text-goldhi">{l.longRush} jd</b></span>
+                </span>
+              ) : <span className="text-faint">—</span>}
+            </div>
+          ))}
+        </div>
+
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Recepção</div>
+          {[{ t: casa, l: recCasa }, { t: fora, l: recFora }].map(({ t, l }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              {l && (l.recYds ?? 0) > 0 ? (
+                <span className="truncate text-ink">
+                  <b>{l.nome}</b> {l.rec} rec, {l.recYds} jd{(l.recTD ?? 0) ? `, ${l.recTD} TD` : ''}
+                  <span className="ml-1.5 text-dim">· longa <b className="text-goldhi">{l.longRec} jd</b></span>
+                </span>
+              ) : <span className="text-faint">—</span>}
+            </div>
+          ))}
+        </div>
+
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Defesa</div>
+          {[{ t: casa, s: sackL(casa.id), tk: tackL(casa.id), it: intL(casa.id) },
+            { t: fora, s: sackL(fora.id), tk: tackL(fora.id), it: intL(fora.id) }].map(({ t, s, tk, it }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              <span className="truncate text-ink">
+                {s && (s.sacks ?? 0) > 0 ? <><b>{s.nome}</b> {s.sacks} sack{(s.sacks ?? 0) > 1 ? 's' : ''} (−{s.sackYds} jd)</> : 'Sem sacks'}
+                {tk && (tk.tackles ?? 0) > 0 && <span className="ml-1.5 text-dim">· <b>{tk.nome}</b> {tk.tackles} tackles</span>}
+                {it && (it.intDef ?? 0) > 0 && <span className="ml-1.5 text-grass">· <b>{it.nome}</b> {it.intDef} INT</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ---------- MVP + Jogada do Jogo ---------- */}
+      <div className="grid gap-3 px-3 md:grid-cols-2">
+        {rich.story.mvp && (
+          <div className="panel2 border border-gold/50 bg-[rgba(240,180,41,0.05)] p-3">
+            <div className="mb-1 flex items-center gap-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">
+              <span>★</span> MVP da Partida
+            </div>
+            <div className="flex items-center gap-2 font-mono text-[12px]">
+              <PosBadge pos={rich.story.mvp.pos} />
+              <span>
+                <b className="text-[13px] text-goldhi">{rich.story.mvp.nome}</b>
+                <span className="ml-1.5 text-faint">({rich.story.mvp.teamId.toUpperCase()})</span>
+              </span>
+            </div>
+            <p className="mt-1.5 font-mono text-[11px] leading-relaxed text-dim">{rich.story.mvp.linha}</p>
+          </div>
+        )}
+        {rich.story.jogada && (
+          <div className="panel2 border border-ice/40 bg-[rgba(127,196,232,0.04)] p-3">
+            <div className="mb-1 flex items-center gap-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-ice">
+              <span>⚡</span> Jogada do Jogo
+            </div>
+            <p className="font-mono text-[11.5px] leading-relaxed text-ink">{rich.story.jogada.texto}</p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-faint">{rich.story.jogada.teamId.toUpperCase()}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
