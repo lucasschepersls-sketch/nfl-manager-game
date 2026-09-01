@@ -236,7 +236,7 @@ function reducer(st: StoreState, a: Action): StoreState {
   try {
     return reducerCore(st, a);
   } catch (e) {
-    console.error('Gridiron — erro na ação', a.type, e);
+    console.error('TAG — erro na ação', a.type, e);
     return { ...st, toast: 'Algo deu errado na simulação (save preservado).' };
   }
 }

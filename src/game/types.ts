@@ -1,5 +1,5 @@
 /* ============================================================
- * Modelo de dados — Gridiron Manager (espelha schema SQLAlchemy)
+ * Modelo de dados — The American Game Manager (espelha schema SQLAlchemy)
  * ============================================================ */
 
 export type Pos = 'QB' | 'RB' | 'WR' | 'TE' | 'OL' | 'DL' | 'LB' | 'CB' | 'S' | 'K' | 'P';

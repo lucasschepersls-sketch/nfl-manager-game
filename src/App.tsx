@@ -49,7 +49,7 @@ const FASE_LABEL: Record<string, string> = {
 class ErrorBoundary extends Component<{ children: ReactNode }, { erro: string | null }> {
   state = { erro: null as string | null };
   static getDerivedStateFromError(e: Error) { return { erro: e.message }; }
-  componentDidCatch(e: Error, info: ErrorInfo) { console.error('Gridiron:', e, info); }
+  componentDidCatch(e: Error, info: ErrorInfo) { console.error('TAG:', e, info); }
   render() {
     if (!this.state.erro) return this.props.children;
     return (
@@ -84,7 +84,7 @@ function Header() {
           <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={38} />
           <span className="text-left leading-tight">
             <span className="block font-disp text-[19px] font-extrabold uppercase tracking-wide">{t.cidade} {t.nome}</span>
-            <span className="block font-mono text-[10.5px] uppercase tracking-[0.2em] text-faint">Gridiron Manager · {temporada}</span>
+            <span className="block font-mono text-[10.5px] uppercase tracking-[0.2em] text-faint">TAG Manager · {temporada}</span>
           </span>
         </button>
 

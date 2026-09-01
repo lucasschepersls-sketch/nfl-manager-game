@@ -67,8 +67,8 @@ export default function StartScreen() {
       <div className="mx-auto max-w-[1100px] space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="font-disp text-[52px] font-extrabold uppercase leading-none tracking-tight">
-              Gridiron <span style={{ color: 'var(--color-goldhi)' }}>Manager</span>
+            <h1 className="font-disp text-[52px] font-extrabold uppercase leading-[0.95] tracking-tight">
+              The American Game <span style={{ color: 'var(--color-goldhi)' }}>Manager</span>
             </h1>
             <p className="mt-2 max-w-xl font-mono text-[13px] leading-relaxed text-dim">
               Modo carreira · 32 franquias (AFC/NFC) · teto salarial com inflação da TV ·
