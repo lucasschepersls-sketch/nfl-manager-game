@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useGame, loadSave } from '../state/store';
 import { newGame } from '../game/generate';
 import { teamStrength, capUsed, playersOf } from '../game/season';
+import { teamStage } from '../game/franchise';
 import { TEAMS_DEF, DIV_NAMES, CONF_LABEL } from '../game/data';
 import type { Conf } from '../game/types';
 import { TeamCrest, Bar } from '../components/ui';
@@ -21,9 +22,11 @@ export default function StartScreen() {
       const g = newGame(id, 20260001);
       const t = g.teams.find(x => x.id === id);
       if (!t) return null;
+      const stg = teamStage(g, id);
       return {
         t, forca: teamStrength(g, id), cap: capUsed(g, id), capMax: g.settings.cap,
         elenco: playersOf(g, id).length,
+        stage: stg.score, stageLabel: stg.label,
       };
     } catch { return null; }
   }, [sel]);
@@ -112,6 +115,12 @@ export default function StartScreen() {
                   <div className="flex justify-between text-dim"><span>Caixa disponível</span><b className="text-goldhi">${preview.t.dinheiro}M</b></div>
                   <div className="flex justify-between text-dim"><span>Jogadores</span><b className="text-ink">{preview.elenco} (53 + PS)</b></div>
                   <div className="flex justify-between text-dim"><span>Estádio / CT</span><b className="text-ink">Nv. {preview.t.estadio} / Nv. {preview.t.centroTreino}</b></div>
+                  <div className="flex justify-between text-dim" title={`${preview.stageLabel} (${preview.stage}/100)`}>
+                    <span>Momento</span>
+                    <b className={preview.stage >= 75 ? 'text-goldhi' : preview.stage >= 40 ? 'text-grass' : 'text-ice'}>
+                      {preview.stageLabel} · {preview.stage}
+                    </b>
+                  </div>
                 </dl>
                 <button className="btn btn-gold btn-pulse mt-5 w-full text-[17px]" onClick={() => dispatch({ type: 'NEW_GAME', teamId: sel })}>
                   Assumir o comando »

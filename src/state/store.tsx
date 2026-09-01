@@ -40,6 +40,11 @@ export function loadSave(): GameState | null {
     // saves antigos: preenche campos novos de PlayerStats e TeamSeasonStats
     for (const p of s.players) {
       p.stats = { ...zeroStats(), ...p.stats };
+      if (typeof p.anosNoTime !== 'number') p.anosNoTime = p.teamId ? Math.max(0, Math.min(8, p.idade - 22)) : 0;
+    }
+    for (const t of s.teams) {
+      if (typeof t.quimica !== 'number') t.quimica = 65;
+      if (typeof t.teamChurn !== 'number') t.teamChurn = 0;
     }
     return s;
   } catch {

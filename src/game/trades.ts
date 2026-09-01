@@ -10,6 +10,7 @@
  * ============================================================ */
 
 import type { GameState, PickOwner, Player, Pos, TradeAsset, TradeProposal } from './types';
+import { addChurn } from './franchise';
 import { Rng, clamp } from './rng';
 import { playersOf, capUsed, teamById } from './season';
 
@@ -202,16 +203,25 @@ export function executeProposal(s: GameState, p: TradeProposal, rng: Rng): Trade
   }
 
   // --- executa a troca ---
-  // jogadores
+  // jogadores (chegam sem entrosamento; a rotatividade derruba a química dos dois lados)
+  let movidos = 0;
   for (const a of p.give) {
     if (a.kind !== 'player') continue;
     const pl = s.players.find(x => x.id === a.playerId)!;
-    pl.teamId = p.to; pl.status = 'RES'; pl.moral = clamp(pl.moral - 4, 30, 95);
+    pl.teamId = p.to; pl.status = 'RES'; pl.anosNoTime = 0;
+    pl.moral = clamp(pl.moral - 4, 30, 95);
+    movidos++;
   }
   for (const a of p.get) {
     if (a.kind !== 'player') continue;
     const pl = s.players.find(x => x.id === a.playerId)!;
-    pl.teamId = p.from; pl.status = 'RES'; pl.moral = clamp(pl.moral + 4, 30, 95);
+    pl.teamId = p.from; pl.status = 'RES'; pl.anosNoTime = 0;
+    pl.moral = clamp(pl.moral + 4, 30, 95);
+    movidos++;
+  }
+  if (movidos > 0) {
+    addChurn(s, p.from, 10);
+    addChurn(s, p.to, 10);
   }
   // picks: transfere a posse (mantém o `from` original para rastreio)
   for (const a of p.give) {

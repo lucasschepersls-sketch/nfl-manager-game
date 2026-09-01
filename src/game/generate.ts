@@ -41,6 +41,7 @@ function mkPlayer(pos: Pos, q: number, idade: number, teamId: string | null, rng
     status: 'RES', lesao: 0, lesaoTipo: null,
     moral: rng.int(55, 78), tag: false, rookie: false,
     jogosCarreira: rng.int(0, 60),
+    anosNoTime: teamId ? clamp(idade - 22 + rng.int(-1, 2), 0, 8) : 0,
     stats: zeroStats(),
     ...opts,
   };
@@ -106,7 +107,7 @@ export function buildDraftClass(rng: Rng): Player[] {
         attrs, ovr,
         pot: Math.min(97, ovr + rng.int(8, 26)),
         salario: rookieSalary(ovr), contrato: 4,
-        status: 'RES', lesao: 0, lesaoTipo: null,
+        status: 'RES', lesao: 0, lesaoTipo: null, anosNoTime: 0,
         moral: 70, tag: false, rookie: true, jogosCarreira: 0,
         stats: zeroStats(),
         scout: { college: rng.pick(COLLEGES), reports: 0, maxReports: 3, onBoard: false },
@@ -160,6 +161,8 @@ export function newGame(userTeamId: string, seed: number): GameState {
     hostilidade: HOSTILITY[d.sigla] ?? 65,
     histCampanha: [d.camp, d.camp, d.camp],
     tactics: { corrida: d.sigla.toLowerCase() === userTeamId ? 44 : rng.int(38, 50), agressividade: rng.int(35, 70) },
+    quimica: clamp(58 + d.forca * 3 + rng.int(-4, 8), 40, 92),  // elencos estáveis largam entrosados
+    teamChurn: 0,
   }));
 
   const players: Player[] = [];

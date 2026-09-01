@@ -4,6 +4,9 @@ import {
   crowdPressure, fmtM, playoffZone,
 } from '../game/season';
 import { Panel, TeamCrest, Bar, SeqBadge } from '../components/ui';
+import {
+  teamStage, teamChemistry, chemistryLabel, STAGE_ZONES,
+} from '../game/franchise';
 
 export function ClubHomeScreen() {
   const { st, dispatch } = useGame();
@@ -86,6 +89,9 @@ export function ClubHomeScreen() {
           </div>
         )}
       </div>
+
+      {/* momento da franquia: REBUILD ↔ CONTENDER + química */}
+      <FranchiseMomentPanel g={g} teamId={g.userTeam} />
 
       {/* cartões de indicadores */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -213,6 +219,119 @@ function MiniStandings() {
           })}
         </tbody>
       </table>
+    </Panel>
+  );
+}
+
+/* ================= MOMENTO DA FRANQUIA: REBUILD ↔ CONTENDER + QUÍMICA ================= */
+function FranchiseMomentPanel({ g, teamId }: { g: import('../game/types').GameState; teamId: string }) {
+  const stage = teamStage(g, teamId);
+  const chem = teamChemistry(g, teamId);
+
+  const needle = stage.score >= 75 ? 'var(--color-goldhi)'
+    : stage.score >= 40 ? 'var(--color-grass)' : 'var(--color-ice)';
+  const zone = STAGE_ZONES.find(z => stage.score <= z.ate)!.nome;
+
+  const fatores = [
+    { k: 'Campanha', v: stage.factors.campanha, d: 'Aproveitamento nas últimas temporadas (a mais recente pesa 50%)' },
+    { k: 'Talento', v: stage.factors.talento, d: 'OVR médio do top-22 do elenco (65 → 0 · 82 → 100)' },
+    { k: 'Janela de idade', v: stage.factors.janela, d: 'Núcleo entre 26–29 anos está no auge da janela' },
+    { k: 'Núcleo jovem', v: stage.factors.nucleos, d: 'Jogadores ≤24 com OVR ≥72 — rebuild com futuro sobe a régua' },
+  ];
+
+  const chemCor = chem.score >= 80 ? 'var(--color-grass)'
+    : chem.score >= 60 ? 'var(--color-gold)' : 'var(--color-blood)';
+
+  return (
+    <Panel
+      title="Momento da Franquia"
+      right={
+        <span className="flex items-center gap-2">
+          <span className="tag border-gold/60 text-goldhi">{zone}</span>
+          <span className="font-mono text-[11px] text-faint">{stage.score}/100</span>
+        </span>
+      }
+    >
+      <div className="grid gap-7 lg:grid-cols-[1.5fr_1fr]">
+        {/* ---- gauge REBUILD ↔ CONTENDER ---- */}
+        <div>
+          <div className="relative pt-1">
+            <div className="stage-track">
+              {STAGE_ZONES.slice(0, -1).map(z => (
+                <span key={z.ate} className="stage-tick" style={{ left: `${z.ate}%` }} />
+              ))}
+              {STAGE_ZONES.map(z => {
+                const inicio = z === STAGE_ZONES[0] ? 0 : STAGE_ZONES[STAGE_ZONES.indexOf(z) - 1].ate;
+                return (
+                  <span key={z.nome} className="stage-zone-label" style={{ left: `${(inicio + z.ate) / 2}%` }}>
+                    {z.nome}
+                  </span>
+                );
+              })}
+              <span
+                className="stage-needle"
+                style={{ left: `${stage.score}%`, ['--needle' as string]: needle }}
+                title={`Estágio: ${stage.label} (${stage.score}/100)`}
+              />
+            </div>
+            <div className="mt-2 flex justify-between font-disp text-[13px] font-bold uppercase tracking-[0.18em]">
+              <span className="text-ice">◄ Rebuild</span>
+              <span className="text-goldhi">Contender ►</span>
+            </div>
+          </div>
+
+          <p className="mt-3 font-mono text-[12px] text-dim">
+            <b className="text-ink">{stage.label}</b> — a régua combina campanha recente, talento do elenco,
+            janela de idade e núcleo jovem.
+          </p>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+            {fatores.map(f => (
+              <div key={f.k} className="factor-chip cursor-help border border-line2 bg-panel2 px-3 py-2" title={f.d}>
+                <div className="flex items-baseline justify-between">
+                  <span className="font-disp text-[12px] font-semibold uppercase tracking-wider text-dim">{f.k}</span>
+                  <span className="font-mono text-[11px] font-bold text-ink">{Math.round(f.v * 100)}</span>
+                </div>
+                <div className="mt-1.5"><Bar pct={f.v * 100} color={needle} h={5} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ---- química / entrosamento ---- */}
+        <div className="border border-line2 bg-panel2 p-4">
+          <div className="flex items-baseline justify-between">
+            <span className="font-disp text-[15px] font-bold uppercase tracking-wider">Química do vestiário</span>
+            <span
+              className={`font-disp text-[30px] font-extrabold leading-none ${chem.score >= 80 ? 'chem-hot' : ''}`}
+              style={{ color: chemCor }}
+            >
+              {chem.score}
+            </span>
+          </div>
+          <p className="mt-0.5 font-mono text-[11.5px] text-dim">{chemistryLabel(chem.score)}</p>
+
+          <div className="mt-3"><Bar pct={chem.score} color={chemCor} h={9} /></div>
+
+          <dl className="mt-4 space-y-2 font-mono text-[11.5px]">
+            <div className="flex justify-between text-dim" title="Média de temporadas no clube entre os 22 titulares — estabilidade gera entrosamento">
+              <span>Anos de casa (média)</span><b className="text-ink">{chem.media}</b>
+            </div>
+            <div className="flex justify-between text-dim" title="Tempo que o QB titular e seu WR1 jogam juntos — conexão QB-WR">
+              <span>Conexão QB–WR1</span><b className="text-ink">{chem.qbLink} ano{chem.qbLink === 1 ? '' : 's'}</b>
+            </div>
+            <div className="flex justify-between text-dim" title="Trocas, cortes e contratações recentes derrubam a química">
+              <span>Rotatividade recente</span>
+              <b className={chem.churn > 0 ? 'text-blood' : 'text-grass'}>{chem.churn > 0 ? `−${chem.churn}` : 'estável'}</b>
+            </div>
+          </dl>
+
+          <p className="mt-3 border-t border-line2 pt-2.5 font-mono text-[10.5px] leading-relaxed text-faint">
+            Elencos estáveis rendem mais em campo. Trocas e cortes constantes derrubam o entrosamento —
+            a química se refaz a cada temporada de casa.
+          </p>
+        </div>
+      </div>
     </Panel>
   );
 }

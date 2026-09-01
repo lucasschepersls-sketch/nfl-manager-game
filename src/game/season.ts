@@ -13,6 +13,7 @@ import type { Side } from './engine';
 import { NFLMatchEngine } from './engine';
 import { applyDraftSurprise, resetScouting, scoutBudgetMaxFor } from './scouting';
 import { emptyProBowl, runWeeklyProBowlVoting, selectProBowlRoster, type WeekBox } from './probowl';
+import { addChurn, recalcChemistry } from './franchise';
 import {
   acceptanceRoll, calcExpectations, franchiseTagValue, happinessVerdict,
   makeContract, makeTagContract, negotiationHappiness, shouldHoldout,
@@ -1097,6 +1098,7 @@ export function userDraftPick(s: GameState, playerId: string): { ok: boolean; ms
   if (ativos >= 53) return { ok: false, msg: 'Elenco cheio (53). Dispense alguém antes de draftar.' };
   const rng = new Rng(newSeed());
   const surprise = commitPick(s, p, s.userTeam, rng);
+  addChurn(s, s.userTeam, 3);   // novato entra no vestiário — leve ajuste de química
   pushNews(s, 'DRAFT', `Rodada ${d.round}: ${teamById(s, s.userTeam).sigla} escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}).`);
   if (surprise) pushNews(s, 'COMBINE', surprise);
   advanceDraft(s);
@@ -1156,8 +1158,13 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
   for (const p of s.players) {
     p.stats = zeroStats(); p.lesao = 0; p.lesaoTipo = null; p.tag = false;
     p.moral = 75;   // reset de moral e fadiga na virada de temporada
+    if (p.teamId) p.anosNoTime = Math.min(10, p.anosNoTime + 1);  // +1 temporada de casa
   }
-  for (const t of s.teams) t.moral = 75;
+  for (const t of s.teams) {
+    t.moral = 75;
+    t.teamChurn = Math.max(0, t.teamChurn - 12);  // rotatividade esfria com o tempo
+    recalcChemistry(s, t.id);                     // química se refaz com o elenco estável
+  }
   s.teamSeasonStats = [];  // zera acumuladores de franquia para a nova temporada
   s.probowl = emptyProBowl(s.settings.temporada);  // nova votação do Pro Bowl
 
@@ -1237,8 +1244,10 @@ export function signFA(s: GameState, playerId: string): { ok: boolean; msg: stri
   if (!chk.ok) return { ok: false, msg: chk.motivo };
   s.faPool = s.faPool.filter(x => x.id !== playerId);
   p.teamId = s.userTeam; p.status = 'RES'; p.contrato = Math.max(1, p.contrato); p.origem = undefined;
+  p.anosNoTime = 0;              // acabou de chegar — sem entrosamento ainda
   p.moral = clamp(p.moral + 12, 25, 95);
   s.players.push(p);
+  addChurn(s, s.userTeam, 8);    // contratação mexe com a química do vestiário
   const t = teamById(s, s.userTeam);
   pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}) por ${fmtM(p.salario)}/ano.`);
   return { ok: true, msg: `${p.nome} contratado!` };
@@ -1251,6 +1260,7 @@ export function releasePlayer(s: GameState, playerId: string): { ok: boolean; ms
   s.players = s.players.filter(x => x.id !== playerId);
   p.teamId = null; p.status = 'RES'; p.origem = s.userTeam;
   s.faPool.push(p);
+  addChurn(s, s.userTeam, 6);    // corte abala o vestiário
   return { ok: true, msg: `${p.nome} dispensado — agora é free agent.` };
 }
 

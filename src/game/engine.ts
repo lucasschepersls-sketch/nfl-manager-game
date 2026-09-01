@@ -172,6 +172,9 @@ export class NFLMatchEngine {
       this.say(`Desfalque no ${u.team.sigla}: ${g}!`, 'pen');
     if (this.uc.qbBackup) this.say(`${t.sigla}: QB reserva em campo — ataque limitado.`, 'pen');
     if (this.uf.qbBackup) this.say(`${o.sigla}: QB reserva em campo — ataque limitado.`, 'pen');
+    const chC = this.casa.team.quimica ?? 65; const chF = this.fora.team.quimica ?? 65;
+    const quenteChem = Math.max(chC, chF) >= 80 ? ' — há vestiário em sincronia hoje!' : '';
+    this.say(`Entrosamento: ${t.sigla} ${chC}/100 × ${o.sigla} ${chF}/100${quenteChem}.`, 'info');
     this.say('Bola no ar! Começa a partida.', 'info');
 
     for (const u of [this.uc, this.uf])
@@ -247,13 +250,15 @@ export class NFLMatchEngine {
     const moral = (side.team.moral - 55) / 25;
     // "12º homem" balanceado: +1.0 a +2.2 de rating (≈ +3 pts reais), cresce com a pressão
     const home = isCasa && !this.opts?.neutro ? clamp(1.0 + side.pressao / 85, 1.0, 2.2) : 0;
+    // química de vestiário: elencos estáveis executam melhor (±1.6 de rating)
+    const chem = ((side.team.quimica ?? 65) - 60) / 25;
     const oc = (staffLvl('Coordenador Ofensivo') - 3) * 1.4;
     const dc = (staffLvl('Coordenador Defensivo') - 3) * 1.2;
-    u.passOff += home + moral + this.clima.pass + oc;
-    u.runOff += home + moral + this.clima.run + oc * 0.7;
-    u.runDef += home + moral * 0.6 + this.clima.run * 0.4 + dc;
-    u.passRush += home + moral * 0.6 + dc;
-    u.coverage += home + moral * 0.6 + this.clima.pass * 0.3 + dc;
+    u.passOff += home + moral + chem + this.clima.pass + oc;
+    u.runOff += home + moral + chem + this.clima.run + oc * 0.7;
+    u.runDef += home + moral * 0.6 + chem * 0.8 + this.clima.run * 0.4 + dc;
+    u.passRush += home + moral * 0.6 + chem * 0.8 + dc;
+    u.coverage += home + moral * 0.6 + chem * 0.8 + this.clima.pass * 0.3 + dc;
   }
 
   /**

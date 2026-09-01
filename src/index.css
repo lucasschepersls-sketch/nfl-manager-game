@@ -278,6 +278,54 @@ input[type="range"] { accent-color: var(--color-gold); }
 .medal-2 { color: #dbe3ea; border-color: rgba(219, 227, 234, 0.6) !important; background: rgba(219, 227, 234, 0.10); }
 .medal-3 { color: #e0a06a; border-color: rgba(224, 160, 106, 0.6) !important; background: rgba(224, 160, 106, 0.10); }
 
+/* ---------- gauge REBUILD ↔ CONTENDER ---------- */
+.stage-track {
+  position: relative;
+  height: 16px;
+  border: 1px solid var(--color-line);
+  background:
+    linear-gradient(90deg,
+      #1e3a4a 0%, #27506b 18%,
+      #2f5d52 38%, #3e7a4f 55%,
+      #7a9a3a 70%, #c9a52e 84%,
+      #f0b429 100%);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.stage-tick {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: rgba(0, 0, 0, 0.4);
+}
+.stage-needle {
+  position: absolute; top: 50%;
+  width: 14px; height: 14px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--color-ink);
+  border: 2px solid var(--needle, var(--color-goldhi));
+  box-shadow: 0 0 12px 2px var(--needle, var(--color-goldhi));
+  transition: left 0.9s cubic-bezier(0.3, 1.2, 0.4, 1), border-color 0.4s, box-shadow 0.4s;
+  z-index: 3;
+}
+.stage-zone-label {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  font-family: var(--font-disp);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* ---------- química ---------- */
+.chem-hot { animation: chemPulse 1.6s ease-in-out infinite; }
+@keyframes chemPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(62, 207, 122, 0.4); }
+  50% { box-shadow: 0 0 14px 3px rgba(62, 207, 122, 0.28); }
+}
+
+/* chip de fator (hover levanta) */
+.factor-chip { transition: transform 0.15s ease, border-color 0.15s ease; }
+.factor-chip:hover { transform: translateY(-2px); border-color: var(--color-gold); }
+
 /* selects retrô */
 .sel {
   font-family: var(--font-mono);

@@ -93,6 +93,7 @@ export interface Player {
   scout?: ProspectInfo;
   origem?: string;
   rfa?: boolean;   // Restricted FA: time de origem tem direito de match
+  anosNoTime: number;  // temporadas na franquia atual (base da química)
 }
 
 export interface Tactics { corrida: number; agressividade: number; }
@@ -114,8 +115,8 @@ export interface Team {
   hostilidade: number;
   histCampanha: number[];
   tactics: Tactics;
-  /** mudanças de elenco na temporada atual (trocas/contratações) — penaliza a química */
-  rosterChanges?: number;
+  quimica: number;    // entrosamento do vestiário (0-100) — cresce com estabilidade
+  teamChurn: number;  // rotatividade recente de elenco (trocas/cortes) — prejudica a química
 }
 
 export type StaffRole =
