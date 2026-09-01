@@ -114,6 +114,8 @@ export interface Team {
   hostilidade: number;
   histCampanha: number[];
   tactics: Tactics;
+  /** mudanças de elenco na temporada atual (trocas/contratações) — penaliza a química */
+  rosterChanges?: number;
 }
 
 export type StaffRole =
