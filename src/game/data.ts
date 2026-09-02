@@ -126,6 +126,14 @@ export const HOSTILITY: Record<string, number> = {
   MIA: 69, NYG: 68, JAX: 67, ATL: 66, WAS: 65, TEN: 64, ARI: 63, CAR: 60,
 };
 
+/* pressão-base da torcida por estádio (caldeirões no topo) */
+export const HOSTILITY: Record<string, number> = {
+  GB: 95, SEA: 94, KC: 93, NE: 90, NO: 89, PIT: 88, PHI: 87, DAL: 86,
+  BUF: 85, BAL: 84, DEN: 83, CHI: 82, LV: 80, NYJ: 80, CIN: 79, SF: 78,
+  MIN: 77, DET: 76, HOU: 75, IND: 74, TB: 73, LAR: 72, CLE: 71, LAC: 70,
+  MIA: 69, NYG: 68, JAX: 67, ATL: 66, WAS: 65, TEN: 64, ARI: 63, CAR: 60,
+};
+
 /* curva salarial base (temporada 1, cap $220M) */
 export function salaryFor(ovr: number, rng: Rng): number {
   const base = 0.62 + Math.pow(Math.max(0, ovr - 50) / 40, 4.4) * 33;

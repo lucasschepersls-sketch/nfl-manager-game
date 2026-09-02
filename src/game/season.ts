@@ -5,9 +5,10 @@
  * ============================================================ */
 
 import type {
-  Conf, ContractOffer, Focus, GameResult, GameState, Match, Player, Side, Staff, Team,
+  Conf, ContractOffer, Focus, GameResult, GameState, Match, Player, Staff, Team,
 } from './types';
 import { zeroStats } from './types';
+import type { Side } from './engine';
 import { Rng, clamp, newSeed } from './rng';
 import { computeOvr, genName, POS_ORDER, rookieSalary, salaryFor } from './data';
 import { NFLMatchEngine } from './engine';
