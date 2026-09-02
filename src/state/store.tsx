@@ -37,6 +37,7 @@ export function loadSave(): GameState | null {
     if (!Array.isArray(s.tradeLog)) s.tradeLog = [];
     if (!Array.isArray(s.teamSeasonStats)) s.teamSeasonStats = [];
     if (!s.probowl) s.probowl = { season: s.settings.temporada, lastWeek: 0, votes: [], userFanVote: null, announced: false };
+    if (!s.trainingState) s.trainingState = { focus: s.focus ?? 'FISICO', intensity: 'NORMAL', playersTraining: [] };
     // saves antigos: preenche campos novos de PlayerStats e TeamSeasonStats
     for (const p of s.players) {
       p.stats = { ...zeroStats(), ...p.stats };

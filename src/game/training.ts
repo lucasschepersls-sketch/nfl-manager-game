@@ -11,7 +11,7 @@ const POSITION_ATTRS: Record<Pos, AttrKey[]> = {
   RB: ['corrida', 'recepcao', 'bloqueio'],
   WR: ['recepcao', 'velocidade'],
   TE: ['recepcao', 'bloqueio'],
-  OL: ['bloqueio', 'forca' as any],
+  OL: ['bloqueio', 'resistencia'],
   DL: ['tackle', 'resistencia'],
   LB: ['tackle', 'resistencia'],
   CB: ['tackle', 'velocidade'],
@@ -151,8 +151,8 @@ export function recalculateOVR(player: Player): number {
     case 'OL':
       return Math.round(
         attrs.bloqueio * 0.6 +
-        attrs.forca * 0.2 +
-        attrs.resistencia * 0.2
+        attrs.resistencia * 0.2 +
+        attrs.velocidade * 0.2
       );
     case 'DL':
     case 'LB':

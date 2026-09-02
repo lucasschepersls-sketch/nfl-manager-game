@@ -489,13 +489,9 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     results.push({ ...m });
     
     // Acumula snaps dos jogadores
-    for (const [playerId, snaps] of Object.entries(r.rich.casa)) {
-      const current = snapsPorJogadorSemana.get(playerId) ?? 0;
-      snapsPorJogadorSemana.set(playerId, current + snaps);
-    }
-    for (const [playerId, snaps] of Object.entries(r.rich.fora)) {
-      const current = snapsPorJogadorSemana.get(playerId) ?? 0;
-      snapsPorJogadorSemana.set(playerId, current + snaps);
+    for (const line of r.rich.lines) {
+      const current = snapsPorJogadorSemana.get(line.id) ?? 0;
+      snapsPorJogadorSemana.set(line.id, current + (line.snaps ?? 0));
     }
     
     if (fase === 'REG') weekBoxes.push({ casaId: m.casa, foraId: m.fora, rich: r.rich });

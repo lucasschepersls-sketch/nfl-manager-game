@@ -208,6 +208,7 @@ export function newGame(userTeamId: string, seed: number): GameState {
     userTeam: userTeamId,
     campeoes: [],
     focus: 'FISICO',
+    trainingState: { focus: 'FISICO', intensity: 'NORMAL', playersTraining: [] },
     lastResult: null,
     weekResults: [],
     scoutBudget: 10,
