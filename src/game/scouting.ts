@@ -7,7 +7,7 @@
  * - Apenas 3-5 prospectos A+ por classe
  * ============================================================ */
 
-import type { Attrs, GameState, GradeLetter, Player, Pos, Staff } from './types';
+import type { Attrs, GameState, GradeLetter, OpponentScoutingReport, Player, Pos, Staff } from './types';
 import { Rng, clamp } from './rng';
 import { computeOvr, STARTER_SLOTS } from './data';
 
@@ -113,6 +113,33 @@ export function investigate(s: GameState, playerId: string): { ok: boolean; msg:
       ? `Relatório final de ${p.nome} concluído — avaliação agora é EXATA.`
       : `Relatório ${p.scout.reports}/${p.scout.maxReports} de ${p.nome} pronto. Restam ${s.scoutBudget} ponto(s).`,
   };
+}
+
+export function studyOpponent(s: GameState, teamId: string): { ok: boolean; msg: string } {
+  if (teamId === s.userTeam) return { ok: false, msg: 'Não é possível estudar a própria equipe.' };
+  if (s.settings.fase === 'OFF') return { ok: false, msg: 'A análise adversária só está disponível antes de uma partida.' };
+  if (s.scoutBudget < 1) return { ok: false, msg: 'Sem pontos de scouting para estudar o adversário.' };
+  const team = s.teams.find(t => t.id === teamId);
+  if (!team) return { ok: false, msg: 'Adversário não encontrado.' };
+  const roster = s.players.filter(p => p.teamId === teamId && p.status !== 'PS');
+  const qb = roster.filter(p => p.pos === 'QB').sort((a, b) => b.ovr - a.ovr)[0];
+  const passRate = 100 - team.tactics.corrida;
+  const report: OpponentScoutingReport = {
+    teamId, season: s.settings.temporada, reports: (s.opponentScouting.find(r => r.teamId === teamId && r.season === s.settings.temporada)?.reports ?? 0) + 1,
+    strengths: [team.tactics.corrida < 42 ? 'Passe forte' : 'Jogo terrestre forte', teamStrengthLabel(roster) ],
+    weaknesses: [team.tactics.corrida > 58 ? 'Passe previsível' : 'Defesa contra corrida vulnerável', roster.filter(p => p.pos === 'OL').reduce((sum, p) => sum + p.ovr, 0) / Math.max(1, roster.filter(p => p.pos === 'OL').length) < 72 ? 'OL lenta' : 'Secondary pode ser explorada'],
+    keyPlayers: roster.sort((a, b) => b.ovr - a.ovr).slice(0, 3).map(p => p.id),
+    passRate, runOnFirstDown: Math.max(20, Math.min(80, team.tactics.corrida + 8)),
+  };
+  s.scoutBudget--;
+  s.opponentScouting = s.opponentScouting.filter(r => !(r.teamId === teamId && r.season === s.settings.temporada));
+  s.opponentScouting.unshift(report);
+  return { ok: true, msg: `Relatório de ${team.sigla} concluído. Restam ${s.scoutBudget} ponto(s).` };
+}
+
+function teamStrengthLabel(roster: Player[]): string {
+  const average = roster.length ? roster.reduce((sum, p) => sum + p.ovr, 0) / roster.length : 0;
+  return average >= 78 ? 'Elenco profundo' : average >= 70 ? 'Núcleo competitivo' : 'Elenco inconsistente';
 }
 
 export function toggleBoard(s: GameState, playerId: string): { ok: boolean; msg: string } {

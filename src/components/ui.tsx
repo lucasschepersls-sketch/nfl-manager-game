@@ -78,7 +78,7 @@ function onColor(hex: string): string {
 }
 
 /** Brasão autoral (cores oficiais + forma distinta por conferência). */
-export function TeamCrest({ cor, cor2, sigla, conf, size = 24 }: {
+function LegacyTeamCrest({ cor, cor2, sigla, conf, size = 24 }: {
   cor: string; cor2: string; sigla: string; conf: Conf; size?: number;
 }) {
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
@@ -118,6 +118,28 @@ export function TeamCrest({ cor, cor2, sigla, conf, size = 24 }: {
         ? <path d="M24 7 l1.5 3 3.3.4-2.4 2.2.6 3.2-3-1.6-3 1.6.6-3.2-2.4-2.2 3.3-.4z" fill={fg} opacity="0.9" />
         : <path d="M24 6 L28 10 L24 14 L20 10 Z" fill={fg} opacity="0.9" />}
     </svg>
+  );
+}
+
+const NFL_LOGO_SLUG: Record<string, string> = { WAS: 'wsh' };
+
+export function TeamCrest({ cor, cor2, sigla, conf, size = 24 }: {
+  cor: string; cor2: string; sigla: string; conf: Conf; size?: number;
+}) {
+  const [failed, setFailed] = React.useState(false);
+  const slug = NFL_LOGO_SLUG[sigla] ?? sigla.toLowerCase();
+  if (failed) return <LegacyTeamCrest cor={cor} cor2={cor2} sigla={sigla} conf={conf} size={size} />;
+  return (
+    <img
+      src={`https://a.espncdn.com/i/teamlogos/nfl/500/${slug}.png`}
+      alt={`${sigla} logo oficial`}
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      style={{ width: size, height: size, objectFit: 'contain', flexShrink: 0 }}
+    />
   );
 }
 

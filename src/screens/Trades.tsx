@@ -7,7 +7,7 @@ import {
 } from '../game/trades';
 import { Rng } from '../game/rng';
 import { Panel, PosBadge, Ovr, Bar } from '../components/ui';
-import type { Player, TradeAsset, PickOwner } from '../game/types';
+import type { ConditionalPickCondition, Player, TradeAsset, PickOwner } from '../game/types';
 
 export function TradesScreen() {
   const { st, dispatch } = useGame();
@@ -17,6 +17,10 @@ export function TradesScreen() {
     g.teams.find(t => t.id !== me)?.id ?? g.teams[0].id);
   const [give, setGive] = useState<TradeAsset[]>([]);
   const [get, setGet] = useState<TradeAsset[]>([]);
+  const [conditionalMode, setConditionalMode] = useState(false);
+  const [condition, setCondition] = useState<ConditionalPickCondition>('team_makes_playoffs');
+  const [upgradedRound, setUpgradedRound] = useState(3);
+  const [conditionPlayerId, setConditionPlayerId] = useState('');
 
   const myTeam = teamById(g, me);
   const partner = teamById(g, partnerId);
@@ -53,21 +57,27 @@ export function TradesScreen() {
 
   const toggle = (side: 'give' | 'get', asset: TradeAsset) => {
     const set = side === 'give' ? give : get;
-    const key = (a: TradeAsset) => a.kind === 'player' ? `p:${a.playerId}` : `k:${a.round}:${a.slot}`;
+    const key = (a: TradeAsset) => a.kind === 'player' ? `p:${a.playerId}` : `k:${a.round}:${a.slot}:${a.conditional?.condition ?? ''}:${a.conditional?.upgradedRound ?? ''}`;
     const k = key(asset);
     const next = set.some(a => key(a) === k) ? set.filter(a => key(a) !== k) : [...set, asset];
     if (side === 'give') setGive(next); else setGet(next);
   };
   const isSelected = (side: 'give' | 'get', asset: TradeAsset) => {
     const set = side === 'give' ? give : get;
-    const key = (a: TradeAsset) => a.kind === 'player' ? `p:${a.playerId}` : `k:${a.round}:${a.slot}`;
+    const key = (a: TradeAsset) => a.kind === 'player' ? `p:${a.playerId}` : `k:${a.round}:${a.slot}:${a.conditional?.condition ?? ''}:${a.conditional?.upgradedRound ?? ''}`;
     return set.some(a => key(a) === key(asset));
   };
 
   const pickLabel = (a: { round: number; slot: number; cell: PickOwner }) => {
     const from = a.cell.from && a.cell.from !== a.cell.owner ? ` (${teamById(g, a.cell.from).sigla})` : '';
-    return `R${a.round} #${a.slot + 1}${from}`;
+    const conditional = a.cell.conditional;
+    const clause = conditional ? ` · ${conditional.resolvedRound ? `resolvida R${conditional.resolvedRound}` : `cond. R${conditional.upgradedRound}`}` : '';
+    return `R${a.round} #${a.slot + 1}${from}${clause}`;
   };
+  const pickAsset = (pk: { round: number; slot: number; cell: PickOwner }): TradeAsset => ({
+    kind: 'pick', round: pk.round, slot: pk.slot,
+    conditional: pk.cell.conditional ?? (conditionalMode ? { baseRound: pk.round, condition, upgradedRound, conditionPlayerId: condition === 'player_makes_pro_bowl' ? conditionPlayerId : undefined } : undefined),
+  });
 
   const myCap = capUsed(g, me);
   const chance = preview.ev.chance;
@@ -103,6 +113,26 @@ export function TradesScreen() {
         </div>
       </Panel>
 
+      <Panel title="Picks condicionais">
+        <label className="flex items-center gap-2 font-mono text-[12px] text-ink">
+          <input type="checkbox" checked={conditionalMode} onChange={e => setConditionalMode(e.target.checked)} />
+          Marcar picks selecionadas como condicionais
+        </label>
+        {conditionalMode && <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-[12px]">
+          <label>Condição <select value={condition} onChange={e => setCondition(e.target.value as ConditionalPickCondition)} className="ml-1 border border-line bg-panel2 px-2 py-1 text-ink">
+            <option value="team_makes_playoffs">Time chega aos playoffs</option>
+            <option value="player_makes_pro_bowl">Jogador chega ao Pro Bowl</option>
+          </select></label>
+          {condition === 'player_makes_pro_bowl' && <label>Jogador <select value={conditionPlayerId} onChange={e => setConditionPlayerId(e.target.value)} className="ml-1 border border-line bg-panel2 px-2 py-1 text-ink">
+            <option value="">Selecione</option>
+            {[...myPlayers, ...theirPlayers].map(player => <option key={player.id} value={player.id}>{player.nome} ({player.pos})</option>)}
+          </select></label>}
+          <label>Se cumprir, vira R<select value={upgradedRound} onChange={e => setUpgradedRound(+e.target.value)} className="ml-1 border border-line bg-panel2 px-2 py-1 text-ink">
+            {[1, 2, 3, 4, 5, 6, 7].map(round => <option key={round} value={round}>{round}</option>)}
+          </select></label>
+        </div>}
+      </Panel>
+
       {/* colunas de seleção */}
       <div className="grid gap-4 lg:grid-cols-2">
         {/* VOCÊ OFERECE */}
@@ -120,8 +150,8 @@ export function TradesScreen() {
                   {myPicks.length === 0 && <span className="font-mono text-[11px] text-faint">Nenhuma pick disponível.</span>}
                   {myPicks.map(pk => (
                     <PickChip key={`${pk.round}-${pk.slot}`} label={pickLabel(pk)} value={pickValue(pk.round)}
-                      sel={isSelected('give', { kind: 'pick', round: pk.round, slot: pk.slot })}
-                      onClick={() => toggle('give', { kind: 'pick', round: pk.round, slot: pk.slot })} />
+                      sel={isSelected('give', pickAsset(pk))}
+                      onClick={() => toggle('give', pickAsset(pk))} />
                   ))}
                 </div>
               </>
@@ -144,8 +174,8 @@ export function TradesScreen() {
                   {theirPicks.length === 0 && <span className="font-mono text-[11px] text-faint">Nenhuma pick disponível.</span>}
                   {theirPicks.map(pk => (
                     <PickChip key={`${pk.round}-${pk.slot}`} label={pickLabel(pk)} value={pickValue(pk.round)}
-                      sel={isSelected('get', { kind: 'pick', round: pk.round, slot: pk.slot })}
-                      onClick={() => toggle('get', { kind: 'pick', round: pk.round, slot: pk.slot })} />
+                      sel={isSelected('get', pickAsset(pk))}
+                      onClick={() => toggle('get', pickAsset(pk))} />
                   ))}
                 </div>
               </>

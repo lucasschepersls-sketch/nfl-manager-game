@@ -73,6 +73,8 @@ export function NegotiationsScreen() {
   const estoura = capDepois > g.settings.cap;
 
   const maxBase = sel ? Math.max(0.75, Math.round((g.settings.cap - usadoSemEle) * 10) / 10) : 1;
+  const canRestructure = !!sel?.contract && sel.contract.capHits.length >= 2 && !sel.contract.restructured;
+  const restructureSaving = canRestructure && sel?.contract ? Math.max(0, Math.round((sel.contract.capHits[0] - (sel.salario * 0.4 + sel.salario * 0.6 / sel.contract.capHits.length)) * 10) / 10) : 0;
 
   const holdoutCount = rows.filter(r => r.kind === 'holdout').length;
 
@@ -277,6 +279,13 @@ export function NegotiationsScreen() {
                         ⚠ Estoura o teto em {fmtM(Math.round((capDepois - g.settings.cap) * 10) / 10)} — a oferta será bloqueada.
                       </div>
                     )}
+                    {sel.contract && sel.contract.capHits.length >= 2 && (
+                      <div className="mt-3 border-t border-line2 pt-2 font-mono text-[11px]">
+                        {sel.contract.restructured
+                          ? <span className="text-faint">Contrato já reestruturado nesta vigência.</span>
+                          : <span className="text-ice">Reestruturação disponível: libera {fmtM(restructureSaving)} de cap agora e aumenta os anos futuros.</span>}
+                      </div>
+                    )}
                   </div>
                 </Panel>
               </div>
@@ -292,6 +301,12 @@ export function NegotiationsScreen() {
               {sel.contrato === 1 && !sel.tag && (
                 <button className="btn" onClick={() => dispatch({ type: 'TAG', playerId: sel.id })}>
                   Aplicar Franchise Tag
+                </button>
+              )}
+              {canRestructure && (
+                <button className="btn btn-ghost border-ice/60 text-ice"
+                  onClick={() => dispatch({ type: 'RESTRUCTURE', playerId: sel.id })}>
+                  Reestruturar contrato · liberar {fmtM(restructureSaving)}
                 </button>
               )}
               <button className="btn btn-ghost" onClick={() => dispatch({ type: 'SCREEN', screen: 'elenco' })}>Ver elenco</button>

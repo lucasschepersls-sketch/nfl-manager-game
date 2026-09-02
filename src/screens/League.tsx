@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useGame } from '../state/store';
 import {
-  teamById, standings, divisionTable, conferenceSeeds, capUsed, fmtM,
+  teamById, standings, divisionTable, conferenceSeeds, capUsed, fmtM, teamStrength,
   playersOf, UPGRADE_COST,
 } from '../game/season';
 import { CONF_LABEL, DIV_NAMES } from '../game/data';
-import type { Conf } from '../game/types';
+import type { Conf, Player, PowerRankingEntry } from '../game/types';
 import { Panel, TeamCrest, SeqBadge, Bar, Ovr } from '../components/ui';
 
 /* ============================ CALENDÁRIO ============================ */
@@ -104,6 +104,168 @@ export function ScheduleScreen() {
   );
 }
 
+export function RivalriesScreen() {
+  const { st } = useGame();
+  const g = st.game!;
+  const rivalries = [...g.rivalries].sort((a, b) => b.intensity - a.intensity);
+  return (
+    <div className="space-y-5">
+      <Panel title="Rivalidades da liga" right={<span className="font-mono text-[12px] text-dim">{rivalries.length} confrontos monitorados</span>} pad={false}>
+        {rivalries.length === 0 ? (
+          <div className="px-5 py-10 text-center font-mono text-[12.5px] text-faint">Nenhuma rivalidade registrada.</div>
+        ) : (
+          <table className="tbl">
+            <thead><tr><th>Confronto</th><th>Histórico</th><th className="num">Intensidade</th><th className="num">Jogos</th><th className="num">Campanha</th></tr></thead>
+            <tbody>{rivalries.map(r => {
+              const one = teamById(g, r.team1Id); const two = teamById(g, r.team2Id);
+              return <tr key={`${r.team1Id}-${r.team2Id}`}>
+                <td><b>{one.sigla}</b> <span className="text-gold">×</span> <b>{two.sigla}</b><span className="ml-2 text-dim">{one.nome} · {two.nome}</span></td>
+                <td className="text-dim">{r.history}</td>
+                <td className="num"><span className="text-blood">{'★'.repeat(Math.min(10, r.intensity))}</span><span className="text-faint">{'★'.repeat(Math.max(0, 10 - r.intensity))}</span></td>
+                <td className="num">{r.gamesPlayed}</td>
+                <td className="num font-mono text-ink">{r.team1Wins}–{r.team2Wins}{r.draws ? `–${r.draws}` : ''}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        )}
+      </Panel>
+      <p className="font-mono text-[11.5px] text-faint">Rivalidades divisionais elevam a intensidade, o público e a atenção da mídia. Veteranos respondem melhor à pressão; jogadores jovens podem sentir o peso do clássico.</p>
+    </div>
+  );
+}
+
+export function StorylinesScreen() {
+  const { st } = useGame();
+  const g = st.game!;
+  const stories = g.seasonStorylines;
+  return (
+    <div className="space-y-5">
+      <Panel title="Narrativas da temporada" right={<span className="font-mono text-[12px] text-dim">Semana {g.settings.semana}</span>}>
+        {stories.length === 0 ? <div className="py-8 text-center font-mono text-[12.5px] text-faint">A temporada ainda não criou uma narrativa dominante.</div> : <div className="grid gap-3 md:grid-cols-2">{stories.map(story => <article key={story.type} className="border border-line2 bg-panel2 p-4"><div className="flex items-start justify-between gap-3"><h2 className="font-disp text-[18px] font-bold uppercase text-goldhi">{story.description}</h2><span className="tag shrink-0 border-ice/60 text-ice">{story.weeksActive} sem.</span></div><div className="mt-3 flex flex-wrap gap-1.5">{story.affectedTeams.map(teamId => { const team = teamById(g, teamId); return <span key={teamId} className="tag border-line text-dim"><TeamCrest cor={team.cor} cor2={team.cor2} sigla={team.sigla} conf={team.conf} size={15} /> {team.sigla}</span>; })}</div></article>)}</div>}
+      </Panel>
+      <p className="font-mono text-[11.5px] text-faint">As narrativas são recalculadas semanalmente conforme campanha, estatísticas e desempenho recente.</p>
+    </div>
+  );
+}
+
+const comparePositions: Player['pos'][] = ['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S', 'K', 'P'];
+
+export function PowerRankingsScreen() {
+  const { st } = useGame();
+  const g = st.game!;
+  const current = [...g.powerRankings].filter(snapshot => snapshot.season === g.settings.temporada).sort((a, b) => b.week - a.week)[0];
+  const previous = current ? [...g.powerRankings].find(snapshot => snapshot.season === current.season && snapshot.week === current.week - 1) : undefined;
+  const previousRanks = new Map((previous?.entries ?? []).map(entry => [entry.teamId, entry.rank]));
+  const entries = current?.entries ?? [];
+  return (
+    <div className="space-y-5">
+      <Panel title="Power Rankings" right={<span className="font-mono text-[12px] text-dim">{current ? `Semana ${current.week}` : 'Aguardando a primeira semana'}</span>} pad={false}>
+        {!current ? (
+          <div className="px-5 py-10 text-center font-mono text-[12.5px] text-faint">Simule uma semana para publicar o primeiro ranking de poder.</div>
+        ) : (
+          <table className="tbl">
+            <thead><tr><th className="num">#</th><th>Franquia</th><th className="num">Score</th><th className="num">Semana anterior</th><th>Movimento</th></tr></thead>
+            <tbody>{entries.map((entry: PowerRankingEntry) => {
+              const team = teamById(g, entry.teamId);
+              const oldRank = previousRanks.get(entry.teamId);
+              const movement = oldRank == null ? null : oldRank - entry.rank;
+              return <tr key={entry.teamId} style={entry.teamId === g.userTeam ? { background: 'rgba(240,180,41,0.08)' } : undefined}>
+                <td className={`num font-disp text-[20px] font-bold ${entry.rank <= 3 ? 'text-goldhi' : 'text-dim'}`}>{entry.rank}</td>
+                <td><span className="mr-2 inline-flex align-middle"><TeamCrest cor={team.cor} cor2={team.cor2} sigla={team.sigla} conf={team.conf} size={24} /></span><b>{team.sigla}</b> <span className="text-dim">{team.cidade} {team.nome}</span></td>
+                <td className="num font-mono text-goldhi">{entry.score.toFixed(1)}</td>
+                <td className="num font-mono text-dim">{oldRank ?? '—'}</td>
+                <td className={movement == null ? 'text-faint' : movement > 0 ? 'text-grass' : movement < 0 ? 'text-blood' : 'text-dim'}>{movement == null ? 'NOVO' : movement > 0 ? `▲ ${movement}` : movement < 0 ? `▼ ${Math.abs(movement)}` : '—'}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        )}
+
+      </Panel>
+      <p className="font-mono text-[11.5px] text-faint">O score combina aproveitamento, diferencial de pontos, força do calendário e desempenho nos últimos três jogos.</p>
+    </div>
+  );
+}
+
+export function TeamComparatorScreen() {
+  const { st } = useGame();
+  const g = st.game!;
+  const [leftId, setLeftId] = useState(g.userTeam);
+  const [rightId, setRightId] = useState(g.teams.find(t => t.id !== g.userTeam)?.id ?? g.teams[1].id);
+  const left = teamById(g, leftId); const right = teamById(g, rightId);
+  const leftPlayers = playersOf(g, leftId); const rightPlayers = playersOf(g, rightId);
+  const leftStats = g.teamSeasonStats.find(s => s.teamId === leftId);
+  const rightStats = g.teamSeasonStats.find(s => s.teamId === rightId);
+  const stats = [
+    ['Pontos', leftStats?.pointsScored ?? 0, rightStats?.pointsScored ?? 0],
+    ['Jardas', leftStats?.totalYards ?? 0, rightStats?.totalYards ?? 0],
+    ['Turnovers', leftStats?.turnovers ?? 0, rightStats?.turnovers ?? 0],
+  ] as const;
+  const rating = (players: Player[], positions: Player['pos'][]) => {
+    const group = players.filter(p => positions.includes(p.pos) && p.status !== 'PS');
+    return group.length ? Math.round(group.reduce((sum, p) => sum + p.ovr, 0) / group.length) : 0;
+  };
+  const streak = (teamId: string) => {
+    const games = g.matches.filter(m => m.jogada && (m.casa === teamId || m.fora === teamId)).sort((a, b) => b.rodada - a.rodada);
+    if (!games.length) return '—';
+    const first = games[0]; const home = first.casa === teamId;
+    const result = home ? (first.placarCasa! > first.placarFora! ? 'V' : first.placarCasa! < first.placarFora! ? 'D' : 'E') : (first.placarFora! > first.placarCasa! ? 'V' : first.placarFora! < first.placarCasa! ? 'D' : 'E');
+    let count = 0;
+    for (const game of games) {
+      const isHome = game.casa === teamId;
+      const current = isHome ? (game.placarCasa! > game.placarFora! ? 'V' : game.placarCasa! < game.placarFora! ? 'D' : 'E') : (game.placarFora! > game.placarCasa! ? 'V' : game.placarFora! < game.placarCasa! ? 'D' : 'E');
+      if (current !== result) break;
+      count++;
+    }
+    return `${result}${count}`;
+  };
+  const rivalry = g.rivalries.find(r => (r.team1Id === leftId && r.team2Id === rightId) || (r.team1Id === rightId && r.team2Id === leftId));
+  const comparisonBar = (label: string, a: number, b: number, max = Math.max(a, b, 1)) => (
+    <div className="py-2">
+      <div className="mb-1 flex justify-between font-mono text-[11px] text-dim"><span>{label}</span><span>{a} <span className="text-faint">×</span> {b}</span></div>
+      <div className="flex h-2 gap-1"><i className="bg-gold" style={{ width: `${(a / max) * 50}%` }} /><i className="ml-auto bg-ice" style={{ width: `${(b / max) * 50}%` }} /></div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <Panel title="Comparador Head-to-Head" right={<span className="font-mono text-[12px] text-dim">pré-jogo</span>}>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-end">
+          <select value={leftId} onChange={e => setLeftId(e.target.value)} className="border border-line bg-panel2 px-2.5 py-2 font-disp text-[15px] font-semibold uppercase text-ink">{g.teams.map(t => <option key={t.id} value={t.id}>{t.sigla} · {t.cidade} {t.nome}</option>)}</select>
+          <span className="font-disp text-[20px] font-extrabold text-gold">VS</span>
+          <select value={rightId} onChange={e => setRightId(e.target.value)} className="border border-line bg-panel2 px-2.5 py-2 font-disp text-[15px] font-semibold uppercase text-ink">{g.teams.map(t => <option key={t.id} value={t.id}>{t.sigla} · {t.cidade} {t.nome}</option>)}</select>
+        </div>
+      </Panel>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {[[left, leftPlayers], [right, rightPlayers]].map(([team, players], index) => {
+          const currentTeam = team as typeof left; const currentPlayers = players as Player[];
+          return <Panel key={currentTeam.id} title={currentTeam.sigla} right={<TeamCrest cor={currentTeam.cor} cor2={currentTeam.cor2} sigla={currentTeam.sigla} conf={currentTeam.conf} size={34} />}>
+            <div className="grid grid-cols-3 gap-2 text-center font-mono text-[11px]"><div><b className="block font-disp text-[26px] text-goldhi">{teamStrength(g, currentTeam.id)}</b>FORÇA</div><div><b className="block font-disp text-[26px] text-ink">{currentTeam.moral}</b>MORAL</div><div><b className="block font-disp text-[26px] text-grass">{streak(currentTeam.id)}</b>STREAK</div></div>
+            <div className="mt-3 font-mono text-[11.5px] text-dim">{currentPlayers.filter(p => p.status !== 'PS').length} ativos · {currentPlayers.filter(p => p.lesao > 0).length} lesionados</div>
+          </Panel>;
+        })}
+      </div>
+
+      <Panel title="Ratings médios por unidade">
+        {comparisonBar('Ataque', rating(leftPlayers, ['QB', 'RB', 'WR', 'TE', 'OL']), rating(rightPlayers, ['QB', 'RB', 'WR', 'TE', 'OL']))}
+        {comparisonBar('Defesa', rating(leftPlayers, ['DL', 'LB', 'CB', 'S']), rating(rightPlayers, ['DL', 'LB', 'CB', 'S']))}
+      </Panel>
+
+      <Panel title="Comparativo da temporada" pad={false}>
+        <div className="grid gap-2 divide-y divide-line2 px-4 md:grid-cols-3 md:divide-x md:divide-y-0">{stats.map(([label, a, b]) => <div key={label} className="px-3 py-2">{comparisonBar(label, a, b)}</div>)}</div>
+      </Panel>
+
+      <Panel title="Matchup por posição" pad={false}>
+        <table className="tbl"><thead><tr><th>POS</th><th>{left.sigla}</th><th className="num">OVR</th><th className="text-center">VS</th><th>{right.sigla}</th><th className="num">OVR</th></tr></thead><tbody>{comparePositions.map(pos => { const lp = leftPlayers.filter(p => p.pos === pos && p.status !== 'PS').sort((a, b) => b.ovr - a.ovr)[0]; const rp = rightPlayers.filter(p => p.pos === pos && p.status !== 'PS').sort((a, b) => b.ovr - a.ovr)[0]; return <tr key={pos}><td><b>{pos}</b></td><td>{lp?.nome ?? '—'}</td><td className="num"><Ovr v={lp?.ovr ?? 0} /></td><td className="text-center text-gold">×</td><td>{rp?.nome ?? '—'}</td><td className="num"><Ovr v={rp?.ovr ?? 0} /></td></tr>; })}</tbody></table>
+      </Panel>
+
+      <Panel title="Histórico do confronto">
+        {rivalry ? <div className="grid grid-cols-3 gap-2 text-center font-mono"><div><b className="block font-disp text-[28px] text-goldhi">{rivalry.team1Id === leftId ? rivalry.team1Wins : rivalry.team2Wins}</b>{left.sigla}</div><div><b className="block font-disp text-[28px] text-dim">{rivalry.draws}</b>EMPATES</div><div><b className="block font-disp text-[28px] text-ice">{rivalry.team1Id === rightId ? rivalry.team1Wins : rivalry.team2Wins}</b>{right.sigla}</div></div> : <p className="font-mono text-[12px] text-faint">Nenhum histórico registrado.</p>}
+      </Panel>
+    </div>
+  );
+}
+
 /* ============================ CLASSIFICAÇÃO ============================ */
 export function StandingsScreen() {
   const { st } = useGame();
@@ -167,6 +329,8 @@ export function FinanceScreen() {
   const over = folha - cap;
   const top = [...playersOf(g, t.id)].sort((a, b) => b.salario - a.salario).slice(0, 10);
   const expirando = playersOf(g, t.id).filter(p => p.contrato === 1 && p.status !== 'PS').sort((a, b) => b.ovr - a.ovr);
+  const homeGames = g.matches.filter(m => m.casa === t.id && m.jogada).sort((a, b) => b.rodada - a.rodada);
+  const receitaTotal = homeGames.reduce((sum, m) => sum + (m.receitaCasa ?? 0), 0);
 
   return (
     <div className="space-y-5">
@@ -213,6 +377,27 @@ export function FinanceScreen() {
           <div className="mt-1 font-mono text-[19px] font-bold tabular-nums" style={{ color: over > 0 ? 'var(--color-blood)' : 'var(--color-grass)' }}>{fmtM(Math.round((cap - folha) * 10) / 10)}</div>
         </div>
       </div>
+
+      <Panel title="Receita por jogo" pad={false} right={<span className="font-mono text-[12px] text-goldhi">Total: {fmtM(Math.round(receitaTotal * 100) / 100)}</span>}>
+        {homeGames.length === 0 ? (
+          <p className="px-4 py-5 font-mono text-[12.5px] text-faint">Nenhum jogo em casa foi concluído.</p>
+        ) : (
+          <table className="tbl">
+            <thead><tr><th>Jogo</th><th>Adversário</th><th className="num">Público</th><th className="num">Bilheteria</th><th className="num">TV</th><th className="num">Total</th></tr></thead>
+            <tbody>{homeGames.map(m => {
+              const opponent = teamById(g, m.fora);
+              return <tr key={m.id}>
+                <td className="font-mono text-dim">Sem. {m.rodada}</td>
+                <td><b>{opponent.sigla}</b> {opponent.cidade} {opponent.nome}</td>
+                <td className="num">{m.publico ? m.publico.toLocaleString('pt-BR') : '—'}</td>
+                <td className="num text-goldhi">{m.receitaBilheteria != null ? fmtM(m.receitaBilheteria) : '—'}</td>
+                <td className="num text-ice">{m.receitaTV != null ? fmtM(m.receitaTV) : '—'}</td>
+                <td className="num font-bold text-grass">{m.receitaCasa != null ? fmtM(m.receitaCasa) : '—'}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        )}
+      </Panel>
 
       {over > 0 && (
         <div className="panel border-blood/50 px-4 py-3 font-mono text-[12.5px] text-blood">

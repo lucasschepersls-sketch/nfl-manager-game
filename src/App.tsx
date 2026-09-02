@@ -8,8 +8,8 @@ import StartScreen from './screens/Start';
 import MatchScreen from './screens/Match';
 import StatsScreen from './screens/Stats';
 import { ClubHomeScreen } from './screens/Club';
-import { RosterScreen, TacticsScreen, MedicalScreen } from './screens/Team';
-import { ScheduleScreen, StandingsScreen, FinanceScreen } from './screens/League';
+import { RosterScreen, TacticsScreen, MedicalScreen, LeagueRostersScreen } from './screens/Team';
+import { ScheduleScreen, StandingsScreen, FinanceScreen, RivalriesScreen, TeamComparatorScreen, PowerRankingsScreen, StorylinesScreen } from './screens/League';
 import { MarketScreen } from './screens/Market';
 import { DraftScreen } from './screens/Draft';
 import { OffseasonScreen } from './screens/Offseason';
@@ -18,6 +18,7 @@ import { NegotiationsScreen } from './screens/Negotiations';
 import { TradesScreen } from './screens/Trades';
 import { WeekLeagueScreen } from './screens/WeekLeague';
 import { ProBowlScreen } from './screens/ProBowl';
+import { HallOfFameScreen } from './screens/HallOfFame';
 
 /* ---------- navegação ---------- */
 const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }[] = [
@@ -33,6 +34,12 @@ const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }
   { s: 'calendario-liga', label: 'Semana da Liga', icon: 'grid', grupo: 'LIGA' },
   { s: 'classificacao', label: 'Classificação', icon: 'standings', grupo: 'LIGA' },
   { s: 'probowl', label: 'Pro Bowl', icon: 'trophy', grupo: 'LIGA' },
+  { s: 'hall-of-fame', label: 'Hall of Fame', icon: 'trophy', grupo: 'LIGA' },
+  { s: 'rivalidades', label: 'Rivalidades', icon: 'trophy', grupo: 'LIGA' },
+  { s: 'elencos-liga', label: 'Elencos da Liga', icon: 'roster', grupo: 'LIGA' },
+  { s: 'comparador', label: 'Comparador H2H', icon: 'standings', grupo: 'LIGA' },
+  { s: 'power-rankings', label: 'Power Rankings', icon: 'standings', grupo: 'LIGA' },
+  { s: 'storylines', label: 'Narrativas da Temporada', icon: 'grid', grupo: 'LIGA' },
   { s: 'scouting', label: 'Scouting', icon: 'scout', grupo: 'LIGA' },
   { s: 'draft', label: 'Draft', icon: 'draft', grupo: 'LIGA' },
   { s: 'stats-teams', label: 'Ranking Times', icon: 'standings', grupo: 'RANKINGS' },
@@ -164,6 +171,12 @@ function Content() {
     case 'calendario-liga': return <WeekLeagueScreen />;
     case 'classificacao': return <StandingsScreen />;
     case 'probowl': return <ProBowlScreen />;
+    case 'hall-of-fame': return <HallOfFameScreen />;
+    case 'rivalidades': return <RivalriesScreen />;
+    case 'elencos-liga': return <LeagueRostersScreen />;
+    case 'comparador': return <TeamComparatorScreen />;
+    case 'power-rankings': return <PowerRankingsScreen />;
+    case 'storylines': return <StorylinesScreen />;
     case 'scouting': return <ScoutingScreen />;
     case 'draft': return <DraftScreen />;
     case 'offseason': return <OffseasonScreen />;

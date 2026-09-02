@@ -67,6 +67,23 @@ export function makeContract(o: ContractOffer): PlayerContract {
 }
 export const offerCapHit = (o: ContractOffer): number => makeContract(o).capHits[0];
 
+export function restructureContract(p: Player): { ok: boolean; msg: string; saved?: number } {
+  if (!p.contract || p.contract.capHits.length < 2) return { ok: false, msg: 'O contrato precisa ter pelo menos 2 anos restantes.' };
+  if (p.contract.restructured) return { ok: false, msg: 'Este contrato já foi reestruturado.' };
+  const signingBonus = p.salario * 0.6;
+  const yearsRemaining = p.contract.capHits.length;
+  const bonusPerYear = signingBonus / yearsRemaining;
+  const oldHit = p.contract.capHits[0];
+  p.contract.capHits[0] = Math.round((p.salario * 0.4 + bonusPerYear) * 10) / 10;
+  for (let i = 1; i < yearsRemaining; i++) {
+    p.contract.capHits[i] = Math.round((p.contract.capHits[i] + bonusPerYear) * 10) / 10;
+  }
+  p.contract.bonus = Math.round((p.contract.bonus + signingBonus) * 10) / 10;
+  p.contract.guaranteed = Math.round((p.contract.guaranteed + signingBonus) * 10) / 10;
+  p.contract.restructured = true;
+  return { ok: true, msg: `${p.nome}: cap do ano atual caiu ${Math.max(0, Math.round((oldHit - p.contract.capHits[0]) * 10) / 10)}M.`, saved: oldHit - p.contract.capHits[0] };
+}
+
 /* ---------- expectativas do jogador ---------- */
 export interface Expectations {
   anos: number;

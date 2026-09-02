@@ -24,6 +24,8 @@ export function ClubHomeScreen() {
   const oppId = proxima ? (proxima.casa === g.userTeam ? proxima.fora : proxima.casa)
     : proximoPO ? (proximoPO.casa === g.userTeam ? proximoPO.fora : proximoPO.casa) : null;
   const opp = oppId ? teamById(g, oppId) : null;
+  const opponentReport = oppId ? g.opponentScouting.find(r => r.teamId === oppId && r.season === g.settings.temporada) : undefined;
+  const reportPlayers = opponentReport?.keyPlayers.map(id => g.players.find(p => p.id === id)).filter(Boolean) ?? [];
   const emCasa = proxima ? proxima.casa === g.userTeam : proximoPO ? proximoPO.casa === g.userTeam : false;
 
   const st_ = standings(g);
@@ -90,6 +92,25 @@ export function ClubHomeScreen() {
         )}
       </div>
 
+      {opp && fase !== 'OFF' && (
+        <Panel title="Análise adversária" right={<span className="font-mono text-[11px] text-gold">1 ponto</span>}>
+          {!opponentReport ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="font-mono text-[12px] text-dim">Estude {opp.cidade} {opp.nome} antes do kickoff e ganhe +3% na performance defensiva.</p>
+              <button className="btn btn-ghost border-ice/60 text-ice" disabled={g.scoutBudget < 1} onClick={() => dispatch({ type: 'STUDY_OPPONENT', teamId: opp.id })}>
+                {g.scoutBudget < 1 ? 'Sem pontos' : 'Estudar adversário'}
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-3">
+              <div><div className="font-mono text-[10px] uppercase tracking-wider text-faint">Forças</div>{opponentReport.strengths.map(item => <div key={item} className="mt-1 text-[12px] text-blood">+ {item}</div>)}</div>
+              <div><div className="font-mono text-[10px] uppercase tracking-wider text-faint">Fraquezas</div>{opponentReport.weaknesses.map(item => <div key={item} className="mt-1 text-[12px] text-grass">− {item}</div>)}</div>
+              <div><div className="font-mono text-[10px] uppercase tracking-wider text-faint">Tendências · relatório {opponentReport.reports}</div><div className="mt-1 font-mono text-[12px] text-ink">Passe {opponentReport.passRate}% · Corrida na 1ª {opponentReport.runOnFirstDown}%</div><div className="mt-1 text-[12px] text-dim">Marcar: {reportPlayers.map(player => player?.nome).join(', ')}</div></div>
+            </div>
+          )}
+        </Panel>
+      )}
+
       {/* momento da franquia: REBUILD ↔ CONTENDER + química */}
       <FranchiseMomentPanel g={g} teamId={g.userTeam} />
 
@@ -155,7 +176,7 @@ export function ClubHomeScreen() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <MiniStandings />
-        <Panel title="Central de notícias" pad={false}>
+        <Panel title="Manchetes da semana" pad={false}>
           <div className="max-h-[340px] overflow-y-auto">
             {g.news.slice(0, 20).map(n => (
               <div key={n.id} className="flex gap-3 border-b border-line2 px-4 py-2.5">

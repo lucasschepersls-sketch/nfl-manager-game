@@ -3,7 +3,7 @@ import { useGame } from '../state/store';
 import { teamById, playersOf, staffOf, capUsed, fmtM } from '../game/season';
 import { ATTR_KEYS, ATTR_FULL, UNIT_OF, POS_LABEL } from '../game/data';
 import { Panel, PosBadge, Ovr, Bar, AttrCell } from '../components/ui';
-import type { AttrKey, Focus, Player, Unit } from '../game/types';
+import type { AttrKey, Focus, Player, PlaybookStyle, Unit } from '../game/types';
 
 type SortKey = 'pos' | 'nome' | 'idade' | 'ovr' | 'salario' | 'contrato' | AttrKey;
 
@@ -81,6 +81,7 @@ export function RosterScreen() {
                 {th('nome', 'Jogador', false, 'Nome')}
                 {th('idade', 'Idade', true, 'Idade — jovens evoluem com tempo de jogo, veteranos declinam')}
                 {th('ovr', 'OVR', true, 'Overall — média ponderada dos atributos (85+ elite, 75+ titular)')}
+                <th key="clutch" className="num" title="Clutch — resposta em quarto período e jogo de até uma posse">CLT</th>
                 {ATTR_KEYS.map(a => th(a.k as AttrKey, a.s, true, ATTR_FULL[a.k]))}
                 {th('salario', 'Salário', true, 'Salário-base anual (cap hit inclui bônus amortizado)')}
                 {th('contrato', 'Contr.', true, 'Anos restantes de contrato — 1 ano = pode renovar ou usar tag')}
@@ -100,6 +101,7 @@ export function RosterScreen() {
                   </td>
                   <td className="num">{p.idade}</td>
                   <td className="num"><Ovr v={p.ovr} pot={p.rookie ? p.pot : undefined} /></td>
+                  <td className={`num font-bold ${p.clutchRating >= 80 ? 'text-grass' : p.clutchRating <= 40 ? 'text-blood' : 'text-goldhi'}`}>{p.clutchRating}</td>
                   {ATTR_KEYS.map(a => <td key={a.k} className="num"><AttrCell v={p.attrs[a.k]} /></td>)}
                   <td className="num text-goldhi">{fmtM(p.salario)}</td>
                   <td className="num">{p.contrato}a{p.contrato === 1 ? ' ⚠' : ''}</td>
@@ -154,6 +156,13 @@ const FOCUS_INFO: Record<Focus, { label: string; desc: string }> = {
   FISICO: { label: 'Condicionamento', desc: '+Resistência e +Velocidade' },
 };
 
+const PLAYBOOK_INFO: Record<PlaybookStyle, { label: string; desc: string }> = {
+  pass_heavy: { label: 'Pass-heavy', desc: '+10% passe · -5% corrida · QB +3 rating' },
+  run_heavy: { label: 'Run-heavy', desc: '+10% corrida · -5% passe · +2 min posse' },
+  balanced: { label: 'Balanced', desc: 'Equilíbrio entre passe e jogo terrestre' },
+  west_coast: { label: 'West Coast', desc: 'Passe curto · eficiência e controle' },
+};
+
 export function TacticsScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
@@ -189,7 +198,21 @@ export function TacticsScreen() {
           </label>
         </Panel>
 
-        <Panel title="Foco de treinamento (offseason)">
+        <Panel title="Playbook da franquia">
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.keys(PLAYBOOK_INFO) as PlaybookStyle[]).map(playbook => (
+              <button key={playbook}
+                className={`btn flex-col items-start ${t.tactics.playbook === playbook ? 'btn-gold' : 'btn-ghost'}`}
+                style={{ textTransform: 'none', fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: 0 }}
+                onClick={() => dispatch({ type: 'PLAYBOOK', playbook })}>
+                <b className="font-disp text-[14px] uppercase tracking-wider">{PLAYBOOK_INFO[playbook].label}</b>
+                <span className="text-[11px] opacity-80">{PLAYBOOK_INFO[playbook].desc}</span>
+              </button>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Centro de treinamento">
           <div className="grid grid-cols-2 gap-2">
             {(Object.keys(FOCUS_INFO) as Focus[]).map(f => (
               <button key={f}
@@ -200,6 +223,19 @@ export function TacticsScreen() {
                 <span className="text-[11px] opacity-80">{FOCUS_INFO[f].desc}</span>
               </button>
             ))}
+          </div>
+          <div className="mt-4 border-t border-line2 pt-3">
+            <div className="mb-2 font-disp text-[13px] font-semibold uppercase tracking-wider text-faint">Intensidade semanal</div>
+            <div className="grid grid-cols-3 gap-2">
+              {(['LEVE', 'NORMAL', 'INTENSO'] as const).map(intensity => (
+                <button key={intensity}
+                  className={`btn ${g.trainingState.intensity === intensity ? 'btn-gold' : 'btn-ghost'}`}
+                  onClick={() => dispatch({ type: 'TRAINING_INTENSITY', intensity })}>
+                  {intensity}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 font-mono text-[11px] text-faint">Jovens precisam de 8 jogos para desbloquear evolução; intensidade alta acelera o desenvolvimento.</div>
           </div>
         </Panel>
       </div>
@@ -257,7 +293,7 @@ export function MedicalScreen() {
         ) : (
           <table className="tbl">
             <thead>
-              <tr><th>POS</th><th>Jogador</th><th>Diagnóstico</th><th className="num">Fora por</th><th className="num">OVR</th><th className="num">Salário</th></tr>
+              <tr><th>POS</th><th>Jogador</th><th>Diagnóstico</th><th className="num">Retorno</th><th>Recuperação</th><th className="num">OVR</th><th className="num">Salário</th></tr>
             </thead>
             <tbody>
               {dm.map(p => (
@@ -266,6 +302,21 @@ export function MedicalScreen() {
                   <td>{p.nome}{p.status === 'TIT' && <span className="tag ml-2 border-grass/60 text-grass">TIT</span>}</td>
                   <td className="text-blood">{p.lesaoTipo}</td>
                   <td className="num font-bold text-goldhi">{p.lesao} sem.</td>
+                  <td className="min-w-[150px]">
+                    {(() => {
+                      const total = Math.max(p.lesaoTotal ?? p.lesao, 1);
+                      const recovery = Math.round((1 - p.lesao / total) * 100);
+                      return (
+                        <div title={`${recovery}% recuperado · ${p.lesao} semana(s) restante(s)`}>
+                          <div className="mb-1 flex justify-between font-mono text-[11px]">
+                            <span className={recovery >= 75 ? 'text-grass' : 'text-dim'}>{recovery}%</span>
+                            <span className="text-faint">{total} sem. total</span>
+                          </div>
+                          <Bar pct={recovery} color={recovery >= 75 ? 'var(--color-grass)' : 'var(--color-blood)'} h={6} />
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td className="num"><Ovr v={p.ovr} /></td>
                   <td className="num text-goldhi">{fmtM(p.salario)}</td>
                 </tr>
@@ -277,6 +328,70 @@ export function MedicalScreen() {
       <p className="font-mono text-[11.5px] text-faint">
         Lesões ocorrem jogada a jogada (corridas e sacks são os lances de risco, agravados pela fadiga). A contagem regressiva acontece a cada semana simulada.
       </p>
+    </div>
+  );
+}
+
+type LeagueRosterSort = 'rating' | 'idade' | 'contrato';
+
+export function LeagueRostersScreen() {
+  const { st } = useGame();
+  const g = st.game!;
+  const [teamId, setTeamId] = useState(g.userTeam);
+  const [position, setPosition] = useState<'ALL' | Player['pos']>('ALL');
+  const [sort, setSort] = useState<LeagueRosterSort>('rating');
+  const team = teamById(g, teamId);
+  const roster = useMemo(() => {
+    const players = playersOf(g, teamId).filter(player => position === 'ALL' || player.pos === position);
+    return [...players].sort((a, b) => {
+      if (sort === 'idade') return a.idade - b.idade || b.ovr - a.ovr;
+      if (sort === 'contrato') return a.contrato - b.contrato || b.ovr - a.ovr;
+      return b.ovr - a.ovr || a.idade - b.idade;
+    });
+  }, [g, teamId, position, sort]);
+  const stats = (player: Player) => `${player.stats.jogos}J · ${player.stats.py + player.stats.ry + player.stats.recYds} jardas · ${player.stats.ptd + player.stats.rtd + player.stats.recTD} TD`;
+
+  return (
+    <div className="space-y-5">
+      <Panel title="Elencos da Liga" right={<span className="font-mono text-[12px] text-dim">{roster.length} jogadores</span>}>
+        <div className="grid gap-3 md:grid-cols-[1fr_180px_auto] md:items-end">
+          <label className="block font-mono text-[11px] uppercase tracking-wider text-faint">
+            Franquia
+            <select value={teamId} onChange={event => setTeamId(event.target.value)} className="mt-1 block w-full border border-line bg-panel2 px-2.5 py-2 font-disp text-[15px] font-semibold uppercase text-ink outline-none focus:border-gold">
+              {g.teams.map(option => <option key={option.id} value={option.id}>{option.sigla} · {option.cidade} {option.nome}</option>)}
+            </select>
+          </label>
+          <label className="block font-mono text-[11px] uppercase tracking-wider text-faint">
+            Posição
+            <select value={position} onChange={event => setPosition(event.target.value as typeof position)} className="mt-1 block w-full border border-line bg-panel2 px-2.5 py-2 font-disp text-[15px] font-semibold uppercase text-ink outline-none focus:border-gold">
+              <option value="ALL">Todas</option>
+              {(['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S', 'K', 'P'] as const).map(pos => <option key={pos} value={pos}>{pos}</option>)}
+            </select>
+          </label>
+          <div className="flex gap-1.5">
+            {([['rating', 'Rating'], ['idade', 'Idade'], ['contrato', 'Contrato']] as const).map(([key, label]) => (
+              <button key={key} className={`btn btn-sm ${sort === key ? 'btn-gold' : 'btn-ghost'}`} onClick={() => setSort(key)}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title={`${team.cidade} ${team.nome}`} pad={false} right={<span className="font-mono text-[12px] text-dim">{team.conf} · Divisão {team.div + 1}</span>}>
+        <div className="overflow-x-auto">
+          <table className="tbl">
+            <thead><tr><th>POS</th><th>Jogador</th><th className="num">Idade</th><th className="num">OVR</th><th>Contrato</th><th>Stats da temporada</th><th>Status</th></tr></thead>
+            <tbody>{roster.map(player => <tr key={player.id} className={player.lesao > 0 ? 'opacity-65' : undefined}>
+              <td><PosBadge pos={player.pos} /></td>
+              <td><b>{player.nome}</b>{player.status === 'TIT' && <span className="tag ml-2 border-grass/60 text-grass">TIT</span>}</td>
+              <td className="num">{player.idade}</td>
+              <td className="num"><Ovr v={player.ovr} /></td>
+              <td><span className="font-mono text-ink">{player.contrato} ano{player.contrato === 1 ? '' : 's'}</span><span className="ml-2 font-mono text-[11px] text-goldhi">{fmtM(player.salario)}</span></td>
+              <td className="font-mono text-[11.5px] text-dim">{stats(player)}</td>
+              <td>{player.lesao > 0 ? <span className="tag border-blood/60 text-blood">Lesionado · {player.lesao} sem.</span> : <span className="tag border-grass/60 text-grass">Saudável</span>}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </Panel>
     </div>
   );
 }

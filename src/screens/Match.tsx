@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from '../state/store';
 import { teamById, crowdPressure } from '../game/season';
-import { Panel, TeamCrest, PosBadge } from '../components/ui';
+import { Panel, TeamCrest, PosBadge, Bar } from '../components/ui';
 import type { GameState, LineTipo, LiveEvent, PlayerLine, Team } from '../game/types';
 
 const LINE_STYLE: Record<LineTipo, string> = {
@@ -175,10 +175,22 @@ export default function MatchScreen() {
   }, [done, live.length, speed]);
 
   const cur = useMemo(() => derive(live, idx), [live, idx]);
+  const momentum = useMemo(() => {
+    const latest = [...live.slice(0, idx)].reverse().find(event => event.momentumCasa != null);
+    return { casa: latest?.momentumCasa ?? 50, fora: latest?.momentumFora ?? 50, result: latest?.momentumResult ?? 'kickoff' };
+  }, [live, idx]);
   useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [idx, tab]);
 
   // estatísticas acumuladas ao vivo (não o box final)
   const liveStats = useMemo(() => {
+    if (done && r?.rich) {
+      return {
+        rush: { casa: r.rich.casa.rushYds, fora: r.rich.fora.rushYds },
+        pass: { casa: r.rich.casa.passYds, fora: r.rich.fora.passYds },
+        tos: { casa: r.rich.casa.tos, fora: r.rich.fora.tos },
+        faltas: { casa: r.rich.casa.pens, fora: r.rich.fora.pens },
+      };
+    }
     const s = {
       rush: { casa: 0, fora: 0 } as Side2, pass: { casa: 0, fora: 0 } as Side2,
       tos: { casa: 0, fora: 0 } as Side2, faltas: { casa: 0, fora: 0 } as Side2,
@@ -297,6 +309,8 @@ export default function MatchScreen() {
 
       <Field st={cur} casa={casa} fora={fora} />
 
+      <MomentumPanel casa={casa} fora={fora} values={momentum} />
+
       <div className="panel">
         <div className="flex border-b border-line">
           {([['narracao', 'Narração'], ['stats', 'Ao Vivo'], ['box', 'Box Score']] as const).map(([k, l]) => (
@@ -319,6 +333,17 @@ export default function MatchScreen() {
           <BoxScoreView r={r} casa={casa} fora={fora} done={done} />
         )}
       </div>
+    </div>
+  );
+}
+
+function MomentumPanel({ casa, fora, values }: { casa: Team; fora: Team; values: { casa: number; fora: number; result: string } }) {
+  const tone = (value: number) => value >= 80 ? 'var(--color-grass)' : value <= 20 ? 'var(--color-blood)' : 'var(--color-gold)';
+  const resultLabel: Record<string, string> = { td: 'Touchdown', interception: 'Interceptação', sack: 'Sack', sack_suffered: 'Sack sofrido', turnover: 'Turnover', penalty: 'Penalidade', third_down_conversion: '3ª descida convertida', three_and_out: '3-and-out', kickoff: 'Kickoff' };
+  return (
+    <div className="panel px-4 py-3">
+      <div className="mb-2 flex items-center justify-between"><span className="font-disp text-[14px] font-bold uppercase tracking-wider text-dim">Momentum</span><span className="font-mono text-[11px] text-faint">{resultLabel[values.result] ?? values.result}</span></div>
+      <div className="grid grid-cols-[1fr_38px_1fr] items-center gap-3 font-mono text-[12px]"><div><div className="mb-1 flex justify-between"><span>{casa.sigla}</span><b style={{ color: tone(values.casa) }}>{values.casa}</b></div><Bar pct={values.casa} color={tone(values.casa)} h={9} /></div><span className="text-center text-faint">VS</span><div><div className="mb-1 flex justify-between"><span>{fora.sigla}</span><b style={{ color: tone(values.fora) }}>{values.fora}</b></div><Bar pct={values.fora} color={tone(values.fora)} h={9} /></div></div>
     </div>
   );
 }

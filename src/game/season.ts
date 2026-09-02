@@ -4,7 +4,7 @@
  * ============================================================ */
 
 import type {
-  Conf, ContractOffer, ContractStructure, Focus, GameResult, GameState, Match, Player, Pos, Screen, Staff, Team, TeamBox, TeamSeasonStats,
+  Conf, ContractOffer, ContractStructure, Focus, GameResult, GameState, Match, Player, Pos, PowerRankingEntry, Rivalry, Screen, Staff, Team, TeamBox, TeamSeasonStats,
 } from './types';
 import { zeroStats, zeroTeamStats } from './types';
 import { Rng, clamp, newSeed } from './rng';
@@ -56,6 +56,44 @@ export function teamStrength(s: GameState, teamId: string): number {
 export const pushNews = (s: GameState, rotulo: string, texto: string) => {
   s.news.unshift({ id: Date.now() + Math.floor(Math.random() * 9999), rotulo, texto });
 };
+
+function updateMediaNarratives(s: GameState, results: Match[]): void {
+  const previous = new Map(s.narrativas.map(n => [`${n.type}:${n.affectedPlayerId ?? n.teamId}`, n]));
+  const candidates: GameState['narrativas'] = [];
+  const add = (type: GameState['narrativas'][number]['type'], teamId: string, headline: string, pressureLevel: number, affectedPlayerId?: string) => {
+    const key = `${type}:${affectedPlayerId ?? teamId}`;
+    const old = previous.get(key);
+    candidates.push({ type, teamId, affectedPlayerId, weeksActive: (old?.weeksActive ?? 0) + 1, pressureLevel, headline });
+  };
+
+  const contractPlayer = [...s.players]
+    .filter(p => p.teamId && p.contrato === 1 && p.ovr >= 78)
+    .sort((a, b) => b.ovr - a.ovr)[0];
+  if (contractPlayer) add('contract_year', contractPlayer.teamId!, `${contractPlayer.nome} entra em ano de contrato — cada snap pesa no próximo salário.`, 7, contractPlayer.id);
+
+  const sophomore = [...s.players]
+    .filter(p => p.teamId && !p.rookie && p.jogosCarreira >= 17 && p.jogosCarreira <= 34 && p.ovr >= 72)
+    .sort((a, b) => b.ovr - a.ovr)[0];
+  if (sophomore) add('sophomore_slump', sophomore.teamId!, `${sophomore.nome} enfrenta a cobrança do segundo ano — a liga já descobriu seus atalhos.`, 6, sophomore.id);
+
+  const rookieQb = s.players.find(p => p.teamId && p.pos === 'QB' && p.rookie && p.status === 'TIT');
+  if (rookieQb) add('rookie_qb', rookieQb.teamId!, `${rookieQb.nome} é o QB novato sob escrutínio máximo. Uma interceptação vira manchete.`, 8, rookieQb.id);
+
+  const favorite = [...s.teams].sort((a, b) => teamStrength(s, b.id) - teamStrength(s, a.id))[0];
+  if (favorite && teamStrength(s, favorite.id) >= 84) add('championship_or_bust', favorite.id, `${favorite.cidade} ${favorite.nome}: talento de campeão ou temporada perdida?`, 9);
+
+  s.narrativas = candidates;
+  for (const narrative of candidates) {
+    const firstWeek = narrative.weeksActive === 1;
+    const relevantResult = results.find(m => m.casa === narrative.teamId || m.fora === narrative.teamId);
+    if (firstWeek) pushNews(s, 'MANCHETE', narrative.headline);
+    if (narrative.type === 'championship_or_bust' && relevantResult?.jogada) {
+      const home = relevantResult.casa === narrative.teamId;
+      const won = home ? relevantResult.placarCasa! > relevantResult.placarFora! : relevantResult.placarFora! > relevantResult.placarCasa!;
+      if (!won && relevantResult.placarCasa !== relevantResult.placarFora) pushNews(s, 'PRESSÃO', `${narrative.headline} A derrota aumenta a temperatura nos bastidores.`);
+    }
+  }
+}
 
 /* ============================================================
  * CALENDÁRIO OFICIAL DA NFL — 17 jogos por time
@@ -390,6 +428,57 @@ export function playoffZone(s: GameState, conf: Conf): Set<string> {
   return new Set(conferenceSeeds(s, conf).map(x => x.teamId));
 }
 
+export function generatePowerRankings(s: GameState): PowerRankingEntry[] {
+  const table = standings(s);
+  const scoreFor = (teamId: string) => {
+    const row = table.find(x => x.teamId === teamId)!;
+    const played = s.matches.filter(m => m.jogada && (m.casa === teamId || m.fora === teamId));
+    const opponents = played.map(m => m.casa === teamId ? m.fora : m.casa);
+    const sos = opponents.length ? opponents.reduce((sum, id) => sum + teamStrength(s, id), 0) / opponents.length / 100 : 0.5;
+    const recent = played.slice(-3);
+    const recentPerformance = recent.length ? recent.reduce((sum, m) => {
+      const home = m.casa === teamId;
+      return sum + (home ? (m.placarCasa! > m.placarFora! ? 1 : m.placarCasa === m.placarFora ? 0.5 : 0) : (m.placarFora! > m.placarCasa! ? 1 : m.placarFora === m.placarCasa ? 0.5 : 0));
+    }, 0) / recent.length : 0.5;
+    return row.v / Math.max(1, row.j) * 40 + row.net * 0.1 + sos * 20 + recentPerformance * 30;
+  };
+  return s.teams.map(t => ({ teamId: t.id, rank: 0, score: Math.round(scoreFor(t.id) * 10) / 10 }))
+    .sort((a, b) => b.score - a.score || teamStrength(s, b.teamId) - teamStrength(s, a.teamId))
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
+}
+
+export function recordPowerRankings(s: GameState, week: number): void {
+  if (s.powerRankings.some(snapshot => snapshot.season === s.settings.temporada && snapshot.week === week)) return;
+  s.powerRankings.push({ season: s.settings.temporada, week, entries: generatePowerRankings(s) });
+}
+
+export function updateSeasonStorylines(s: GameState): void {
+  const table = standings(s);
+  const next: GameState['seasonStorylines'] = [];
+  const previous = new Map(s.seasonStorylines.map(story => [story.type, story]));
+  const add = (type: GameState['seasonStorylines'][number]['type'], description: string, affectedTeams: string[]) => {
+    const old = previous.get(type);
+    next.push({ type, description, affectedTeams, weeksActive: (old?.weeksActive ?? 0) + 1 });
+  };
+  for (const conf of ['AFC', 'NFC'] as Conf[]) {
+    const teams = table.filter(row => teamById(s, row.teamId).conf === conf && row.v >= 8);
+    if (teams.length >= 3) add('strong_division', `${conf} domina a temporada: ${teams.length} times já alcançaram 8 vitórias.`, teams.map(row => row.teamId));
+  }
+  const rookie = s.players.filter(p => p.rookie && p.pos === 'QB' && p.teamId && p.stats.py >= 2000 && p.stats.jogos <= 8).sort((a, b) => b.stats.py - a.stats.py)[0];
+  if (rookie) add('rookie_record', `${rookie.nome} está quebrando recordes: ${rookie.stats.py} jardas nas primeiras ${rookie.stats.jogos} partidas.`, [rookie.teamId!]);
+  const historicDefense = s.teams.map(team => {
+    const games = table.find(row => row.teamId === team.id)?.j ?? 0;
+    const stats = s.teamSeasonStats.find(row => row.teamId === team.id);
+    return { team, average: stats && games ? stats.pointsAllowed / games : 99 };
+  }).filter(row => row.average < 15).sort((a, b) => a.average - b.average)[0];
+  if (historicDefense) add('historic_defense', `A defesa dos ${historicDefense.team.nome} permite ${historicDefense.average.toFixed(1)} pontos por jogo — ritmo histórico.`, [historicDefense.team.id]);
+  for (const conf of ['AFC', 'NFC'] as Conf[]) {
+    const leaders = table.filter(row => teamById(s, row.teamId).conf === conf).sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net).slice(0, 3);
+    if (leaders.length === 3 && leaders[0].v === leaders[2].v) add('seed_race', `Corrida pelo #1 seed na ${conf}: três franquias estão empatadas com ${leaders[0].v} vitórias.`, leaders.map(row => row.teamId));
+  }
+  s.seasonStorylines = next;
+}
+
 /* ================= estatísticas acumuladas da temporada ================= */
 /** Retorna (ou cria) o acumulador de estatísticas de uma franquia. */
 export function getTeamStats(s: GameState, teamId: string): TeamSeasonStats {
@@ -408,7 +497,7 @@ export function teamStatsTable(s: GameState): TeamSeasonStats[] {
 /* ================= avanço de semana ================= */
 export interface AdvanceOutcome { match?: GameResult; eliminado?: boolean; }
 
-function mergeStats(s: GameState, r: GameResult) {
+function mergeStats(s: GameState, r: GameResult, importantGame: boolean, rivalry?: Rivalry, playoffGame = false) {
   for (const [pid, delta] of Object.entries(r.statDeltas)) {
     const p = s.players.find(x => x.id === pid);
     if (!p) continue;
@@ -449,14 +538,57 @@ function mergeStats(s: GameState, r: GameResult) {
   }
   for (const inj of r.lesoes) {
     const p = s.players.find(x => x.id === inj.playerId);
-    if (p && p.lesao === 0) { p.lesao = inj.semanas; p.lesaoTipo = inj.tipo; }
+    if (p && p.lesao === 0) { p.lesao = inj.semanas; p.lesaoTotal = inj.semanas; p.lesaoTipo = inj.tipo; }
   }
   const winner = r.placarCasa > r.placarFora ? r.casaId : r.placarFora > r.placarCasa ? r.foraId : null;
   for (const id of [r.casaId, r.foraId]) {
     const t = teamById(s, id);
-    t.moral = clamp(t.moral + (id === winner ? 4 : winner ? -3 : 0), 25, 95);
-    for (const p of playersOf(s, id)) p.moral = clamp(p.moral + (id === winner ? 3 : winner ? -2 : 0), 25, 95);
+    const venceu = id === winner;
+    const perdeu = winner !== null && !venceu;
+    const delta = venceu ? (importantGame ? 5 : 3) : perdeu ? -3 : 0;
+    t.moral = clamp(t.moral + delta, 25, 95);
+    const ultimos = s.matches.filter(m => m.jogada && (m.casa === id || m.fora === id)).slice(-3);
+    const derrotasSeguidas = ultimos.length === 3 && ultimos.every(m => {
+      const emCasa = m.casa === id;
+      return emCasa ? m.placarCasa! < m.placarFora! : m.placarFora! < m.placarCasa!;
+    });
+    const criticaMidia = derrotasSeguidas ? -2 : 0;
+    for (const p of playersOf(s, id)) {
+      let playerDelta = delta + criticaMidia + (rivalry ? 5 : 0);
+      if (t.quimica >= 75) playerDelta += 3;
+      const line = r.rich.lines.find(l => l.id === p.id);
+      if (p.pos === 'QB' && p.status === 'RES' && (line?.snaps ?? 0) > 0) playerDelta -= 10;
+      p.moral = clamp(p.moral + playerDelta, 25, 95);
+    }
   }
+  if (rivalry) {
+    rivalry.gamesPlayed++;
+    if (winner === r.casaId) {
+      if (rivalry.team1Id === r.casaId) rivalry.team1Wins++;
+      else rivalry.team2Wins++;
+    } else if (winner === r.foraId) {
+      if (rivalry.team1Id === r.foraId) rivalry.team1Wins++;
+      else rivalry.team2Wins++;
+    } else rivalry.draws++;
+    rivalry.intensity = Math.min(10, rivalry.intensity + 1);
+    pushNews(s, 'RIVALIDADE', `Clássico de alta tensão: ${teamById(s, r.casaId).sigla} × ${teamById(s, r.foraId).sigla} atraiu atenção máxima da mídia.`);
+  }
+  if (playoffGame) {
+    for (const playerId of r.participantes) {
+      const player = s.players.find(p => p.id === playerId);
+      if (!player) continue;
+      player.clutchRating = clamp(player.clutchRating + 5, 0, 100);
+      if (winner && player.teamId === (winner === r.casaId ? r.casaId : r.foraId))
+        player.clutchRating = clamp(player.clutchRating + 3, 0, 100);
+    }
+  }
+}
+
+function gameRevenue(s: GameState, m: Match, attendance: number): { total: number; tickets: number; tv: number } {
+  const ticketPrice = 0.00008; // $80 por ingresso, valores do jogo em milhões
+  const tickets = Math.round(attendance * ticketPrice * 100) / 100;
+  const tv = Math.round(s.settings.tvDeal * 0.02 * 100) / 100;
+  return { total: Math.round((tickets + tv) * 100) / 100, tickets, tv };
 }
 
 export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome; trainingResults?: { playerId: string; nome: string; improvements: Record<string, number> }[] } {
@@ -467,7 +599,10 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
   const isUser = (m: Match) => m.casa === s.userTeam || m.fora === s.userTeam;
   const weekMatches = s.matches.filter(m => m.fase === fase && m.rodada === semana && !m.jogada);
 
-  for (const p of s.players) if (p.lesao > 0) { p.lesao--; if (p.lesao === 0) p.lesaoTipo = null; }
+  for (const p of s.players) if (p.lesao > 0) {
+    p.lesao--;
+    if (p.lesao === 0) { p.lesaoTipo = null; p.lesaoTotal = 0; }
+  }
 
   const rng = new Rng(newSeed());
   const results: Match[] = [];
@@ -479,13 +614,28 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
 
   for (const m of weekMatches) {
     const user = isUser(m);
+    const rivalry = s.rivalries.find(r =>
+      (r.team1Id === m.casa && r.team2Id === m.fora) || (r.team1Id === m.fora && r.team2Id === m.casa));
+    const opponentScouted = s.opponentScouting.some(r => r.teamId === (m.casa === s.userTeam ? m.fora : m.casa) && r.season === s.settings.temporada);
+    const homeRow = standings(s).find(row => row.teamId === m.casa);
+    const opponentPopular = teamStrength(s, m.fora) >= 84;
+    const attendanceBoost = ((homeRow?.v ?? 0) >= 10 ? 0.10 : 0)
+      + (rivalry ? 0.15 : 0) + (opponentPopular ? 0.05 : 0);
     const engine = new NFLMatchEngine(sideOf(s, m.casa), sideOf(s, m.fora), rng, {
       neutro: fase === 'PO' && semana === 4,
+      rivalry,
+      attendanceBoost,
+      opponentScouted,
     });
     const faseLabel = fase === 'PRE' ? `Pré-temporada, semana ${semana}` : fase === 'REG' ? `Semana ${semana}` : `Playoffs — ${s.bracket?.[semana - 1]?.nome ?? ''}`;
     const r = engine.simulate(m.id, faseLabel);
     m.placarCasa = r.placarCasa; m.placarFora = r.placarFora; m.jogada = true;
-    mergeStats(s, r);
+    m.publico = r.publico;
+    const revenue = gameRevenue(s, m, r.publico);
+    m.receitaBilheteria = revenue.tickets; m.receitaTV = revenue.tv; m.receitaCasa = revenue.total;
+    const homeTeam = teamById(s, m.casa);
+    homeTeam.dinheiro = Math.round((homeTeam.dinheiro + revenue.total) * 100) / 100;
+    mergeStats(s, r, fase === 'PO' || (fase === 'REG' && semana >= 15), rivalry, fase === 'PO');
     results.push({ ...m });
     
     // Acumula snaps dos jogadores
@@ -497,6 +647,9 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     if (fase === 'REG') weekBoxes.push({ casaId: m.casa, foraId: m.fora, rich: r.rich });
     if (user) { userRes = r; out.match = r; }
   }
+  updateMediaNarratives(s, results);
+  recordPowerRankings(s, semana);
+  updateSeasonStorylines(s);
   s.weekResults = results.filter(m => !isUser(m));
   s.lastResult = userRes;
 
@@ -632,10 +785,30 @@ export function finishRound(s: GameState) {
 }
 
 /* ================= fim de temporada → offseason ================= */
+function resolveConditionalPicks(s: GameState): void {
+  const playoffTeams = new Set(s.teams.flatMap(t => conferenceSeeds(s, t.conf).map(seed => seed.teamId)));
+  for (let round = 0; round < s.pickOwners.length; round++) for (let slot = 0; slot < s.pickOwners[round].length; slot++) {
+    const cell = s.pickOwners[round][slot];
+    const conditional = cell.conditional;
+    if (!conditional || conditional.resolvedRound) continue;
+    const met = conditional.condition === 'team_makes_playoffs'
+      ? playoffTeams.has(cell.owner)
+      : !!conditional.conditionPlayerId && s.probowl.votes.some(v => v.playerId === conditional.conditionPlayerId && (v.isStarter || v.isReserve));
+    conditional.resolvedRound = met ? conditional.upgradedRound : conditional.baseRound;
+    pushNews(s, 'PICKS CONDICIONAIS', `${teamById(s, cell.owner).sigla}: pick R${conditional.baseRound} ${met ? `subiu para R${conditional.upgradedRound}` : 'permaneceu na rodada base'} (${conditional.condition}).`);
+  }
+}
+
 function endSeason(s: GameState, rng: Rng) {
   s.settings.fase = 'OFF'; s.settings.semana = 0;
+  const champion = s.campeoes[s.campeoes.length - 1]?.teamId;
+  resolveConditionalPicks(s);
   const aposentados: string[] = [];
   for (const p of [...s.players]) {
+    const career = p.careerStats ?? zeroStats();
+    for (const key of Object.keys(p.stats) as (keyof typeof p.stats)[]) career[key] += p.stats[key];
+    p.careerStats = career;
+    if (champion && p.teamId === champion) p.careerChampionships = (p.careerChampionships ?? 0) + 1;
     p.idade++;
     const t = p.teamId ? teamById(s, p.teamId) : null;
     const ct = t ? t.centroTreino : 2;
@@ -659,11 +832,12 @@ function endSeason(s: GameState, rng: Rng) {
       p.attrs[k] = clamp(Math.round(p.attrs[k] + d), 25, 95);
     }
     p.ovr = computeOvr(p.pos, p.attrs);
-    p.lesao = 0; p.lesaoTipo = null;
+    p.lesao = 0; p.lesaoTipo = null; p.lesaoTotal = 0;
     p.rookie = false;
     const retireP = p.idade >= 32 ? (p.idade - 31) * 0.12 + (p.ovr < 70 ? 0.18 : 0) : 0;
     if (rng.chance(retireP)) {
       aposentados.push(p.nome);
+      s.hallOfFame.push({ playerId: p.id, nome: p.nome, pos: p.pos, yearsRetired: 0, proBowls: p.careerProBowls ?? 0, championships: p.careerChampionships ?? 0, careerStats: { ...(p.careerStats ?? p.stats) }, fanVotes: 0, mediaVotes: 0, playerVotes: 0, totalVotes: 0, inducted: false, jerseyRetired: false });
       s.players = s.players.filter(x => x.id !== p.id);
     }
   }
@@ -713,6 +887,22 @@ function endSeason(s: GameState, rng: Rng) {
   s.offPhase = 1;
   s.draftState = null;
   pushNews(s, 'OFFSEASON', 'Fim dos playoffs! Offseason em 4 fases: 1) Free Agency → 2) Renovações → 3) Draft → 4) Validação.');
+}
+
+function evaluateHallOfFame(s: GameState): void {
+  for (const entry of s.hallOfFame) {
+    if (entry.inducted) continue;
+    entry.yearsRetired++;
+    const stats = entry.careerStats;
+    const eliteStats = stats.py >= 30000 || stats.ry >= 10000 || stats.recYds >= 10000 || stats.tackles >= 500;
+    const eligible = entry.yearsRetired >= 5 && entry.proBowls >= 5 && eliteStats && entry.championships >= 1;
+    if (!eligible) continue;
+    entry.fanVotes = Math.min(100, 60 + entry.proBowls * 3);
+    entry.mediaVotes = Math.min(100, 55 + (eliteStats ? 25 : 0));
+    entry.playerVotes = Math.min(100, 50 + entry.championships * 10);
+    entry.totalVotes = Math.round(entry.fanVotes * 0.5 + entry.mediaVotes * 0.3 + entry.playerVotes * 0.2);
+    if (entry.totalVotes >= 75) { entry.inducted = true; entry.jerseyRetired = true; pushNews(s, 'HALL OF FAME', `${entry.nome} foi imortalizado no Hall of Fame. A camisa ${entry.pos} será aposentada.`); }
+  }
 }
 
 /* ---------- offseason guiada ---------- */
@@ -1154,6 +1344,7 @@ export function autoDraftAll(s: GameState) {
 export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, ranks: RankMap) => { matches: Match[]; draftClass: Player[] }): GameState {
   const s = structuredClone(prev);
   const rng = new Rng(newSeed());
+  evaluateHallOfFame(s);
 
   // ranks da temporada encerrada (para o calendário do ano seguinte)
   const st = standings(s);
@@ -1181,7 +1372,7 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
   s.settings.semana = 1;
 
   for (const p of s.players) {
-    p.stats = zeroStats(); p.lesao = 0; p.lesaoTipo = null; p.tag = false;
+    p.stats = zeroStats(); p.lesao = 0; p.lesaoTipo = null; p.lesaoTotal = 0; p.tag = false;
     p.moral = 75;   // reset de moral e fadiga na virada de temporada
     if (p.teamId) p.anosNoTime = Math.min(10, p.anosNoTime + 1);  // +1 temporada de casa
   }
@@ -1191,6 +1382,7 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
     recalcChemistry(s, t.id);                     // química se refaz com o elenco estável
   }
   s.teamSeasonStats = [];  // zera acumuladores de franquia para a nova temporada
+  s.seasonStorylines = [];
   s.probowl = emptyProBowl(s.settings.temporada);  // nova votação do Pro Bowl
 
   const w = buildWorld(s, rng, ranks);
@@ -1379,7 +1571,7 @@ export function setStatus(s: GameState, playerId: string, status: Player['status
 
 export function setTactics(s: GameState, corrida: number, agressividade: number) {
   const t = teamById(s, s.userTeam);
-  t.tactics = { corrida, agressividade };
+  t.tactics = { ...t.tactics, corrida, agressividade };
 }
 
 export const UPGRADE_COST = (nivel: number) => Math.round((18 + nivel * 14) * 10) / 10;

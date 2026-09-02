@@ -15,7 +15,7 @@ export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'calendario' | 'classificacao'
   | 'mercado' | 'draft' | 'financas' | 'dm' | 'partida' | 'scouting'
   | 'offseason' | 'staff' | 'negociacoes' | 'trades' | 'calendario-liga'
-  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st' | 'probowl';
+  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st' | 'probowl' | 'hall-of-fame' | 'rivalidades' | 'elencos-liga' | 'comparador' | 'power-rankings' | 'storylines';
 
 export type StatsTab = 'teams' | 'off' | 'def' | 'st';
 
@@ -69,6 +69,7 @@ export interface PlayerContract {
   structure: ContractStructure;
   capHits: number[];      // cap hit por ano (base_i + bônus amortizado)
   guaranteed: number;     // dinheiro garantido (bônus + base do ano 1 protegido)
+  restructured?: boolean;
 }
 
 export interface Player {
@@ -86,19 +87,25 @@ export interface Player {
   status: PStatus;
   lesao: number;
   lesaoTipo: string | null;
+  lesaoTotal?: number;
   moral: number;
+  clutchRating: number;
   tag: boolean;
   rookie: boolean;
   jogosCarreira: number;
+  careerProBowls?: number;
+  careerChampionships?: number;
   holdout?: boolean;
   stats: PlayerStats;
+  careerStats?: PlayerStats;
   scout?: ProspectInfo;
   origem?: string;
   rfa?: boolean;   // Restricted FA: time de origem tem direito de match
   anosNoTime: number;  // temporadas na franquia atual (base da química)
 }
 
-export interface Tactics { corrida: number; agressividade: number; }
+export type PlaybookStyle = 'pass_heavy' | 'run_heavy' | 'balanced' | 'west_coast';
+export interface Tactics { corrida: number; agressividade: number; playbook: PlaybookStyle; }
 
 export interface Team {
   id: string;
@@ -151,6 +158,8 @@ export interface LiveEvent {
   placarCasa?: number; placarFora?: number;
   quarter?: number; clock: number;
   runYds?: number; passYds?: number; penalties?: number;
+  momentumCasa?: number; momentumFora?: number;
+  momentumResult?: string;
 }
 
 export interface BoxScore {
@@ -241,6 +250,17 @@ export interface TeamSeasonStats {
   sacks: number;
   interceptions: number;
 }
+
+export interface PowerRankingEntry {
+  teamId: string;
+  rank: number;
+  score: number;
+}
+export interface PowerRankingSnapshot {
+  season: number;
+  week: number;
+  entries: PowerRankingEntry[];
+}
 export const zeroTeamStats = (teamId: string, season: number): TeamSeasonStats => ({
   teamId, season,
   pointsScored: 0, totalYards: 0, passingYards: 0, rushingYards: 0,
@@ -272,6 +292,10 @@ export interface Match {
   placarCasa: number | null;
   placarFora: number | null;
   jogada: boolean;
+  publico?: number;
+  receitaCasa?: number;
+  receitaBilheteria?: number;
+  receitaTV?: number;
 }
 
 /* ---------- liga ---------- */
@@ -286,6 +310,59 @@ export interface LeagueSettings {
 }
 
 export interface NewsItem { id: number; rotulo: string; texto: string; }
+export interface HallOfFameEntry {
+  playerId: string;
+  nome: string;
+  pos: Pos;
+  yearsRetired: number;
+  proBowls: number;
+  championships: number;
+  careerStats: PlayerStats;
+  fanVotes: number;
+  mediaVotes: number;
+  playerVotes: number;
+  totalVotes: number;
+  inducted: boolean;
+  jerseyRetired: boolean;
+}
+export type SeasonStorylineType = 'strong_division' | 'rookie_record' | 'historic_defense' | 'seed_race';
+export interface SeasonStoryline {
+  type: SeasonStorylineType;
+  description: string;
+  affectedTeams: string[];
+  weeksActive: number;
+}
+export interface OpponentScoutingReport {
+  teamId: string;
+  season: number;
+  reports: number;
+  strengths: string[];
+  weaknesses: string[];
+  keyPlayers: string[];
+  passRate: number;
+  runOnFirstDown: number;
+}
+
+export interface Rivalry {
+  team1Id: string;
+  team2Id: string;
+  intensity: number;
+  history: 'Divisional' | 'Historical' | 'Recent';
+  gamesPlayed: number;
+  team1Wins: number;
+  team2Wins: number;
+  draws: number;
+}
+
+export type MediaNarrativeType = 'contract_year' | 'sophomore_slump' | 'championship_or_bust' | 'rookie_qb';
+export interface MediaNarrative {
+  type: MediaNarrativeType;
+  affectedPlayerId?: string;
+  teamId: string;
+  weeksActive: number;
+  pressureLevel: number;
+  headline: string;
+}
 
 export interface BracketJogo { casa: string; fora: string; pc: number | null; pf: number | null; jogada: boolean; }
 export interface BracketRound { nome: string; jogos: BracketJogo[]; }
@@ -303,14 +380,24 @@ export interface PickOwner {
   owner: string;          // quem detém a escolha agora
   from: string | null;    // franquia original (quando veio de troca)
   consumed?: boolean;     // já foi usada no draft (não pode ser re-trocada)
+  conditional?: ConditionalPick;
 }
 
 export type TradeAssetKind = 'player' | 'pick';
+export type ConditionalPickCondition = 'player_makes_pro_bowl' | 'team_makes_playoffs';
+export interface ConditionalPick {
+  baseRound: number;
+  condition: ConditionalPickCondition;
+  upgradedRound: number;
+  conditionPlayerId?: string;
+  resolvedRound?: number;
+}
 export interface TradeAsset {
   kind: TradeAssetKind;
   playerId?: string;      // quando kind === 'player'
   round?: number;         // quando kind === 'pick' (1..7)
   slot?: number;          // quando kind === 'pick' (0..31 dentro da rodada)
+  conditional?: ConditionalPick;
 }
 
 export interface TradeProposal {
@@ -344,6 +431,11 @@ export interface GameState {
   matches: Match[];
   bracket: BracketRound[] | null;
   news: NewsItem[];
+  hallOfFame: HallOfFameEntry[];
+  seasonStorylines: SeasonStoryline[];
+  opponentScouting: OpponentScoutingReport[];
+  rivalries: Rivalry[];
+  narrativas: MediaNarrative[];
   userTeam: string;
   campeoes: { temporada: number; teamId: string }[];
   focus: Focus;
@@ -355,6 +447,7 @@ export interface GameState {
   pickOwners: PickOwner[][];   // [round-1][slot] → posse atual das escolhas
   tradeLog: TradeLogItem[];
   teamSeasonStats: TeamSeasonStats[];  // acumuladas a cada partida (Fase: Estatísticas)
+  powerRankings: PowerRankingSnapshot[];
   probowl: ProBowlState;               // votação semanal do Pro Bowl
   trainingState: TrainingCenterState;  // estado do centro de treinamento
 }
