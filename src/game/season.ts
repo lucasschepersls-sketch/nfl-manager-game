@@ -19,6 +19,7 @@ import {
   makeContract, makeTagContract, negotiationHappiness, shouldHoldout,
   STRUCT_LABEL,
 } from './contracts';
+import { simulateTrainingWeek, type TrainingCenterState } from './training';
 
 /* ================= helpers ================= */
 export const teamById = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -458,7 +459,7 @@ function mergeStats(s: GameState, r: GameResult) {
   }
 }
 
-export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome } {
+export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome; trainingResults?: { playerId: string; nome: string; improvements: Record<string, number> }[] } {
   const s = structuredClone(s0);
   const out: AdvanceOutcome = {};
   const { fase, semana } = s.settings;
@@ -473,6 +474,9 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
   const weekBoxes: WeekBox[] = [];
   let userRes: GameResult | null = null;
 
+  // Mapa para acumular snaps da semana por jogador
+  const snapsPorJogadorSemana = new Map<string, number>();
+
   for (const m of weekMatches) {
     const user = isUser(m);
     const engine = new NFLMatchEngine(sideOf(s, m.casa), sideOf(s, m.fora), rng, {
@@ -483,6 +487,17 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
     m.placarCasa = r.placarCasa; m.placarFora = r.placarFora; m.jogada = true;
     mergeStats(s, r);
     results.push({ ...m });
+    
+    // Acumula snaps dos jogadores
+    for (const [playerId, snaps] of Object.entries(r.rich.casa)) {
+      const current = snapsPorJogadorSemana.get(playerId) ?? 0;
+      snapsPorJogadorSemana.set(playerId, current + snaps);
+    }
+    for (const [playerId, snaps] of Object.entries(r.rich.fora)) {
+      const current = snapsPorJogadorSemana.get(playerId) ?? 0;
+      snapsPorJogadorSemana.set(playerId, current + snaps);
+    }
+    
     if (fase === 'REG') weekBoxes.push({ casaId: m.casa, foraId: m.fora, rich: r.rich });
     if (user) { userRes = r; out.match = r; }
   }
@@ -491,6 +506,20 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
 
   // 🏆 Pro Bowl: votação após cada semana da temporada regular
   if (fase === 'REG') runWeeklyProBowlVoting(s, semana, weekBoxes);
+  
+  // 💪 Sistema de Treino: aplica desenvolvimento semanal apenas na temporada regular e pré-temporada
+  let trainingResults: { playerId: string; nome: string; improvements: Record<string, number> }[] = [];
+  if (fase === 'REG' || fase === 'PRE') {
+    const snapsObj = Object.fromEntries(snapsPorJogadorSemana);
+    trainingResults = simulateTrainingWeek(s.players, s.trainingState, snapsObj);
+    
+    // Notícia se houver evoluções relevantes
+    if (trainingResults.length > 0) {
+      const destaques = trainingResults.slice(0, 3);
+      const nomes = destaques.map(d => d.nome).join(', ');
+      pushNews(s, 'TREINAMENTO', `Jogadores evoluíram: ${nomes}${trainingResults.length > 3 ? ' e mais ' + (trainingResults.length - 3) : ''}.`);
+    }
+  }
 
   if (fase === 'PRE') {
     if (semana >= 2) {
@@ -513,7 +542,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
     s.settings.semana++;
     if (s.settings.semana > (s.bracket?.length ?? 4)) endSeason(s, rng);
   }
-  return { state: s, out };
+  return { state: s, out, trainingResults };
 }
 
 /* ================= playoffs ================= */

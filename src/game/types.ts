@@ -2,6 +2,8 @@
  * Modelo de dados — The American Game Manager (espelha schema SQLAlchemy)
  * ============================================================ */
 
+import type { TrainingCenterState } from './training';
+
 export type Pos = 'QB' | 'RB' | 'WR' | 'TE' | 'OL' | 'DL' | 'LB' | 'CB' | 'S' | 'K' | 'P';
 export type Unit = 'OF' | 'DF' | 'ST';
 export type Phase = 'PRE' | 'REG' | 'PO' | 'OFF';
@@ -180,6 +182,7 @@ export interface PlayerLine {
   sacks?: number; sackYds?: number; tackles?: number; intDef?: number;
   fgM?: number; fgT?: number;
   ff?: number; punts?: number; puntYds?: number;
+  snaps?: number;
 }
 
 export interface GameStory {
@@ -353,4 +356,5 @@ export interface GameState {
   tradeLog: TradeLogItem[];
   teamSeasonStats: TeamSeasonStats[];  // acumuladas a cada partida (Fase: Estatísticas)
   probowl: ProBowlState;               // votação semanal do Pro Bowl
+  trainingState: TrainingCenterState;  // estado do centro de treinamento
 }

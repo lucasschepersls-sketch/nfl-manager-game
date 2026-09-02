@@ -98,9 +98,22 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       return { game: a.game, screen: 'home', saveExists: true, toast: null };
     case 'CONTINUE': {
       if (!st.game) return st;
-      const { state } = advance(st.game);
+      const { state, trainingResults } = advance(st.game);
       const screen: Screen = state.lastResult ? 'partida' : st.screen;
-      return { ...st, game: state, screen };
+      
+      // Prepara feedback visual dos jogadores que evoluíram
+      let toastMsg: string | null = null;
+      if (trainingResults && trainingResults.length > 0) {
+        const destaques = trainingResults.slice(0, 3).map(t => {
+          const attrsMelhoradas = Object.entries(t.improvements)
+            .map(([attr, val]) => `${attr}+${val}`)
+            .join(', ');
+          return `${t.nome} (${attrsMelhoradas})`;
+        });
+        toastMsg = `📈 Treino: ${destaques.join(', ')}${trainingResults.length > 3 ? ` e +${trainingResults.length - 3}` : ''}`;
+      }
+      
+      return { ...st, game: state, screen, toast: toastMsg };
     }
     case 'DISMISS_RESULT':
       return { ...st, screen: st.game?.settings.fase === 'OFF' ? 'offseason' : 'home' };

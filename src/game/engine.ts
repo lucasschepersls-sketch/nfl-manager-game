@@ -684,7 +684,12 @@ export class NFLMatchEngine {
   }
 
   private snap(p: Player | null) {
-    if (p) this.snaps.set(p.id, (this.snaps.get(p.id) ?? 0) + 1);
+    if (p) {
+      this.snaps.set(p.id, (this.snaps.get(p.id) ?? 0) + 1);
+      // Atualiza snaps no box score rico
+      const pl = this.gameLines[p.id];
+      if (pl) pl.snaps = (pl.snaps ?? 0) + 1;
+    }
   }
   private maybeInjury(off: Unit, def: Unit, baseP = 0.0045) {
     const offense = this.rng.chance(0.72);
@@ -734,7 +739,12 @@ export class NFLMatchEngine {
     this.penYds[side] += yds;
   }
   private line(p: Player): PlayerLine {
-    return this.gameLines[p.id] ?? (this.gameLines[p.id] = { id: p.id, nome: p.nome, pos: p.pos, teamId: p.teamId ?? '' });
+    const existing = this.gameLines[p.id];
+    if (!existing) {
+      this.gameLines[p.id] = { id: p.id, nome: p.nome, pos: p.pos, teamId: p.teamId ?? '', snaps: 0 };
+      return this.gameLines[p.id]!;
+    }
+    return existing;
   }
   private considerBest(yds: number, texto: string, teamId: string, td: boolean) {
     const cur = this.bestPlay;
