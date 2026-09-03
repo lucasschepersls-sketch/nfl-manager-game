@@ -1049,17 +1049,8 @@ export function renewStaff(s: GameState, staffId: string, offer: ContractOffer):
   return { ok: true, msg: `✍️ ${st.nome} renovou!` };
 }
 
-export function releaseStaff(s: GameState, staffId: string): { ok: boolean; msg: string } {
-  const st = s.staff.find(x => x.id === staffId && x.teamId === s.userTeam);
-  if (!st) return { ok: false, msg: 'Profissional inválido.' };
-  s.staff = s.staff.filter(x => x.id !== staffId);
-  st.teamId = null; st.origem = s.userTeam; st.bonus = 0;
-  s.staffPool.push(st);
-  return { ok: true, msg: `${st.nome} desligado — voltou ao mercado.` };
-}
-
 /* ================= nova temporada ================= */
-export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, ranks: RankMap) => { matches: Match[]; draftClass: Player[]; staffPool: Staff[] }): GameState {
+export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, ranks: RankMap) => { matches: Match[]; draftClass: Player[] }): GameState {
   const s = structuredClone(prev);
   const rng = new Rng(newSeed());
 
@@ -1096,7 +1087,6 @@ export function newSeason(prev: GameState, buildWorld: (s: GameState, rng: Rng, 
   const w = buildWorld(s, rng, ranks);
   s.matches = w.matches;
   s.draftClass = w.draftClass;
-  s.staffPool = w.staffPool;
   for (const p of s.draftClass) p.salario = Math.round(p.salario * s.settings.inflacao * 10) / 10;
   for (const f of s.faPool) f.salario = Math.round(f.salario * s.settings.inflacao * 10) / 10;
 
