@@ -12,6 +12,7 @@ import { MarketScreen } from './screens/Market';
 import StaffScreen from './screens/Staff';
 import DraftScreen from './screens/Draft';
 import OffseasonScreen from './screens/Offseason';
+import HistoryScreen from './screens/History';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { erro: string | null }> {
   state = { erro: null as string | null };
@@ -41,6 +42,7 @@ const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }
   { s: 'mercado', label: 'Free Agency', icon: 'market', grupo: 'LIGA' },
   { s: 'draft', label: 'Draft', icon: 'draft', grupo: 'LIGA' },
   { s: 'offseason', label: 'Offseason', icon: 'offseason', grupo: 'LIGA' },
+  { s: 'historico', label: 'Histórico', icon: 'trophy', grupo: 'LIGA' },
 ];
 
 function Header() {
@@ -139,6 +141,7 @@ function Content() {
     case 'comissao': return <StaffScreen />;
     case 'draft': return <DraftScreen />;
     case 'offseason': return <OffseasonScreen />;
+    case 'historico': return <HistoryScreen />;
     default: return <ClubHomeScreen />;
   }
 }

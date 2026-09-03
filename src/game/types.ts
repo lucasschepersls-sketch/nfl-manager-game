@@ -7,7 +7,7 @@ export type Unit = 'OF' | 'DF' | 'ST';
 export type Phase = 'PRE' | 'REG' | 'PO' | 'OFF';
 export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'dm' | 'liga' | 'financas' | 'partida'
-  | 'mercado' | 'comissao' | 'draft' | 'offseason';
+  | 'mercado' | 'comissao' | 'draft' | 'offseason' | 'historico';
 export type PStatus = 'TIT' | 'RES' | 'PS';
 export type Focus = 'CORRIDA' | 'PASSE' | 'DEFESA' | 'FISICO';
 export type Conf = 'AFC' | 'NFC';
@@ -177,6 +177,41 @@ export interface DraftState {
   done: boolean;
 }
 
+export interface SeasonRecord {
+  temporada: number;
+  vitorias: number;
+  derrotas: number;
+  empates: number;
+  pf: number;
+  pc: number;
+  playoffs: boolean;
+  divisionTitle: boolean;
+  superBowl: boolean;
+}
+
+export interface FranchiseHistory {
+  superBowls: number;
+  superBowlAppearances: number;
+  playoffAppearances: number;
+  divisionTitles: number;
+  winningSeasons: number;
+  losingSeasons: number;
+  bestRecord: string;
+  worstRecord: string;
+  longestWinStreak: number;
+  longestLoseStreak: number;
+  seasons: SeasonRecord[];
+  allTimeLeaders: {
+    passingYds: { nome: string; valor: number } | null;
+    passingTds: { nome: string; valor: number } | null;
+    rushYds: { nome: string; valor: number } | null;
+    rushTds: { nome: string; valor: number } | null;
+    receivingYds: { nome: string; valor: number } | null;
+    sacks: { nome: string; valor: number } | null;
+    tackles: { nome: string; valor: number } | null;
+  };
+}
+
 export interface GameState {
   settings: LeagueSettings;
   teams: Team[];
@@ -195,4 +230,5 @@ export interface GameState {
   lastResult: GameResult | null;
   weekResults: Match[];
   offPhase?: OffPhase;     // fase da offseason guiada (1..4)
+  historico?: Record<string, FranchiseHistory>; // histórico por franquia
 }

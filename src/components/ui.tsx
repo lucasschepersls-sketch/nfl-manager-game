@@ -171,4 +171,5 @@ export const Icons = {
   medical: ic('M12 5 V19 M5 12 H19'),
   contract: ic('M6 3 H18 V21 H6 Z M9 8 H15 M9 12 H15 M9 16 H13 M13 19 l2 2 4 -4'),
   scout: ic('M10.5 4 a6.5 6.5 0 1 0 0 13 a6.5 6.5 0 0 0 0 -13 Z M15.2 15.2 L21 21 M8 10.5 a2.5 2.5 0 0 1 5 0'),
+  trophy: ic('M8 3 H16 V8 a4 4 0 0 1 -8 0 V3 Z M8 5 H4 a2 2 0 0 0 2 4 M16 5 H20 a2 2 0 0 1 -2 4 M10 12 V16 M7 20 H17 M12 16 V20'),
 };

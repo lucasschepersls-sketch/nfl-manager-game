@@ -4,7 +4,7 @@
  * ============================================================ */
 
 import type {
-  Conf, ContractOffer, Focus, GameResult, GameState, Match, Player, Screen, Staff, Team,
+  Conf, ContractOffer, Focus, FranchiseHistory, GameResult, GameState, Match, Player, Screen, SeasonRecord, Staff, Team,
 } from './types';
 import { zeroStats } from './types';
 import { Rng, clamp, newSeed } from './rng';
@@ -717,9 +717,102 @@ export function advanceRound(s0: GameState): { state: GameState; out: AdvanceOut
   return { state: stt, out };
 }
 
+/* ================= histórico da franquia ================= */
+function emptyHistory(): FranchiseHistory {
+  return {
+    superBowls: 0, superBowlAppearances: 0, playoffAppearances: 0, divisionTitles: 0,
+    winningSeasons: 0, losingSeasons: 0, bestRecord: '—', worstRecord: '—',
+    longestWinStreak: 0, longestLoseStreak: 0, seasons: [],
+    allTimeLeaders: {
+      passingYds: null, passingTds: null, rushYds: null, rushTds: null,
+      receivingYds: null, sacks: null, tackles: null,
+    },
+  };
+}
+
+function computeStreaks(matches: Match[], teamId: string): { win: number; lose: number } {
+  const sorted = matches
+    .filter(m => m.jogada && m.placarCasa != null && m.placarFora != null && (m.casa === teamId || m.fora === teamId))
+    .sort((a, b) => a.rodada - b.rodada);
+  let curW = 0, curL = 0, maxW = 0, maxL = 0;
+  for (const m of sorted) {
+    const mine = m.casa === teamId ? m.placarCasa! : m.placarFora!;
+    const theirs = m.casa === teamId ? m.placarFora! : m.placarCasa!;
+    if (mine > theirs) { curW++; curL = 0; maxW = Math.max(maxW, curW); }
+    else if (mine < theirs) { curL++; curW = 0; maxL = Math.max(maxL, curL); }
+    else { curW = 0; curL = 0; }
+  }
+  return { win: maxW, lose: maxL };
+}
+
+function updateAllTimeLeaders(h: FranchiseHistory, players: Player[]) {
+  const best = (key: keyof Player['stats'], cur: { nome: string; valor: number } | null) => {
+    let b: { nome: string; valor: number } | null = cur;
+    for (const p of players) {
+      const v = p.stats[key] as number;
+      if (v > 0 && (!b || v > b.valor)) b = { nome: p.nome, valor: v };
+    }
+    return b;
+  };
+  const l = h.allTimeLeaders;
+  l.passingYds = best('py', l.passingYds);
+  l.passingTds = best('ptd', l.passingTds);
+  l.rushYds = best('ry', l.rushYds);
+  l.rushTds = best('rtd', l.rushTds);
+  l.receivingYds = best('recYds', l.receivingYds);
+  l.sacks = best('sacks', l.sacks);
+  l.tackles = best('tackles', l.tackles);
+}
+
+function recordSeasonHistory(s: GameState) {
+  if (!s.historico) s.historico = {};
+  const st = standings(s);
+  const champId = s.campeoes[s.campeoes.length - 1]?.teamId;
+  const temporada = s.settings.temporada;
+
+  for (const t of s.teams) {
+    const row = st.find(r => r.teamId === t.id)!;
+    const divChamp = divisionTable(s, t.conf, t.div)[0]?.teamId === t.id;
+    const inPlayoffs = s.bracket?.some(r => r.jogos.some(j => j.casa === t.id || j.fora === t.id)) ?? false;
+    const sbAppearance = s.bracket?.some(r => r.nome === 'Super Bowl' && r.jogos.some(j => j.casa === t.id || j.fora === t.id)) ?? false;
+    const sbWinner = champId === t.id;
+
+    const rec: SeasonRecord = {
+      temporada, vitorias: row.v, derrotas: row.d, empates: row.e,
+      pf: row.pf, pc: row.pc,
+      playoffs: inPlayoffs, divisionTitle: divChamp, superBowl: sbWinner,
+    };
+
+    let h = s.historico[t.id];
+    if (!h) { h = emptyHistory(); s.historico[t.id] = h; }
+
+    h.seasons.push(rec);
+    if (sbWinner) h.superBowls++;
+    if (sbAppearance) h.superBowlAppearances++;
+    if (inPlayoffs) h.playoffAppearances++;
+    if (divChamp) h.divisionTitles++;
+    if (row.v > row.d) h.winningSeasons++;
+    if (row.d > row.v) h.losingSeasons++;
+
+    const recStr = `${row.v}-${row.d}${row.e > 0 ? `-${row.e}` : ''}`;
+    const pw = (r: string) => parseInt(r.split('-')[0]) || 0;
+    if (h.bestRecord === '—' || pw(recStr) > pw(h.bestRecord)) h.bestRecord = recStr;
+    if (h.worstRecord === '—' || pw(recStr) < pw(h.worstRecord)) h.worstRecord = recStr;
+
+    const streaks = computeStreaks(s.matches.filter(m => m.fase === 'REG'), t.id);
+    h.longestWinStreak = Math.max(h.longestWinStreak, streaks.win);
+    h.longestLoseStreak = Math.max(h.longestLoseStreak, streaks.lose);
+
+    updateAllTimeLeaders(h, playersOf(s, t.id));
+  }
+}
+
 /* ================= fim de temporada → offseason ================= */
 function endSeason(s: GameState, rng: Rng) {
   s.settings.fase = 'OFF'; s.settings.semana = 0;
+
+  // registra histórico da temporada recém-concluída (antes de liberar jogadores)
+  recordSeasonHistory(s);
 
   // envelhecimento + treino + aposentadorias
   const aposentados: string[] = [];
