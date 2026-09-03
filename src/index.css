@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-disp: "Barlow Condensed", "Arial Narrow", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-disp: "Anton", "Arial Narrow", sans-serif;
+  --font-mono: "Chivo Mono", ui-monospace, SFMono-Regular, monospace;
 
   --color-pitch: #0a1a12;
   --color-pitcho: #07130c;
@@ -32,7 +32,7 @@ body {
   background-color: var(--color-pitch);
   color: var(--color-ink);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 15px;
   position: relative;
 }
 
@@ -139,7 +139,7 @@ body::before {
 .tbl td {
   padding: 5px 10px;
   border-bottom: 1px solid var(--color-line2);
-  font-size: 13px;
+  font-size: 13.5px;
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -214,7 +214,7 @@ body::before {
 .blink { animation: blinkC 1.1s steps(2) infinite; }
 @keyframes blinkC { 50% { opacity: 0; } }
 
-/* ---------- feed ---------- */
+/* ---------- feed / reveals ---------- */
 .feed-line { animation: feedIn 0.28s ease both; }
 @keyframes feedIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 .reveal { animation: revealUp 0.4s ease both; }
@@ -269,3 +269,131 @@ body::before {
 }
 
 input[type="range"] { accent-color: var(--color-gold); }
+
+/* ---------- planilha de dados retrô (Estatísticas) ---------- */
+.highlight-num { color: var(--color-goldhi); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sortable-th { cursor: pointer; user-select: none; transition: color 0.12s ease; }
+.sortable-th:hover { color: var(--color-goldhi); }
+.medal-1 { color: #ffd35e; border-color: rgba(255, 211, 94, 0.7) !important; background: rgba(255, 211, 94, 0.14); box-shadow: 0 0 8px rgba(255, 211, 94, 0.35); }
+.medal-2 { color: #dbe3ea; border-color: rgba(219, 227, 234, 0.6) !important; background: rgba(219, 227, 234, 0.10); }
+.medal-3 { color: #e0a06a; border-color: rgba(224, 160, 106, 0.6) !important; background: rgba(224, 160, 106, 0.10); }
+
+/* ---------- gauge REBUILD ↔ CONTENDER ---------- */
+.stage-track {
+  position: relative;
+  height: 16px;
+  border: 1px solid var(--color-line);
+  background:
+    linear-gradient(90deg,
+      #1e3a4a 0%, #27506b 18%,
+      #2f5d52 38%, #3e7a4f 55%,
+      #7a9a3a 70%, #c9a52e 84%,
+      #f0b429 100%);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.stage-tick {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: rgba(0, 0, 0, 0.4);
+}
+.stage-needle {
+  position: absolute; top: 50%;
+  width: 14px; height: 14px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--color-ink);
+  border: 2px solid var(--needle, var(--color-goldhi));
+  box-shadow: 0 0 12px 2px var(--needle, var(--color-goldhi));
+  transition: left 0.9s cubic-bezier(0.3, 1.2, 0.4, 1), border-color 0.4s, box-shadow 0.4s;
+  z-index: 3;
+}
+.stage-zone-label {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  font-family: var(--font-disp);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* ---------- química ---------- */
+.chem-hot { animation: chemPulse 1.6s ease-in-out infinite; }
+@keyframes chemPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(62, 207, 122, 0.4); }
+  50% { box-shadow: 0 0 14px 3px rgba(62, 207, 122, 0.28); }
+}
+
+/* chip de fator (hover levanta) */
+.factor-chip { transition: transform 0.15s ease, border-color 0.15s ease; }
+.factor-chip:hover { transform: translateY(-2px); border-color: var(--color-gold); }
+
+/* selects retrô */
+.sel {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-ink);
+  background: var(--color-panel2);
+  border: 1px solid var(--color-line);
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+.sel:hover { border-color: var(--color-gold); }
+.sel:focus { outline: none; border-color: var(--color-gold); }
+
+/* ---------- Calendário da Semana ---------- */
+.week-pill {
+  font-family: var(--font-disp);
+  font-weight: 700; font-size: 14px; letter-spacing: 0.05em;
+  padding: 4px 11px 3px;
+  border: 1px solid var(--color-line2);
+  color: var(--color-dim);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.14s ease;
+  white-space: nowrap;
+}
+.week-pill:hover { color: var(--color-ink); border-color: var(--color-line); background: rgba(255,255,255,0.03); }
+.week-pill.on {
+  color: #241a02;
+  background: linear-gradient(180deg, var(--color-goldhi), var(--color-gold));
+  border-color: #b57f0e;
+  box-shadow: 0 2px 10px rgba(240, 180, 41, 0.25);
+}
+.week-pill .now-dot {
+  position: absolute; top: -4px; right: -4px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--color-blood);
+  animation: livePulse 1.1s ease-in-out infinite;
+}
+
+.week-card {
+  background: linear-gradient(180deg, var(--color-panel), var(--color-panel2));
+  border: 1px solid var(--color-line);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+.week-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--color-line);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(240, 180, 41, 0.15);
+}
+.week-card.mine {
+  border-color: rgba(240, 180, 41, 0.55);
+  box-shadow: 0 0 0 1px rgba(240, 180, 41, 0.25), 0 8px 20px rgba(0,0,0,0.35);
+}
+
+.lift-in { animation: liftIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+@keyframes liftIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+.card-stagger > * { animation: liftIn 0.38s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.card-stagger > *:nth-child(1) { animation-delay: 0.00s; }
+.card-stagger > *:nth-child(2) { animation-delay: 0.04s; }
+.card-stagger > *:nth-child(3) { animation-delay: 0.08s; }
+.card-stagger > *:nth-child(4) { animation-delay: 0.12s; }
+.card-stagger > *:nth-child(5) { animation-delay: 0.16s; }
+.card-stagger > *:nth-child(6) { animation-delay: 0.20s; }
+.card-stagger > *:nth-child(7) { animation-delay: 0.24s; }
+.card-stagger > *:nth-child(8) { animation-delay: 0.28s; }
+.card-stagger > *:nth-child(n+9) { animation-delay: 0.32s; }

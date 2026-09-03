@@ -1,5 +1,3 @@
-/* PRNG determinístico (mulberry32) — simulações reproduzíveis por seed. */
-
 export class Rng {
   private s: number;
   constructor(seed: number) {
@@ -38,6 +36,5 @@ export class Rng {
     return items[items.length - 1];
   }
 }
-
 export const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 export const newSeed = () => Math.floor(Math.random() * 0xffffffff);

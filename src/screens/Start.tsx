@@ -1,179 +1,144 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useGame } from '../state/store';
-import { TEAMS_DEF, CAP_BASE, DIV_NAMES } from '../game/data';
+import { useGame, loadSave } from '../state/store';
 import { newGame } from '../game/generate';
 import { teamStrength, capUsed, playersOf } from '../game/season';
-import { Panel, Bar, TeamCrest } from '../components/ui';
-import type { Conf, GameState } from '../game/types';
-import { clamp } from '../game/rng';
+import { teamStage } from '../game/franchise';
+import { TEAMS_DEF, DIV_NAMES, CONF_LABEL } from '../game/data';
+import type { Conf } from '../game/types';
+import { TeamCrest, Bar } from '../components/ui';
 
-interface Preview {
-  team: { cor: string; cor2: string; sigla: string; cidade: string; nome: string; conf: Conf; div: number; dinheiro: number; estadio: number; centroTreino: number; estadioNome: string };
-  forca: number; cap: number; elenco: number; capMax: number;
-  real: boolean; erro: string | null;
-}
-
-/* mundo gerado uma única vez para a pré-visualização (dados reais, instantâneo) */
-let previewWorld: GameState | null = null;
-let previewErro: string | null = null;
-function getPreviewWorld(): GameState | null {
-  if (previewWorld) return previewWorld;
-  if (previewErro) return null;
-  try {
-    previewWorld = newGame('kc', 20260001);
-    return previewWorld;
-  } catch (e) {
-    previewErro = e instanceof Error ? e.message : String(e);
-    console.error('Mundo de pré-visualização falhou:', e);
-    return null;
-  }
-}
-
-export default function StartScreen({ onLoad }: { onLoad: () => void }) {
-  const { st, dispatch } = useGame();
+export default function StartScreen() {
+  const { dispatch } = useGame();
   const [sel, setSel] = useState('kc');
   const [ready, setReady] = useState(false);
+  const save = useMemo(() => loadSave(), []);
+
   useEffect(() => { const t = setTimeout(() => setReady(true), 60); return () => clearTimeout(t); }, []);
 
-  const preview: Preview = useMemo(() => {
-    const def = TEAMS_DEF.find(x => x.sigla.toLowerCase() === sel) ?? TEAMS_DEF[0];
+  const preview = useMemo(() => {
+    const def = TEAMS_DEF.find(d => d.sigla.toLowerCase() === sel) ?? TEAMS_DEF[0];
     const id = def.sigla.toLowerCase();
-    // estimativa determinística (fallback — nunca vazio)
-    const est = {
-      forca: clamp(50 + def.forca * 8 + (id.length % 3), 55, 95),
-      cap: Math.min(CAP_BASE + 18, 128 + def.forca * 23 + (id.length % 5) * 3),
-      dinheiro: Math.round(28 + def.forca * 5 + (id.charCodeAt(0) % 18)),
-    };
-    const base: Preview = {
-      team: { cor: def.cor, cor2: def.cor2, sigla: def.sigla, cidade: def.cidade, nome: def.nome, conf: def.conf, div: def.div, dinheiro: est.dinheiro, estadio: clamp(def.forca - 1, 1, 4), centroTreino: clamp(def.forca - 1, 1, 4), estadioNome: def.estadio },
-      forca: est.forca, cap: est.cap, elenco: 63, capMax: CAP_BASE, real: false, erro: previewErro,
-    };
-    const g = getPreviewWorld();
-    const t = g?.teams.find(x => x.id === id);
-    if (!g || !t) return base;
-    return {
-      team: t,
-      forca: teamStrength(g, t.id),
-      cap: capUsed(g, t.id),
-      elenco: playersOf(g, t.id).length,
-      capMax: g.settings.cap,
-      real: true, erro: null,
-    };
+    try {
+      const g = newGame(id, 20260001);
+      const t = g.teams.find(x => x.id === id);
+      if (!t) return null;
+      const stg = teamStage(g, id);
+      return {
+        t, forca: teamStrength(g, id), cap: capUsed(g, id), capMax: g.settings.cap,
+        elenco: playersOf(g, id).length,
+        stage: stg.score, stageLabel: stg.label,
+      };
+    } catch { return null; }
   }, [sel]);
 
-  const capPct = (preview.cap / preview.capMax) * 100;
+  const capPct = preview ? (preview.cap / preview.capMax) * 100 : 0;
 
-  /* parede de escudos: a seleção de franquia é o próprio brasão de cada time */
-  const renderConf = (conf: Conf) => (
-    <Panel key={conf} title={conf === 'AFC' ? 'AFC — Americana' : 'NFC — Nacional'} pad={false}>
-      <div className="grid grid-cols-2">
-        {[0, 1, 2, 3].map(div => (
-          <div key={div} className="border-r border-line2 p-3 [&:nth-child(2n)]:border-r-0 [&:nth-child(-n+2)]:border-b">
-            <div className="mb-2 text-center font-disp text-[12px] font-bold uppercase tracking-[0.25em] text-faint">
-              {DIV_NAMES[div]}
+  const renderConf = (conf: Conf) => {
+    const teams = TEAMS_DEF.filter(d => d.conf === conf);
+    return (
+      <div key={conf} className="panel">
+        <header className="panel-hd"><h2>{CONF_LABEL[conf]}</h2></header>
+        <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
+          {[0, 1, 2, 3].map(div => (
+            <div key={div}>
+              <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.2em] text-faint">Divisão {DIV_NAMES[div]}</div>
+              <div className="grid grid-cols-4 gap-2">
+                {teams.filter(d => d.div === div).map(d => {
+                  const id = d.sigla.toLowerCase();
+                  const on = sel === id;
+                  return (
+                    <button key={id} title={`${d.cidade} ${d.nome}`}
+                      onClick={() => setSel(id)}
+                      className={`group flex flex-col items-center gap-1.5 border p-2 transition-all ${on ? 'border-gold bg-[rgba(240,180,41,0.1)]' : 'border-line2 hover:border-line hover:bg-raise'}`}>
+                      <span className={`transition-transform ${on ? 'scale-110' : 'group-hover:scale-105'}`}>
+                        <TeamCrest cor={d.cor} cor2={d.cor2} sigla={d.sigla} conf={d.conf} size={40} />
+                      </span>
+                      <span className={`font-disp text-[12px] font-bold uppercase tracking-wide ${on ? 'text-goldhi' : 'text-dim'}`}>{d.sigla}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {TEAMS_DEF.filter(t => t.conf === conf && t.div === div).map(t => {
-                const id = t.sigla.toLowerCase();
-                const on = sel === id;
-                return (
-                  <button key={id} onClick={() => setSel(id)} title={`${t.cidade} ${t.nome} — ${t.estadio}`}
-                    className={`group flex flex-col items-center gap-1.5 border px-2 pb-2 pt-2.5 transition-all duration-150
-                      ${on
-                        ? 'border-gold bg-[rgba(240,180,41,0.12)] shadow-[0_0_0_1px_var(--color-gold),0_6px_16px_rgba(240,180,41,0.15)]'
-                        : 'border-line2 hover:-translate-y-[2px] hover:border-line hover:bg-raise hover:shadow-[0_8px_18px_rgba(0,0,0,0.4)]'}`}>
-                    <span className="transition-transform duration-150 group-hover:scale-110">
-                      <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={on ? 50 : 44} />
-                    </span>
-                    <span className={`font-disp text-[14px] font-bold uppercase leading-none tracking-wide ${on ? 'text-goldhi' : 'text-dim group-hover:text-ink'}`}>
-                      {t.sigla}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </Panel>
-  );
+    );
+  };
 
   return (
-    <div className="min-h-screen">
-      <div className="mx-auto max-w-[1180px] px-5 py-8">
-        {/* cabeçalho */}
+    <div className={`min-h-screen px-4 py-8 transition-opacity duration-500 ${ready ? 'opacity-100' : 'opacity-0'}`}>
+      <div className="mx-auto max-w-[1100px] space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="font-disp text-[15px] font-semibold uppercase tracking-[0.35em] text-gold">Modo Carreira</div>
-            <h1 className="font-disp text-[64px] font-black uppercase leading-[0.95] tracking-tight">
-              Gridiron<br /><span className="text-goldhi">Manager NFL</span>
+            <h1 className="font-disp text-[52px] font-extrabold uppercase leading-[0.95] tracking-tight">
+              The American Game <span style={{ color: 'var(--color-goldhi)' }}>Manager</span>
             </h1>
-            <p className="mt-3 max-w-xl font-mono text-[13px] leading-relaxed text-dim">
-              32 franquias reais · teto salarial com inflação da TV · calendário oficial de 17 jogos ·
-              draft de 7 rodadas · comissão técnica negociável · playoffs até o Super Bowl. Escolha sua franquia.
+            <p className="mt-2 max-w-xl font-mono text-[13px] leading-relaxed text-dim">
+              Modo carreira · 32 franquias (AFC/NFC) · teto salarial com inflação da TV ·
+              draft de 7 rodadas · calendário oficial de 17 jogos em 18 semanas + playoffs até o Super Bowl.
             </p>
           </div>
           <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-faint">
-            Temporada 2026<span className="blink text-gold">▮</span>
+            NFL · temporada 2026<span className="blink text-gold">▮</span>
           </div>
         </div>
 
-        <div className={`mt-6 grid gap-5 lg:grid-cols-[1fr_340px] ${ready ? 'reveal' : 'opacity-0'}`}>
-          <div className="grid gap-5 md:grid-cols-2">{renderConf('AFC')}{renderConf('NFC')}</div>
+        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+          <div className="space-y-5">
+            {renderConf('AFC')}
+            {renderConf('NFC')}
+          </div>
 
-          {/* painel da franquia */}
-          <div className="lg:sticky lg:top-5 lg:self-start">
-            <Panel title="Sua franquia">
-              <div className="flex items-center gap-4">
-                <span className="grid shrink-0 place-items-center border border-line2 bg-pitcho/60 p-2.5 shadow-[inset_0_0_24px_rgba(0,0,0,0.5)]">
-                  <TeamCrest cor={preview.team.cor} cor2={preview.team.cor2} sigla={preview.team.sigla} conf={preview.team.conf} size={86} />
-                </span>
-                <div>
-                  <div className="font-disp text-[26px] font-extrabold uppercase leading-none">{preview.team.cidade}</div>
-                  <div className="font-disp text-[18px] font-bold uppercase text-goldhi">{preview.team.nome}</div>
-                  <div className="mt-1 font-mono text-[11px] text-faint">{preview.team.estadioNome}</div>
-                  <div className="mt-0.5 font-mono text-[10.5px] uppercase tracking-[0.15em] text-faint">
-                    {preview.team.conf} · Divisão {DIV_NAMES[preview.team.div]}
+          <div className="space-y-5">
+            {preview && (
+              <div className="panel p-5">
+                <div className="flex items-center gap-3">
+                  <TeamCrest cor={preview.t.cor} cor2={preview.t.cor2} sigla={preview.t.sigla} conf={preview.t.conf} size={64} />
+                  <div>
+                    <div className="font-disp text-[22px] font-extrabold uppercase leading-tight">{preview.t.cidade}</div>
+                    <div className="font-disp text-[16px] font-bold uppercase" style={{ color: 'var(--color-goldhi)' }}>{preview.t.nome}</div>
+                    <div className="font-mono text-[10.5px] uppercase tracking-wider text-faint">{preview.t.estadioNome}</div>
                   </div>
                 </div>
+                <dl className="mt-4 space-y-3 font-mono text-[12.5px]">
+                  <div>
+                    <div className="mb-1 flex justify-between text-dim"><span>Força do elenco</span><b className="text-ink">{preview.forca}</b></div>
+                    <Bar pct={preview.forca} color={preview.forca >= 78 ? 'var(--color-gold)' : 'var(--color-grass)'} />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex justify-between text-dim">
+                      <span>Folha salarial</span>
+                      <b className={capPct > 100 ? 'text-blood' : 'text-ink'}>${preview.cap.toFixed(0)}M / ${preview.capMax}M</b>
+                    </div>
+                    <Bar pct={capPct} color={capPct > 95 ? 'var(--color-blood)' : capPct > 82 ? 'var(--color-gold)' : 'var(--color-grass)'} />
+                  </div>
+                  <div className="flex justify-between text-dim"><span>Caixa disponível</span><b className="text-goldhi">${preview.t.dinheiro}M</b></div>
+                  <div className="flex justify-between text-dim"><span>Jogadores</span><b className="text-ink">{preview.elenco} (53 + PS)</b></div>
+                  <div className="flex justify-between text-dim"><span>Estádio / CT</span><b className="text-ink">Nv. {preview.t.estadio} / Nv. {preview.t.centroTreino}</b></div>
+                  <div className="flex justify-between text-dim" title={`${preview.stageLabel} (${preview.stage}/100)`}>
+                    <span>Momento</span>
+                    <b className={preview.stage >= 75 ? 'text-goldhi' : preview.stage >= 40 ? 'text-grass' : 'text-ice'}>
+                      {preview.stageLabel} · {preview.stage}
+                    </b>
+                  </div>
+                </dl>
+                <button className="btn btn-gold btn-pulse mt-5 w-full text-[17px]" onClick={() => dispatch({ type: 'NEW_GAME', teamId: sel })}>
+                  Assumir o comando »
+                </button>
               </div>
+            )}
 
-              <dl className="mt-4 space-y-2.5 font-mono text-[12.5px]">
-                <div>
-                  <div className="mb-1 flex justify-between text-dim"><span>Força do elenco</span><b className="text-ink">{preview.forca}</b></div>
-                  <Bar pct={preview.forca} color={preview.forca >= 78 ? 'var(--color-gold)' : 'var(--color-grass)'} />
-                </div>
-                <div>
-                  <div className="mb-1 flex justify-between text-dim">
-                    <span>Folha salarial</span>
-                    <b className={capPct > 100 ? 'text-blood' : 'text-ink'}>${preview.cap.toFixed(0)}M / ${preview.capMax}M</b>
-                  </div>
-                  <Bar pct={capPct} color={capPct > 95 ? 'var(--color-blood)' : capPct > 82 ? 'var(--color-gold)' : 'var(--color-grass)'} />
-                </div>
-                <div className="flex justify-between text-dim"><span>Caixa disponível</span><b className="text-goldhi">${preview.team.dinheiro}M</b></div>
-                <div className="flex justify-between text-dim"><span>Jogadores no elenco</span><b className="text-ink">{preview.elenco} (53 + PS)</b></div>
-                <div className="flex justify-between text-dim"><span>Estádio / CT</span><b className="text-ink">Nv. {preview.team.estadio} / Nv. {preview.team.centroTreino}</b></div>
-              </dl>
-
-              {preview.erro ? (
-                <div className="mt-3 border border-blood/50 bg-[rgba(226,87,75,0.08)] px-2.5 py-2 font-mono text-[11px] leading-relaxed text-blood">
-                  Pré-visualização em modo estimativa — a geração reportou: <b>{preview.erro}</b>
-                </div>
-              ) : (
-                <div className="mt-3 flex items-center gap-2 font-mono text-[11px] text-faint">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-grass" />
-                  {preview.real ? 'Dados do mundo gerado' : 'Estimativa de scouting'}
-                </div>
-              )}
-
-              <button className="btn btn-gold btn-pulse mt-5 w-full text-[18px]"
-                onClick={() => dispatch({ type: 'NEW_GAME', teamId: sel })}>
-                Assumir o comando »
-              </button>
-              {st.saveExists && (
-                <button className="btn mt-2 w-full" onClick={onLoad}>Continuar carreira salva</button>
-              )}
-            </Panel>
+            {save && (
+              <div className="panel p-5">
+                <div className="font-disp text-[16px] font-bold uppercase tracking-wide">Save detectado</div>
+                <p className="mt-1 font-mono text-[11.5px] text-dim">
+                  Temporada {save.settings.temporada} · {save.teams.find(t => t.id === save.userTeam)?.sigla}
+                </p>
+                <button className="btn mt-3 w-full" onClick={() => dispatch({ type: 'LOAD_SAVE', game: save })}>
+                  Continuar carreira »
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

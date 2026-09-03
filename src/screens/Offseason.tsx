@@ -1,278 +1,392 @@
 import { useMemo } from 'react';
 import { useGame } from '../state/store';
-import { OFF_PHASES, validateRoster, capUsed, playersOf, staffOf, teamById, fmtM } from '../game/season';
-import { Panel, Ovr, PosBadge, Bar, TeamCrest } from '../components/ui';
+import {
+  OFF_PHASES, validateRosterDetailed, capUsed, playersOf, fmtM, teamById, marketValue,
+} from '../game/season';
+import { calcExpectations, STRUCT_LABEL } from '../game/contracts';
+import { Panel, Bar, PosBadge, Ovr, TeamCrest } from '../components/ui';
 import type { Screen } from '../game/types';
 
-export default function OffseasonScreen() {
+const PHASE_ICON = ['🤝', '✍️', '🎓', '✅'];
+
+export function OffseasonScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
   const t = teamById(g, g.userTeam);
-  const fase = g.offPhase ?? 1;
-  const cap = capUsed(g, t.id);
-  const capSpace = Math.round((g.settings.cap - cap) * 10) / 10;
-  const roster = playersOf(g, t.id);
-  const ativos = roster.filter(p => p.status !== 'PS').length;
-  const ps = roster.filter(p => p.status === 'PS').length;
-  const chk = useMemo(() => validateRoster(g), [g]);
+  const ph = g.offPhase ?? 1;
+  const rules = validateRosterDetailed(g);
+  const allOk = rules.every(r => r.ok);
+  const nErr = rules.filter(r => !r.ok).length;
 
-  const go = (screen: Screen) => dispatch({ type: 'SCREEN', screen });
-  const advance = () => dispatch({ type: 'ADVANCE_OFFPHASE' });
+  const ativos = playersOf(g, g.userTeam).filter(p => p.status !== 'PS').length;
+  const folha = capUsed(g, g.userTeam);
+  const espaco = Math.max(0, Math.round((g.settings.cap - folha) * 10) / 10);
 
-  const expirando = useMemo(
-    () => [...roster].filter(p => p.contrato === 1).sort((a, b) => b.ovr - a.ovr).slice(0, 6),
-    [roster],
+  const irPara = (destino: Screen) => dispatch({ type: 'SCREEN', screen: destino });
+
+  /* ---------- dados por fase ---------- */
+  const fa = useMemo(() => {
+    const rfa = g.faPool.filter(p => p.rfa).length;
+    const ufa = g.faPool.length - rfa;
+    const meusRfa = g.faPool.filter(p => p.rfa && p.origem === g.userTeam);
+    const top = [...g.faPool].sort((a, b) => b.ovr - a.ovr).slice(0, 6);
+    return { rfa, ufa, meusRfa, top };
+  }, [g.faPool, g.userTeam]);
+
+  const renovaveis = useMemo(
+    () => playersOf(g, g.userTeam).filter(p => !p.tag && p.contrato <= 2).sort((a, b) => b.ovr - a.ovr),
+    [g.players, g.userTeam],
   );
-  const staffExpirando = staffOf(g, t.id).filter(s => s.contrato === 1);
 
-  if (g.settings.fase !== 'OFF') {
-    return (
-      <Panel title="Offseason">
-        <p className="font-mono text-[13px] text-dim">
-          A offseason guiada abre após o <b className="text-goldhi">Super Bowl</b>. Por enquanto, concentre-se na temporada:
-          {g.settings.fase === 'PRE' ? ' a pré-temporada está em curso.' : g.settings.fase === 'REG' ? ` semana ${g.settings.semana}/18.` : ' os playoffs estão em curso.'}
-        </p>
-      </Panel>
-    );
-  }
+  const draft = g.draftState;
+  const minhaPos = draft ? draft.order.indexOf(g.userTeam) + 1 : 0;
+  const draftDone = draft?.done ?? false;
+  const quentes = useMemo(
+    () => [...g.draftClass].sort((a, b) => (b.scout?.aiHeat ?? 0) - (a.scout?.aiHeat ?? 0)).slice(0, 3),
+    [g.draftClass],
+  );
 
   return (
     <div className="space-y-5">
-      {/* cabeçalho */}
-      <div className="relative overflow-hidden border-2 border-gold/60 bg-pitcho px-5 py-4" style={{ boxShadow: '6px 6px 0 rgba(0,0,0,0.4)' }}>
-        <div className="pointer-events-none absolute inset-0 opacity-[0.05]" style={{ background: `repeating-linear-gradient(90deg, ${t.cor} 0 2px, transparent 2px 90px)` }} />
-        <div className="relative flex flex-wrap items-center gap-x-6 gap-y-2">
-          <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={46} />
+      {/* cabeçalho da offseason */}
+      <div className="panel px-5 py-4">
+        <div className="flex items-baseline justify-between gap-4">
           <div>
-            <div className="font-disp text-[13px] font-semibold uppercase tracking-[0.3em] text-faint">Offseason · Rumo a {g.settings.temporada + 1}</div>
-            <h1 className="font-disp text-[32px] font-extrabold uppercase leading-none tracking-wide">
-              Construindo o <span className="text-gold">próximo título</span>
-            </h1>
-          </div>
-          <div className="ml-auto flex items-center gap-5 font-mono text-[12px]">
-            <div className="text-right">
-              <div className="text-faint">Folha / Cap</div>
-              <div className={`text-[15px] font-bold ${capSpace < 0 ? 'text-blood' : 'text-ink'}`}>{fmtM(cap)} / {fmtM(g.settings.cap)}</div>
+            <div className="font-disp text-[13px] font-semibold uppercase tracking-[0.25em] text-faint">
+              Offseason · rumo à temporada {g.settings.temporada + 1}
             </div>
-            <div className="text-right">
-              <div className="text-faint">Elenco</div>
-              <div className={`text-[15px] font-bold ${ativos !== 53 ? 'text-goldhi' : 'text-ink'}`}>{ativos}/53 <span className="text-faint text-[11px]">+{ps} PS</span></div>
+            <h2 className="font-disp text-[30px] font-extrabold uppercase leading-tight">
+              Fase {ph} de 4 — <span style={{ color: 'var(--color-goldhi)' }}>{PHASE_ICON[ph - 1]} {OFF_PHASES[ph - 1].titulo}</span>
+            </h2>
+          </div>
+          <div className="text-right">
+            <div className="font-mono text-[11px] uppercase tracking-wider text-faint">cap projetado</div>
+            <div className="font-disp text-[22px] font-bold text-grass">
+              {fmtM(Math.round(g.settings.cap * (1 + g.settings.tvGrowth / 100)))}
+              <span className="ml-2 font-mono text-[12px] text-dim">(+{g.settings.tvGrowth.toFixed(1).replace('.', ',')}% TV)</span>
             </div>
           </div>
         </div>
-        <div className="relative mt-3"><Bar pct={(cap / g.settings.cap) * 100} h={10} color={capSpace < 0 ? 'var(--color-blood)' : capSpace < 15 ? 'var(--color-gold)' : 'var(--color-grass)'} /></div>
+
+        {/* trilho das 4 fases */}
+        <div className="mt-4 flex items-center gap-1">
+          {OFF_PHASES.map((p, i) => {
+            const done = p.n < ph;
+            const current = p.n === ph;
+            return (
+              <div key={p.n} className="flex flex-1 items-center gap-1">
+                <div
+                  className={`flex h-9 flex-1 items-center justify-center gap-2 border font-disp text-[13px] font-bold uppercase tracking-wide transition-all ${
+                    done ? 'border-grass/50 bg-grass/10 text-grass'
+                      : current ? 'border-gold bg-gold/10 text-goldhi shadow-[0_0_14px_rgba(240,180,41,0.25)]'
+                        : 'border-line text-faint'
+                  }`}
+                >
+                  <span>{done ? '✓' : PHASE_ICON[i]}</span>
+                  <span className="hidden md:inline">{p.titulo}</span>
+                  <span className="md:hidden">{p.n}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-2 font-mono text-[12px] text-dim">{OFF_PHASES[ph - 1].desc}</p>
       </div>
 
-      {/* stepper das 4 fases */}
-      <div className="relative flex items-stretch gap-2 overflow-x-auto">
-        {OFF_PHASES.map((p, i) => {
-          const done = fase > p.n;
-          const active = fase === p.n;
-          return (
-            <div key={p.n} className="relative min-w-[170px] flex-1">
-              <div
-                className="relative h-full border-2 px-3.5 py-3 transition-all duration-300"
-                style={{
-                  borderColor: done ? 'var(--color-grass)' : active ? 'var(--color-gold)' : 'var(--color-line)',
-                  background: done ? 'rgba(62,207,122,0.07)' : active ? 'rgba(240,180,41,0.09)' : 'rgba(0,0,0,0.25)',
-                  boxShadow: active ? '0 0 0 1px var(--color-gold), 4px 4px 0 rgba(0,0,0,0.45)' : '4px 4px 0 rgba(0,0,0,0.35)',
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="grid h-7 w-7 shrink-0 place-items-center border-2 font-disp text-[15px] font-bold"
-                    style={{
-                      borderColor: done ? 'var(--color-grass)' : active ? 'var(--color-gold)' : 'var(--color-line)',
-                      color: done ? 'var(--color-grass)' : active ? 'var(--color-goldhi)' : 'var(--color-faint)',
-                    }}
-                  >
-                    {done ? '✓' : p.n}
-                  </span>
-                  <span
-                    className="font-disp text-[15px] font-bold uppercase tracking-wider"
-                    style={{ color: done ? 'var(--color-grass)' : active ? 'var(--color-goldhi)' : 'var(--color-dim)' }}
-                  >
-                    {p.titulo}
-                  </span>
+      {/* corpo da fase atual */}
+      {ph === 1 && <FaseFA g={g} fa={fa} espaco={espaco} irPara={irPara} />}
+      {ph === 2 && <FaseRenov g={g} renovaveis={renovaveis} irPara={irPara} />}
+      {ph === 3 && <FaseDraft g={g} draft={draft} minhaPos={minhaPos} draftDone={draftDone} quentes={quentes} irPara={irPara} dispatch={dispatch} />}
+      {ph === 4 && (
+        <FaseValida
+          g={g} rules={rules} allOk={allOk} nErr={nErr}
+          ativos={ativos} folha={folha} espaco={espaco}
+          irPara={irPara} dispatch={dispatch}
+        />
+      )}
+
+      {/* barra de avanço */}
+      <div className="flex flex-wrap items-center gap-3">
+        {ph === 1 && <span className="font-mono text-[11.5px] text-faint">Ao fechar o mercado, a IA faz a onda final de contratações e leva seus RFAs sem match.</span>}
+        {ph === 3 && !draftDone && <span className="font-mono text-[11.5px] text-faint">O Draft precisa terminar (7 rodadas) para avançar.</span>}
+        {ph < 4 ? (
+          <button
+            className="btn btn-gold ml-auto"
+            onClick={() => dispatch({ type: 'ADVANCE_OFFPHASE' })}
+            disabled={ph === 3 && !draftDone}
+            title={ph === 3 && !draftDone ? 'Conclua o Draft antes de avançar' : ''}
+          >
+            {ph === 1 ? 'Fechar mercado & avançar »' : `Avançar para Fase ${ph + 1} »`}
+          </button>
+        ) : (
+          <button
+            className="btn btn-gold btn-pulse ml-auto"
+            disabled={!allOk}
+            title={allOk ? 'Tudo certo — iniciar nova temporada' : rules.find(r => !r.ok)?.detalhe}
+            onClick={() => dispatch({ type: 'START_SEASON' })}
+          >
+            🏈 Iniciar temporada {g.settings.temporada + 1} »
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============ FASE 1 — FREE AGENCY ============ */
+function FaseFA({ g, fa, espaco, irPara }: {
+  g: ReturnType<typeof useGame>['st']['game'] & object;
+  fa: { rfa: number; ufa: number; meusRfa: { nome: string; pos: string; ovr: number }[]; top: any[] };
+  espaco: number;
+  irPara: (d: Screen) => void;
+}) {
+  const GG = g as any;
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <Panel title={`Mercado aberto — ${GG.faPool.length} agentes livres`} pad={false}
+        right={
+          <span className="flex gap-2">
+            <span className="tag border-ice/60 text-ice">RFA {fa.rfa}</span>
+            <span className="tag border-line text-dim">UFA {fa.ufa}</span>
+          </span>
+        }>
+        <table className="tbl">
+          <thead><tr><th>POS</th><th>Jogador</th><th>Origem</th><th>Tipo</th><th className="num">Idade</th><th className="num">OVR</th><th className="num">Pedido/ano</th></tr></thead>
+          <tbody>
+            {fa.top.map((p: any) => {
+              const origem = p.origem ? GG.teams.find((x: any) => x.id === p.origem) : null;
+              return (
+                <tr key={p.id}>
+                  <td><PosBadge pos={p.pos} /></td>
+                  <td>{p.nome}</td>
+                  <td>
+                    {origem
+                      ? <span className="flex items-center gap-1.5"><TeamCrest {...origem} size={16} />{origem.sigla}</span>
+                      : <span className="text-faint">—</span>}
+                  </td>
+                  <td>{p.rfa
+                    ? <span className="tag border-ice/60 text-ice" title="Time de origem pode igualar qualquer oferta">RFA</span>
+                    : <span className="tag border-line text-dim">UFA</span>}</td>
+                  <td className="num">{p.idade}</td>
+                  <td className="num"><Ovr v={p.ovr} /></td>
+                  <td className="num text-goldhi">{fmtM(marketValue(p, GG.settings.inflacao))}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="border-t border-line px-4 py-3">
+          <button className="btn" onClick={() => irPara('mercado')}>Abrir Free Agency completa »</button>
+        </div>
+      </Panel>
+
+      <div className="space-y-4">
+        <Panel title="Seu espaço de manobra">
+          <div className="mb-1 flex justify-between font-mono text-[12px] text-dim">
+            <span>Espaço no cap</span>
+            <b className={espaco > 20 ? 'text-grass' : espaco > 0 ? 'text-goldhi' : 'text-blood'}>{fmtM(espaco)}</b>
+          </div>
+          <Bar pct={Math.min(100, (espaco / 60) * 100)} color={espaco > 20 ? 'var(--color-grass)' : 'var(--color-gold)'} />
+          <p className="mt-2 font-mono text-[11.5px] leading-relaxed text-faint">
+            A IA considera <b className="text-dim">necessidade</b>, <b className="text-dim">cap space</b> e <b className="text-dim">rating</b>.
+            O jogador escolhe entre as ofertas por <b className="text-ink">salário (60%)</b>, <b className="text-ink">duração (20%)</b> e <b className="text-ink">competitividade (20%)</b>.
+          </p>
+        </Panel>
+
+        <Panel title={`Seus RFAs no mercado (${fa.meusRfa.length})`} pad={false}>
+          {fa.meusRfa.length === 0 ? (
+            <p className="px-4 py-4 font-mono text-[12px] text-faint">Nenhum RFA seu no mercado. UFAs podem assinar com qualquer time.</p>
+          ) : (
+            <div className="max-h-[180px] overflow-y-auto">
+              {fa.meusRfa.map((p: any) => (
+                <div key={p.nome} className="flex items-center gap-2.5 border-b border-line2 px-4 py-2 font-mono text-[12px]">
+                  <span className="font-bold text-ice">{p.pos}</span>
+                  <span className="truncate">{p.nome}</span>
+                  <Ovr v={p.ovr} />
+                  <span className="ml-auto tag border-ice/50 text-ice">match</span>
                 </div>
-                <p className="mt-1.5 font-mono text-[10.5px] leading-snug text-faint">{p.desc}</p>
-                {active && (
-                  <span className="absolute -top-[9px] left-3 border border-gold bg-pitcho px-1.5 font-disp text-[10px] font-bold uppercase tracking-[0.18em] text-goldhi">
-                    em curso
-                  </span>
-                )}
+              ))}
+              <p className="px-4 py-2 font-mono text-[11px] text-goldhi">
+                ⚠ Exercite o match contratando-os na Free Agency antes de fechar o mercado, ou serão levados pela IA.
+              </p>
+            </div>
+          )}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+/* ============ FASE 2 — RENOVAÇÕES ============ */
+function FaseRenov({ g, renovaveis, irPara }: {
+  g: any; renovaveis: any[]; irPara: (d: Screen) => void;
+}) {
+  return (
+    <Panel
+      title={`Renovações & extensões — ${renovaveis.length} elegíveis (≤2 anos restantes)`}
+      pad={false}
+      right={<button className="btn btn-sm btn-gold" onClick={() => irPara('negociacoes')}>Abrir Central de Contratos »</button>}
+    >
+      {renovaveis.length === 0 ? (
+        <p className="px-4 py-6 font-mono text-[13px] text-faint">
+          Nenhum jogador em fim de contrato. Todos seguros para a próxima temporada. ✓
+        </p>
+      ) : (
+        <table className="tbl">
+          <thead><tr><th>POS</th><th>Jogador</th><th className="num">Idade</th><th className="num">OVR</th><th>Contrato</th><th>Estrutura preferida</th><th className="num">Expectativa</th><th>Situação</th></tr></thead>
+          <tbody>
+            {renovaveis.map((p: any) => {
+              const exp = calcExpectations(p, g.settings.inflacao);
+              return (
+                <tr key={p.id}>
+                  <td><PosBadge pos={p.pos} /></td>
+                  <td>{p.nome}</td>
+                  <td className="num">{p.idade}</td>
+                  <td className="num"><Ovr v={p.ovr} /></td>
+                  <td>
+                    {p.contrato === 1
+                      ? <span className="tag border-gold/60 text-goldhi">último ano</span>
+                      : <span className="tag border-line text-dim">{p.contrato} anos</span>}
+                  </td>
+                  <td className="text-dim">{STRUCT_LABEL[exp.structure]}</td>
+                  <td className="num text-goldhi">{fmtM(exp.aav)}/ano · {exp.anos}a</td>
+                  <td>
+                    {p.holdout
+                      ? <span className="tag border-blood/60 text-blood blink">HOLDOUT</span>
+                      : p.contrato === 1 ? <span className="text-goldhi">renovar já</span> : <span className="text-faint">extensão</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <p className="border-t border-line px-4 py-2.5 font-mono text-[11.5px] text-faint">
+        Renovações usam a mesma fórmula de felicidade dos contratos, com <b className="text-goldhi">bônus de lealdade +10%</b>. Segure suas estrelas antes do Draft.
+      </p>
+    </Panel>
+  );
+}
+
+/* ============ FASE 3 — DRAFT ============ */
+function FaseDraft({ g, draft, minhaPos, draftDone, quentes, irPara, dispatch }: {
+  g: any; draft: any; minhaPos: number; draftDone: boolean; quentes: any[];
+  irPara: (d: Screen) => void; dispatch: any;
+}) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <Panel title="Draft de Novatos — 7 rodadas" pad={false}>
+        <div className="grid grid-cols-3 gap-3 p-4">
+          <div className="border border-line2 p-3 text-center">
+            <div className="font-mono text-[10.5px] uppercase tracking-wider text-faint">Rodada</div>
+            <div className="font-disp text-[26px] font-bold text-goldhi">{draftDone ? 'FIM' : `${draft?.round ?? 1}/7`}</div>
+          </div>
+          <div className="border border-line2 p-3 text-center">
+            <div className="font-mono text-[10.5px] uppercase tracking-wider text-faint">Sua posição</div>
+            <div className="font-disp text-[26px] font-bold text-ink">#{minhaPos}</div>
+          </div>
+          <div className="border border-line2 p-3 text-center">
+            <div className="font-mono text-[10.5px] uppercase tracking-wider text-faint">Prospectos</div>
+            <div className="font-disp text-[26px] font-bold text-ink">{g.draftClass.length}</div>
+          </div>
+        </div>
+        <p className="px-4 pb-3 font-mono text-[11.5px] leading-relaxed text-faint">
+          Ordem pelo desempenho: times fora dos playoffs → perdedores do Wild Card → Divisional → Conferência → vice-campeão → <b className="text-goldhi">campeão por último</b>.
+          A IA usa <b className="text-dim">best player available</b> nas rodadas 1–2 e <b className="text-dim">need-based</b> nas finais.
+        </p>
+        <div className="flex gap-2 border-t border-line px-4 py-3">
+          <button className="btn btn-gold" onClick={() => irPara('draft')}>Abrir Draft »</button>
+          {!draftDone && (
+            <button className="btn btn-ghost" onClick={() => dispatch({ type: 'DRAFT_ALL' })}>Deixar a IA draftar tudo</button>
+          )}
+        </div>
+      </Panel>
+
+      <Panel title="🔥 Mais cotados nos boards da IA" pad={false}>
+        {quentes.map((p: any) => (
+          <div key={p.id} className="flex items-center gap-2.5 border-b border-line2 px-4 py-2.5">
+            <PosBadge pos={p.pos} />
+            <div className="min-w-0">
+              <div className="truncate font-mono text-[12.5px]">{p.nome}</div>
+              <div className="font-mono text-[10.5px] text-faint">{p.scout?.college}</div>
+            </div>
+            <Ovr v={p.ovr} pot={p.pot} />
+            <span className="ml-auto font-mono text-[11px] text-goldhi" title="Franquias da IA que investigaram">
+              🔥 {p.scout?.aiHeat ?? 0}
+            </span>
+          </div>
+        ))}
+        <p className="px-4 py-2.5 font-mono text-[11px] text-faint">
+          O 🔥 mostra quantos GMs investigaram o prospecto durante a offseason — a IA tende a disputá-los.
+        </p>
+      </Panel>
+    </div>
+  );
+}
+
+/* ============ FASE 4 — VALIDAÇÃO FINAL ============ */
+function FaseValida({ g, rules, allOk, nErr, ativos, folha, espaco, irPara, dispatch }: {
+  g: any; rules: ReturnType<typeof validateRosterDetailed>; allOk: boolean; nErr: number;
+  ativos: number; folha: number; espaco: number;
+  irPara: (d: Screen) => void; dispatch: any;
+}) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <Panel
+        title="Validação Final — obrigatória para iniciar"
+        pad={false}
+        right={allOk
+          ? <span className="tag border-grass/60 text-grass">✓ APROVADO</span>
+          : <span className="tag border-blood/60 text-blood">{nErr} PENDÊNCIA{ nErr > 1 ? 'S' : ''}</span>}
+      >
+        <div className="divide-y divide-line2">
+          {rules.map(r => (
+            <div key={r.id} className={`flex items-center gap-3 px-4 py-2.5 ${r.ok ? '' : 'bg-[rgba(226,87,75,0.05)]'}`}>
+              <span className={`grid h-6 w-6 shrink-0 place-items-center border font-bold ${r.ok ? 'border-grass/60 text-grass' : 'border-blood/60 text-blood'}`}>
+                {r.ok ? '✓' : '✗'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="font-mono text-[12.5px]">{r.label}</div>
+                <div className={`font-mono text-[11px] ${r.ok ? 'text-faint' : 'text-blood'}`}>{r.detalhe}</div>
               </div>
-              {i < OFF_PHASES.length - 1 && (
-                <span className="absolute -right-[7px] top-1/2 z-10 -translate-y-1/2 font-disp text-[16px] font-bold text-faint">»</span>
+              {!r.ok && r.destino && (
+                <button className="btn btn-sm btn-ghost" onClick={() => irPara(r.destino as Screen)}>
+                  {r.acao} »
+                </button>
               )}
             </div>
-          );
-        })}
-      </div>
-
-      <div className="grid items-start gap-5 xl:grid-cols-12">
-        <div className="space-y-5 xl:col-span-8">
-          {fase === 1 && (
-            <Panel title="Fase 1 — Free Agency" right={<span className="font-mono text-[11px] text-faint">{g.faPool.length} agentes livres</span>}>
-              <div className="space-y-4 p-1">
-                <p className="font-mono text-[12.5px] leading-relaxed text-dim">
-                  O mercado está aberto. As <b className="text-ink">31 outras franquias</b> também disputam os agentes livres —
-                  times com mais espaço e posições carentes são mais agressivos. Garanta seus alvos antes que assinem com rivais.
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button className="btn btn-gold" onClick={() => go('mercado')}>Abrir Free Agency »</button>
-                  <button className="btn" onClick={advance}>Encerrar FA e ir p/ Renovações »</button>
-                </div>
-                <p className="font-mono text-[11px] text-faint">Dica: ao encerrar a fase, as IAs fazem uma onda final de contratações.</p>
-              </div>
-            </Panel>
-          )}
-
-          {fase === 2 && (
-            <Panel title="Fase 2 — Renovações & Comissão Técnica" right={<span className="font-mono text-[11px] text-faint">{expirando.length} jogadores + {staffExpirando.length} técnicos a vencer</span>}>
-              <div className="space-y-4 p-1">
-                <p className="font-mono text-[12.5px] leading-relaxed text-dim">
-                  Jogadores no <b className="text-ink">último ano de contrato</b> viram free agents na próxima offseason. Renove suas estrelas
-                  pela Free Agency interna (Contratos) e <b className="text-ink">segure sua comissão técnica</b> — técnicos sem contrato vão para o mercado.
-                </p>
-                {expirando.length > 0 && (
-                  <div className="space-y-1.5">
-                    {expirando.map(p => (
-                      <div key={p.id} className="flex items-center gap-3 border border-line2 bg-panel2/50 px-3 py-1.5">
-                        <PosBadge pos={p.pos} />
-                        <span className="truncate font-mono text-[12.5px]">{p.nome}</span>
-                        <span className="ml-auto" /><Ovr v={p.ovr} />
-                        <span className="font-mono text-[11px] text-faint">{fmtM(p.salario)}/ano</span>
-                        {p.tag && <span className="tag border-ice/60 text-ice">TAG</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {staffExpirando.length > 0 && (
-                  <p className="font-mono text-[11.5px] text-goldhi">
-                    ⚠ Comissão a vencer: {staffExpirando.map(s => s.funcao).join(', ')}. Renove na tela Comissão Técnica.
-                  </p>
-                )}
-                <div className="flex flex-wrap items-center gap-3">
-                  <button className="btn btn-gold" onClick={() => go('mercado')}>Renovar jogadores »</button>
-                  <button className="btn" onClick={() => go('comissao')}>Comissão Técnica</button>
-                  <button className="btn" onClick={advance}>Concluir e abrir o Draft »</button>
-                </div>
-              </div>
-            </Panel>
-          )}
-
-          {fase === 3 && (
-            <Panel
-              title="Fase 3 — Draft de Novatos"
-              right={
-                <span className="font-mono text-[11px] text-faint">
-                  {g.draftState?.done ? 'concluído ✓' : g.draftState ? `Rodada ${g.draftState.round}/7 · pick ${g.draftState.pick + 1}/32` : '—'}
-                </span>
-              }
-            >
-              <div className="space-y-4 p-1">
-                <p className="font-mono text-[12.5px] leading-relaxed text-dim">
-                  7 rodadas, 32 escolhas cada. A ordem segue a campanha — quem sofreu mais, escolhe primeiro.
-                  Use <b className="text-ink">Potencial</b> para caçar estrelas do futuro.
-                </p>
-                {g.draftState && (
-                  <Bar pct={((g.draftState.round - 1) * 32 + g.draftState.pick) / (7 * 32) * 100} color="var(--color-gold)" />
-                )}
-                <div className="flex flex-wrap items-center gap-3">
-                  <button className="btn btn-gold" onClick={() => go('draft')}>Abrir Draft »</button>
-                  <button className="btn" onClick={() => dispatch({ type: 'DRAFT_ALL' })}>Deixar a IA draftar por mim</button>
-                  <button className="btn" onClick={advance} disabled={!g.draftState?.done} title={!g.draftState?.done ? 'Conclua as 7 rodadas primeiro' : undefined}>
-                    Ir p/ Validação Final »
-                  </button>
-                </div>
-                {!g.draftState?.done && <p className="font-mono text-[11px] text-faint">O avanço fica bloqueado até as 7 rodadas terminarem.</p>}
-              </div>
-            </Panel>
-          )}
-
-          {fase === 4 && (
-            <Panel title="Fase 4 — Validação Final" right={<span className={`font-mono text-[11px] ${chk.ok ? 'text-grass' : 'text-blood'}`}>{chk.ok ? 'apto a jogar ✓' : `${chk.erros.length} pendência(s)`}</span>}>
-              <div className="space-y-4 p-1">
-                <p className="font-mono text-[12.5px] leading-relaxed text-dim">
-                  A liga só libera a temporada se o elenco fechar com <b className="text-ink">53 jogadores ativos</b> e a folha
-                  estiver <b className="text-ink">dentro do salary cap</b>. Corrija as pendências — ou use o Auto-Fix.
-                </p>
-
-                <ul className="space-y-1.5">
-                  {[
-                    { label: `Elenco ativo: ${ativos}/53`, ok: ativos === 53 },
-                    { label: `Practice Squad: ${ps}/10`, ok: ps <= 10 },
-                    { label: `Salary cap: ${fmtM(cap)} de ${fmtM(g.settings.cap)}`, ok: cap <= g.settings.cap },
-                    { label: 'Ao menos 1 QB no elenco', ok: roster.some(p => p.pos === 'QB' && p.status !== 'PS') },
-                  ].map(c => (
-                    <li key={c.label} className="flex items-center gap-2.5 border border-line2 px-3 py-2 font-mono text-[12.5px]">
-                      <span className={`grid h-5 w-5 place-items-center border-2 text-[11px] font-bold ${c.ok ? 'border-grass text-grass' : 'border-blood text-blood'}`}>
-                        {c.ok ? '✓' : '✗'}
-                      </span>
-                      <span className={c.ok ? 'text-dim' : 'text-ink'}>{c.label}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {!chk.ok && (
-                  <div className="border-l-2 border-blood bg-[rgba(226,87,75,0.06)] px-3 py-2.5">
-                    {chk.erros.map(e => (
-                      <p key={e} className="font-mono text-[12px] leading-relaxed text-blood">⚠ {e}</p>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <button className="btn" onClick={() => dispatch({ type: 'AUTO_FIX' })}>⚙ Auto-Fix (cortar/completar)</button>
-                  <button className="btn" onClick={() => go('mercado')}>Free Agency</button>
-                  <button className="btn" onClick={() => go('elenco')}>Elenco</button>
-                  <button
-                    className={`btn btn-gold ml-auto text-[16px] ${chk.ok ? 'btn-pulse' : ''}`}
-                    onClick={() => dispatch({ type: 'START_SEASON' })}
-                    disabled={!chk.ok}
-                    title={!chk.ok ? 'Resolva as pendências de validação primeiro' : undefined}
-                  >
-                    🏈 Iniciar Temporada {g.settings.temporada + 1} »
-                  </button>
-                </div>
-              </div>
-            </Panel>
-          )}
+          ))}
         </div>
-
-        {/* coluna lateral */}
-        <div className="space-y-5 xl:col-span-4">
-          <Panel title="Raio-x da franquia" pad={false}>
-            <table className="tbl">
-              <tbody>
-                {[
-                  ['Caixa disponível', <b key="c" className="text-goldhi">${t.dinheiro}M</b>],
-                  ['Espaço no cap', <b key="e" className={capSpace < 0 ? 'text-blood' : 'text-grass'}>{fmtM(capSpace)}</b>],
-                  ['Jogadores ativos', <b key="a" className={ativos !== 53 ? 'text-goldhi' : 'text-ink'}>{ativos} / 53</b>],
-                  ['Practice Squad', <b key="p" className="text-ink">{ps} / 10</b>],
-                  ['Comissão técnica', <b key="s" className="text-ink">{staffOf(g, t.id).length} profissionais</b>],
-                  ['Força do elenco', <b key="f" className="text-ink">{ativos ? Math.round(roster.filter(p => p.status !== 'PS').reduce((a, p) => a + p.ovr, 0) / ativos) : 0}</b>],
-                ].map(([l, v]) => (
-                  <tr key={String(l)}>
-                    <td className="font-mono text-[12px] text-dim">{l}</td>
-                    <td className="num font-mono text-[12.5px]">{v}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
-
-          <Panel title="Como funciona a offseason" pad={false}>
-            <div className="space-y-3 p-4 font-mono text-[11.5px] leading-relaxed text-dim">
-              <p><b className="text-goldhi">1.</b> Contrate agentes livres antes das IAs.</p>
-              <p><b className="text-goldhi">2.</b> Renove estrelas e segure sua comissão técnica.</p>
-              <p><b className="text-goldhi">3.</b> Draft 7 rodadas com base no potencial.</p>
-              <p><b className="text-goldhi">4.</b> Valide 53 jogadores + cap para destravar a temporada.</p>
-              <p className="border-t border-line2 pt-2 text-faint">Você pode navegar livremente, mas só avança de fase pelo botão de cada etapa. A temporada não inicia com pendências.</p>
-            </div>
-          </Panel>
+        <div className="flex gap-2 border-t border-line px-4 py-3">
+          <button className="btn" onClick={() => dispatch({ type: 'AUTO_FIX' })}>
+            ⚡ Auto-Fix (cortes & contratações automáticas)
+          </button>
         </div>
+      </Panel>
+
+      <div className="space-y-4">
+        <Panel title="Fotografia do elenco">
+          <div className="mb-1 flex justify-between font-mono text-[12px] text-dim">
+            <span>Elenco ativo</span>
+            <b className={ativos === 53 ? 'text-grass' : 'text-blood'}>{ativos}/53</b>
+          </div>
+          <Bar pct={(ativos / 53) * 100} color={ativos === 53 ? 'var(--color-grass)' : 'var(--color-blood)'} />
+          <div className="mb-1 mt-3 flex justify-between font-mono text-[12px] text-dim">
+            <span>Folha salarial</span>
+            <b className={folha <= g.settings.cap ? 'text-ink' : 'text-blood'}>{fmtM(folha)} / {fmtM(g.settings.cap)}</b>
+          </div>
+          <Bar pct={(folha / g.settings.cap) * 100} color={folha > g.settings.cap ? 'var(--color-blood)' : 'var(--color-grass)'} />
+          <p className="mt-2 font-mono text-[11.5px] text-faint">Espaço livre: <b className="text-grass">{fmtM(espaco)}</b></p>
+        </Panel>
+
+        <Panel title="O que acontece ao iniciar">
+          <ul className="space-y-1.5 font-mono text-[11.5px] leading-relaxed text-dim">
+            <li>→ Temporada avança para <b className="text-ink">{g.settings.temporada + 1}</b></li>
+            <li>→ Cap sobe <b className="text-grass">+{g.settings.tvGrowth.toFixed(1).replace('.', ',')}%</b> (receita de TV)</li>
+            <li>→ Novo calendário oficial de 17 jogos é gerado</li>
+            <li>→ Moral e fadiga de todos resetadas <b className="text-ink">(75 / 0)</b></li>
+          </ul>
+        </Panel>
       </div>
     </div>
   );
