@@ -56,7 +56,7 @@ export function DraftScreen() {
           </div>
           {!d.done && currentTeam && (
             <div className="flex items-center gap-2.5">
-              <span className="inline-block h-8 w-8 border" style={{ background: currentTeam.cor }} />
+              <TeamDotSafe cor={currentTeam.cor} />
               <div>
                 <div className="font-disp text-[18px] font-bold uppercase leading-none">{currentTeam.cidade} {currentTeam.nome}</div>
                 {isUser
@@ -162,4 +162,8 @@ export function DraftScreen() {
       </div>
     </div>
   );
+}
+
+function TeamDotSafe({ cor }: { cor: string }) {
+  return <span className="inline-block h-8 w-8 border" style={{ background: cor }} />;
 }

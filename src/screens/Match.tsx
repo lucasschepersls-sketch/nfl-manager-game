@@ -62,14 +62,9 @@ const fmtClock = (clock: number, quarter: number) => {
 function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
   const off = st.posse === 'casa' ? casa : fora;
   const isHome = st.posse === 'casa';
-  // A engine manda `ball` RELATIVO ao ataque (0 = endzone de quem tem a bola).
-  // Convertemos para coordenada ABSOLUTA fixa (0 = endzone da casa, à esquerda)
-  // para que a linha de scrimmage permaneça no MESMO lugar físico quando a posse
-  // inverte — só a direção do ataque muda, como na transmissão real da NFL.
   const rel = Math.max(0, Math.min(st.ball, 100));
   const abs = isHome ? rel : 100 - rel;
   const ballX = (80 + abs * 8.4) / 10;
-  // a corrente (1ª descida) fica `toGo` jardas à frente, na direção do ataque
   const chainAbs = isHome ? Math.min(rel + st.toGo, 100) : Math.max(rel - st.toGo, 0);
   const chainX = (80 + chainAbs * 8.4) / 10;
   const scrimmage = abs <= 50 ? Math.round(abs) : Math.round(100 - abs);
@@ -94,7 +89,6 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
           {[...Array(10)].map((_, i) => i % 2 === 0 && (
             <rect key={i} x={80 + i * 84} y="0" width="84" height="240" fill="#123320" />
           ))}
-          {/* endzones fixas: casa esquerda, visitante direita */}
           <rect x="0" y="0" width="80" height="240" fill={casa.cor} opacity="0.55" />
           <rect x="920" y="0" width="80" height="240" fill={fora.cor} opacity="0.55" />
           <text x="40" y="130" textAnchor="middle" fontFamily="Anton" fontWeight="800" fontSize="28"
@@ -119,7 +113,6 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
           <ellipse cx="500" cy="120" rx="20" ry="11" fill="none" stroke="var(--color-gold)" strokeWidth="2" opacity="0.5" />
         </svg>
 
-        {/* linha de scrimmage na cor do time com a posse — inverte a cor (não o lugar) na troca */}
         <div className="absolute bottom-0 top-0 w-[2px]" style={{ left: `${ballX}%`, background: off.cor, boxShadow: `0 0 8px ${off.cor}`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1), background 0.3s, box-shadow 0.3s' }} />
         {st.ball < 100 && (
           <div className="absolute bottom-0 top-0 w-[3px]" style={{
@@ -139,7 +132,6 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
             </div>
           </div>
         </div>
-        {/* direção do ataque: a bola não muda de lado, só o sentido da seta */}
         <div className="absolute top-[30%] -translate-y-1/2" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }}>
           <svg width="26" height="16" viewBox="0 0 26 16" className="-translate-x-1/2" style={{ transform: `translateX(-50%) ${isHome ? '' : 'scaleX(-1)'}`, filter: `drop-shadow(0 0 4px ${off.cor})`, transition: 'transform 0.3s' }}>
             <path d="M2 8 H18 M12 2 L20 8 L12 14" fill="none" stroke={off.cor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -181,7 +173,6 @@ export default function MatchScreen() {
   }, [live, idx]);
   useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [idx, tab]);
 
-  // estatísticas acumuladas ao vivo (não o box final)
   const liveStats = useMemo(() => {
     if (done && r?.rich) {
       return {
@@ -210,7 +201,7 @@ export default function MatchScreen() {
       }
     }
     return s;
-  }, [live, idx]);
+  }, [live, idx, done, r]);
 
   const feed = useMemo(() => {
     const items: { t: string; tipo: LineTipo; nerves?: boolean }[] = [];
@@ -289,18 +280,14 @@ export default function MatchScreen() {
           {done && [...Array(Math.max(r.box.quartos.casa.length, r.box.quartos.fora.length))].map((_, i) => (
             <span key={i} className="tabular-nums">{i < 4 ? `${i + 1}ºQ` : 'OT'}: <b className="text-ink">{r.box.quartos.casa[i] ?? 0}</b>–<b className="text-ink">{r.box.quartos.fora[i] ?? 0}</b></span>
           ))}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex gap-2">
             {!done && (
-              <>
-                <div className="flex overflow-hidden rounded-sm border border-line">
-                  {SPEEDS.map((s, i) => (
-                    <button key={s.label}
-                      className={`px-2.5 py-1 font-disp text-[12px] font-bold uppercase tracking-wide transition-colors ${i === speedIdx ? 'bg-gold text-[#241a02]' : 'text-dim hover:text-ink'}`}
-                      onClick={() => setSpeedIdx(i)}>{s.label}</button>
-                  ))}
-                </div>
+              <div className="flex gap-1">
+                {SPEEDS.map((sp, i) => (
+                  <button key={sp.label} className={`btn btn-sm ${speedIdx === i ? 'btn-gold' : 'btn-ghost'}`} onClick={() => setSpeedIdx(i)}>{sp.label}</button>
+                ))}
                 <button className="btn btn-sm btn-gold" onClick={() => setIdx(live.length)}>Placar final »</button>
-              </>
+              </div>
             )}
             {done && <button className="btn btn-sm btn-gold" onClick={() => dispatch({ type: 'DISMISS_RESULT' })}>Voltar ao escritório »</button>}
           </div>
@@ -308,6 +295,7 @@ export default function MatchScreen() {
       </div>
 
       <Field st={cur} casa={casa} fora={fora} />
+      <MomentumPanel casa={casa} fora={fora} values={momentum} />
 
       <MomentumPanel casa={casa} fora={fora} values={momentum} />
 
@@ -388,9 +376,6 @@ function StatsView({ r, casa, fora, ls, done }: {
   );
 }
 
-/* ============================================================
- * BOX SCORE CLÁSSICO — estatística no centro, times nas laterais
- * ============================================================ */
 function fmtPoss(secs: number): string {
   const m = Math.floor(secs / 60); const s = Math.floor(secs % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
@@ -425,7 +410,6 @@ function BoxScoreView({ r, casa, fora, done }: {
     );
   }
 
-  // líderes por categoria (maior valor de cada time)
   const leader = (key: (l: PlayerLine) => number, tid: string): PlayerLine | null => {
     let best: PlayerLine | null = null; let bv = 0;
     for (const l of rich.lines) if (l.teamId === tid) {
@@ -452,7 +436,6 @@ function BoxScoreView({ r, casa, fora, done }: {
 
   return (
     <div className="max-h-[520px] space-y-5 overflow-y-auto px-1 py-3">
-      {/* ---------- estatísticas de equipe ---------- */}
       <div className="panel2 mx-3 border border-line2">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-line px-4 py-2.5">
           <span className="flex items-center justify-end gap-2 font-disp text-[16px] font-bold uppercase">
@@ -478,7 +461,6 @@ function BoxScoreView({ r, casa, fora, done }: {
         <StatRow label="Posse de Bola" casa={fmtPoss(c.possSecs)} fora={fmtPoss(f.possSecs)} winCasa={c.possSecs > f.possSecs} winFora={f.possSecs > c.possSecs} />
       </div>
 
-      {/* ---------- destaques individuais ---------- */}
       <div className="grid gap-3 px-3 md:grid-cols-2">
         <div className="panel2 border border-line2 p-3">
           <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Passe</div>
@@ -541,7 +523,6 @@ function BoxScoreView({ r, casa, fora, done }: {
         </div>
       </div>
 
-      {/* ---------- MVP + Jogada do Jogo ---------- */}
       <div className="grid gap-3 px-3 md:grid-cols-2">
         {rich.story.mvp && (
           <div className="panel2 border border-gold/50 bg-[rgba(240,180,41,0.05)] p-3">

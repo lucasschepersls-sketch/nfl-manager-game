@@ -3,16 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>The American Game Manager — Modo Carreira NFL</title>
+    <title>The American Game Manager — NFL</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Anton&family=Chivo+Mono:wght@400;500;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <style>
-      html, body { margin: 0; padding: 0; background-color: #0a1a12; }
-    </style>
+    <script>
+      (function () {
+        if (window.self === window.top) return;
+        var reported = {};
+        window.addEventListener("error", function (event) {
+          if (!event || !event.message) return;
+          var key = event.message + "|" + (event.filename || "") + "|" + (event.lineno || 0);
+          if (reported[key]) return;
+          reported[key] = true;
+          try {
+            window.parent.postMessage(
+              {
+                type: "sandbox-runtime-error",
+                payload: {
+                  message: String(event.message).slice(0, 500),
+                  filename: String(event.filename || ""),
+                  lineno: event.lineno || 0,
+                  colno: event.colno || 0,
+                  stack: event.error && event.error.stack ? String(event.error.stack).slice(0, 2000) : ""
+                }
+              },
+              "*"
+            );
+          } catch (e) {}
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

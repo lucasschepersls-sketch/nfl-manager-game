@@ -12,9 +12,7 @@ import type { ConditionalPickCondition, Player, TradeAsset, PickOwner } from '..
 export function TradesScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
-  const me = g.userTeam;
-  const [partnerId, setPartnerId] = useState(() =>
-    g.teams.find(t => t.id !== me)?.id ?? g.teams[0].id);
+  const [toId, setToId] = useState(g.teams.find(t => t.id !== g.userTeam)!.id);
   const [give, setGive] = useState<TradeAsset[]>([]);
   const [get, setGet] = useState<TradeAsset[]>([]);
   const [conditionalMode, setConditionalMode] = useState(false);
@@ -22,38 +20,33 @@ export function TradesScreen() {
   const [upgradedRound, setUpgradedRound] = useState(3);
   const [conditionPlayerId, setConditionPlayerId] = useState('');
 
-  const myTeam = teamById(g, me);
-  const partner = teamById(g, partnerId);
+  const me = teamById(g, g.userTeam);
+  const them = teamById(g, toId);
+  const myPlayers = useMemo(() => playersOf(g, g.userTeam).filter(p => p.status !== 'PS').sort((a, b) => b.ovr - a.ovr), [g]);
+  const theirPlayers = useMemo(() => playersOf(g, toId).filter(p => p.status !== 'PS').sort((a, b) => b.ovr - a.ovr), [g]);
 
   const afterDeadline = g.settings.fase === 'REG' && g.settings.semana > TRADE_DEADLINE_WEEK;
-  const weeksLeft = g.settings.fase === 'REG'
-    ? Math.max(0, TRADE_DEADLINE_WEEK - g.settings.semana + 1)
-    : null;
+  const inPlayoffs = g.settings.fase === 'PO';
 
-  const myPlayers = useMemo(() =>
-    playersOf(g, me).filter(p => p.status !== 'PS').sort((a, b) => b.ovr - a.ovr), [g, me]);
-  const theirPlayers = useMemo(() =>
-    playersOf(g, partnerId).filter(p => p.status !== 'PS').sort((a, b) => b.ovr - a.ovr), [g, partnerId]);
-
-  const picksOf = (teamId: string): { round: number; slot: number; cell: PickOwner }[] => {
-    const out: { round: number; slot: number; cell: PickOwner }[] = [];
-    for (let r = 1; r <= ROUNDS; r++)
-      for (let slot = 0; slot < 32; slot++) {
-        const cell = g.pickOwners[r - 1]?.[slot];
-        if (cell && cell.owner === teamId && !cell.consumed) out.push({ round: r, slot, cell });
-      }
+  // picks que cada lado detém (não consumidas)
+  const myPicks = useMemo(() => {
+    const out: { round: number; slot: number }[] = [];
+    g.pickOwners.forEach((roundArr, ri) => roundArr.forEach((cell, si) => {
+      if (cell.owner === g.userTeam && !cell.consumed) out.push({ round: ri + 1, slot: si });
+    }));
     return out;
-  };
-  const myPicks = useMemo(() => picksOf(me), [g.pickOwners, me]);
-  const theirPicks = useMemo(() => picksOf(partnerId), [g.pickOwners, partnerId]);
+  }, [g]);
+  const theirPicks = useMemo(() => {
+    const out: { round: number; slot: number }[] = [];
+    g.pickOwners.forEach((roundArr, ri) => roundArr.forEach((cell, si) => {
+      if (cell.owner === toId && !cell.consumed) out.push({ round: ri + 1, slot: si });
+    }));
+    return out;
+  }, [g, toId]);
 
-  // avaliação ao vivo (seed fixa p/ o preview; o sorteio real acontece no reducer)
-  const preview = useMemo(() => {
-    const prop = { from: me, to: partnerId, give, get };
-    const val = validateProposal(g, prop);
-    const ev = evaluateProposal(g, prop, new Rng(42));
-    return { val, ev };
-  }, [g, me, partnerId, give, get]);
+  const proposal = { from: g.userTeam, to: toId, give, get };
+  const val = validateProposal(g, proposal);
+  const ev = useMemo(() => (give.length && get.length ? evaluateProposal(g, proposal, new Rng(newSeed())) : null), [g, toId, give, get]);
 
   const toggle = (side: 'give' | 'get', asset: TradeAsset) => {
     const set = side === 'give' ? give : get;
@@ -79,39 +72,20 @@ export function TradesScreen() {
     conditional: pk.cell.conditional ?? (conditionalMode ? { baseRound: pk.round, condition, upgradedRound, conditionPlayerId: condition === 'player_makes_pro_bowl' ? conditionPlayerId : undefined } : undefined),
   });
 
-  const myCap = capUsed(g, me);
-  const chance = preview.ev.chance;
-  const chanceColor = chance >= 60 ? 'var(--color-grass)' : chance >= 35 ? 'var(--color-gold)' : 'var(--color-blood)';
-
   return (
     <div className="space-y-4">
-      {/* cabeçalho: prazo + seletor de parceiro */}
-      <Panel pad={false}>
-        <div className="flex flex-wrap items-center gap-4 px-4 py-3">
-          <div>
-            <div className="font-disp text-[20px] font-extrabold uppercase tracking-wide text-goldhi">Trade Machine</div>
-            <div className="font-mono text-[11.5px] text-dim">
-              {afterDeadline
-                ? <span className="text-blood">Trade Deadline ultrapassado — apenas jogador↔jogador (sem picks).</span>
-                : g.settings.fase === 'REG'
-                  ? <>Deadline: semana {TRADE_DEADLINE_WEEK} · <b className="text-gold">{weeksLeft} semana(s) restantes</b> · depois só jogador↔jogador</>
-                  : <>Mercado aberto (offseason/pré-temporada) · picks liberadas</>}
-            </div>
-          </div>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="font-mono text-[11.5px] text-faint">Negociar com:</span>
-            <select
-              value={partnerId}
-              onChange={e => { setPartnerId(e.target.value); setGet([]); }}
-              className="border border-line bg-panel2 px-2 py-1.5 font-disp text-[14px] font-semibold uppercase text-ink outline-none focus:border-gold"
-            >
-              {g.teams.filter(t => t.id !== me).map(t => (
-                <option key={t.id} value={t.id}>{t.cidade} {t.nome}</option>
-              ))}
-            </select>
-          </div>
+      {(afterDeadline || inPlayoffs) && (
+        <div className="border border-blood/50 px-4 py-3 font-mono text-[12.5px] text-blood">
+          {inPlayoffs ? '⛔ Trades fechados durante os playoffs.' : `⛔ Trade Deadline (semana ${TRADE_DEADLINE_WEEK}) ultrapassado — apenas jogador↔jogador, sem picks.`}
         </div>
-      </Panel>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-mono text-[12px] text-dim">Parceiro de troca:</span>
+        <select className="sel" value={toId} onChange={e => { setToId(e.target.value); setGet([]); }}>
+          {g.teams.filter(t => t.id !== g.userTeam).map(t => <option key={t.id} value={t.id}>{t.cidade} {t.nome}</option>)}
+        </select>
+      </div>
 
       <Panel title="Picks condicionais">
         <label className="flex items-center gap-2 font-mono text-[12px] text-ink">
@@ -157,6 +131,21 @@ export function TradesScreen() {
               </>
             )}
           </div>
+          {!afterDeadline && !inPlayoffs && (
+            <div className="border-t border-line p-3">
+              <div className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-faint">Suas picks</div>
+              <div className="flex flex-wrap gap-1.5">
+                {myPicks.slice(0, 14).map(pk => {
+                  const a: TradeAsset = { kind: 'pick', round: pk.round, slot: pk.slot };
+                  const on = give.some(x => x.kind === 'pick' && x.round === pk.round && x.slot === pk.slot);
+                  return (
+                    <button key={`${pk.round}-${pk.slot}`} className={`btn btn-sm ${on ? 'btn-gold' : 'btn-ghost'}`}
+                      onClick={() => toggle(give, setGive, a)}>R{pk.round}.{pk.slot + 1}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </Panel>
 
         {/* VOCÊ RECEBE */}
@@ -181,120 +170,73 @@ export function TradesScreen() {
               </>
             )}
           </div>
+          {!afterDeadline && !inPlayoffs && (
+            <div className="border-t border-line p-3">
+              <div className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-faint">Picks de {them.sigla}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {theirPicks.slice(0, 14).map(pk => {
+                  const a: TradeAsset = { kind: 'pick', round: pk.round, slot: pk.slot };
+                  const on = get.some(x => x.kind === 'pick' && x.round === pk.round && x.slot === pk.slot);
+                  return (
+                    <button key={`${pk.round}-${pk.slot}`} className={`btn btn-sm ${on ? 'btn-gold' : 'btn-ghost'}`}
+                      onClick={() => toggle(get, setGet, a)}>R{pk.round}.{pk.slot + 1}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </Panel>
       </div>
 
-      {/* painel de avaliação */}
-      <Panel title="Avaliação do GM adversário" pad={false}>
-        <div className="grid gap-0 md:grid-cols-[1fr_300px]">
-          <div className="border-b border-line2 p-4 md:border-b-0 md:border-r">
-            <div className="mb-2 flex items-baseline gap-3">
-              <span className="font-mono text-[12px] text-dim">Probabilidade de aceitação</span>
-              <span className="font-disp text-[26px] font-extrabold leading-none" style={{ color: chanceColor }}>{chance}%</span>
-            </div>
-            <Bar pct={chance} color={chanceColor} h={12} />
-            <p className="mt-2.5 font-mono text-[12px] leading-relaxed text-ink">{preview.ev.parecer}</p>
-
-            <div className="mt-3 grid grid-cols-3 gap-3 font-mono text-[11.5px]">
-              <div className="border border-line2 px-2.5 py-2">
-                <div className="text-faint">Ele recebe</div>
-                <div className="text-[16px] font-bold text-grass">{preview.ev.valueGive} pts</div>
+      <Panel title="Avaliação da proposta">
+        {!val.ok ? (
+          <ul className="space-y-1.5">
+            {val.erros.map((e, i) => <li key={i} className="border-l-2 border-blood pl-3 font-mono text-[12px] text-blood">{e}</li>)}
+            {!val.erros.length && <li className="font-mono text-[12px] text-faint">Selecione ao menos 1 item de cada lado.</li>}
+          </ul>
+        ) : ev ? (
+          <div className="space-y-3">
+            <div>
+              <div className="mb-1 flex justify-between font-mono text-[12px] text-dim">
+                <span>Chance de {them.sigla} aceitar</span>
+                <b className="text-ink">{ev.chance}% — {ev.parecer}</b>
               </div>
-              <div className="border border-line2 px-2.5 py-2">
-                <div className="text-faint">Ele entrega</div>
-                <div className="text-[16px] font-bold text-blood">{preview.ev.valueGet} pts</div>
-              </div>
-              <div className="border border-line2 px-2.5 py-2">
-                <div className="text-faint">Saldo p/ ele</div>
-                <div className="text-[16px] font-bold" style={{ color: preview.ev.net >= 0 ? 'var(--color-grass)' : 'var(--color-blood)' }}>
-                  {preview.ev.net >= 0 ? '+' : ''}{preview.ev.net}
-                </div>
-              </div>
+              <Bar pct={ev.chance} color={ev.chance >= 60 ? 'var(--color-grass)' : ev.chance >= 35 ? 'var(--color-gold)' : 'var(--color-blood)'} />
             </div>
-
-            <div className="mt-3 font-mono text-[11.5px] text-dim">
-              Seu cap após a troca: <b className={preview.val.capDepois > g.settings.cap ? 'text-blood' : 'text-ink'}>${preview.val.capDepois}M</b> / ${g.settings.cap}M
-              {' · '}Elenco ativo: <b className={preview.val.rosterDepois < 44 ? 'text-blood' : 'text-ink'}>{preview.val.rosterDepois}</b> (mín. 44)
-              {' · '}Cap atual: ${myCap}M
+            <div className="grid grid-cols-3 gap-3 font-mono text-[12px]">
+              <div><span className="text-faint">Valor entregue:</span> <b className="text-ink">{ev.valueGive}pts</b></div>
+              <div><span className="text-faint">Valor recebido:</span> <b className="text-ink">{ev.valueGet}pts</b></div>
+              <div><span className="text-faint">Saldo p/ parceiro:</span> <b style={{ color: ev.net >= 0 ? 'var(--color-grass)' : 'var(--color-blood)' }}>{ev.net >= 0 ? '+' : ''}{ev.net}pts</b></div>
             </div>
-
-            {preview.val.erros.length > 0 && (
-              <ul className="mt-3 space-y-1 border border-blood/40 bg-[rgba(226,87,75,0.07)] px-3 py-2 font-mono text-[11.5px] text-blood">
-                {preview.val.erros.map((e, i) => <li key={i}>✗ {e}</li>)}
-              </ul>
-            )}
-          </div>
-
-          <div className="flex flex-col justify-center gap-2.5 p-4">
-            <button
-              className="btn btn-gold text-[17px]"
-              disabled={!preview.val.ok}
-              onClick={() => {
-                dispatch({ type: 'TRADE_PROPOSE', to: partnerId, give, get });
-                setGive([]); setGet([]);
-              }}
-            >
-              Propor troca »
+            <div className="flex justify-between border-t border-line2 pt-2 font-mono text-[12px] text-dim">
+              <span>Seu cap após a troca</span><b className="text-ink">{fmtM(val.capDepois)} / {fmtM(g.settings.cap)}</b>
+            </div>
+            <button className="btn btn-gold w-full text-[16px]" onClick={() => { dispatch({ type: 'TRADE_PROPOSE', to: toId, give, get }); setGive([]); setGet([]); }}>
+              Propor troca a {them.sigla} »
             </button>
-            <button className="btn" onClick={() => { setGive([]); setGet([]); }}>Limpar seleção</button>
-            <p className="text-center font-mono text-[10.5px] leading-relaxed text-faint">
-              A IA aceita quando o saldo é favorável a ela. Picks valem pela rodada; jogadores por OVR, idade, posição e necessidade.
-            </p>
           </div>
-        </div>
-      </Panel>
-
-      {/* histórico de trocas */}
-      <Panel title={`Histórico de trocas (${g.tradeLog.length})`} pad={false}>
-        {g.tradeLog.length === 0 ? (
-          <p className="px-4 py-5 font-mono text-[12px] text-faint">Nenhuma troca registrada ainda nesta carreira.</p>
         ) : (
-          <div className="max-h-[280px] overflow-y-auto">
-            <table className="tbl">
-              <thead>
-                <tr><th>Temp./Sem.</th><th>Enviou</th><th>Para</th><th>Recebeu</th><th>Resultado</th></tr>
-              </thead>
-              <tbody>
-                {g.tradeLog.map(t => (
-                  <tr key={t.id}>
-                    <td className="num">{t.temporada} / S{t.semana}</td>
-                    <td className="max-w-[280px] truncate">{t.aGives}</td>
-                    <td>{teamById(g, t.b).sigla}</td>
-                    <td className="max-w-[280px] truncate">{t.bGives}</td>
-                    <td>{t.aceita ? <span className="tag border-grass/50 text-grass">FECHADA</span> : <span className="tag border-blood/40 text-blood">recusada</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p className="font-mono text-[12.5px] text-faint">Monte a troca selecionando itens dos dois lados para ver a avaliação.</p>
         )}
       </Panel>
+
+      {g.tradeLog.length > 0 && (
+        <Panel title="Histórico de negociações" pad={false}>
+          <div className="max-h-[260px] overflow-y-auto">
+            {g.tradeLog.slice(0, 20).map(tr => {
+              const a = teamById(g, tr.a); const b = teamById(g, tr.b);
+              return (
+                <div key={tr.id} className="flex items-center gap-3 border-b border-line2 px-4 py-2 font-mono text-[12px]">
+                  <span className={`tag shrink-0 ${tr.aceita ? 'border-grass/60 text-grass' : 'border-blood/60 text-blood'}`}>{tr.aceita ? 'FECHADA' : 'RECUSADA'}</span>
+                  <span className="inline-flex items-center gap-1.5"><TeamDot cor={a.cor} /><b>{a.sigla}</b></span>
+                  <span className="truncate text-dim">envia {tr.aGives} e recebe {tr.bGives}</span>
+                  <span className="ml-auto shrink-0 text-faint">Sem {tr.semana}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+      )}
     </div>
-  );
-}
-
-/* ---------- chips ---------- */
-function PlayerChip({ p, sel, onClick }: { p: Player; sel: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick}
-      className={`flex items-center gap-1.5 border px-2 py-1 font-mono text-[11px] transition-all ${sel
-        ? 'border-gold bg-[rgba(240,180,41,0.14)] text-goldhi shadow-[0_0_8px_rgba(240,180,41,0.25)]'
-        : 'border-line2 bg-panel2 text-dim hover:border-line hover:text-ink'}`}>
-      <PosBadge pos={p.pos} />
-      <span className="max-w-[110px] truncate">{p.nome}</span>
-      <Ovr v={p.ovr} />
-      <span className="text-faint">{playerValue(p)}pts</span>
-    </button>
-  );
-}
-
-function PickChip({ label, value, sel, onClick }: { label: string; value: number; sel: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick}
-      className={`border px-2 py-1 font-mono text-[11px] transition-all ${sel
-        ? 'border-gold bg-[rgba(240,180,41,0.14)] text-goldhi shadow-[0_0_8px_rgba(240,180,41,0.25)]'
-        : 'border-line2 bg-panel2 text-dim hover:border-line hover:text-ink'}`}>
-      {label} <span className="text-faint">{value}pts</span>
-    </button>
   );
 }

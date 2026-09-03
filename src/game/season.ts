@@ -289,61 +289,90 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   }
   const rest = games.filter(g => !w18Keys.has(`${g.casa}>${g.fora}`));
 
-  // bye weeks 5-14 (índices 4..13), uma por time
+  // bye weeks 5-14 (índices 4..13): 8 semanas com 4 folgas (paridade par —
+  // sempre dá para emparelhar os demais), sem rivais de divisão na mesma semana
   const bye = new Map<string, number>();
-  const load = new Map<number, number>();
-  for (let w = 4; w <= 13; w++) load.set(w, 0);
-  for (const key of rng.shuffle([...byDiv.keys()])) {
-    const usedByDiv = new Set<number>();
-    for (const t of rng.shuffle(byDiv.get(key)!)) {
-      const weeks = [...Array(10)].map((_, i) => i + 4)
-        .filter(w => !usedByDiv.has(w))
-        .sort((a, b) => (load.get(a)! - load.get(b)!) || (rng.next() - 0.5));
-      const w = weeks[0] ?? 4;
-      bye.set(t.id, w);
-      usedByDiv.add(w);
-      load.set(w, (load.get(w) ?? 0) + 1);
-    }
-  }
-
-  // guloso semanas 1..17, priorizando times mais carregados (espalha divisão)
-  const weeks: Game[][] = Array.from({ length: 17 }, () => []);
-  const remaining = [...rest];
-  const left = new Map<string, number>();
-  for (const g of remaining) {
-    left.set(g.casa, (left.get(g.casa) ?? 0) + 1);
-    left.set(g.fora, (left.get(g.fora) ?? 0) + 1);
-  }
-  for (let w = 0; w < 17 && remaining.length; w++) {
-    const booked = new Set<string>();
-    for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
-    let progress = true;
-    while (progress) {
-      progress = false;
-      const free = [...left.keys()]
-        .filter(tm => !booked.has(tm) && (left.get(tm) ?? 0) > 0)
-        .sort((a, b) => (left.get(b) ?? 0) - (left.get(a) ?? 0));
-      for (const tm of free) {
-        const opts = remaining.filter(g =>
-          (g.casa === tm || g.fora === tm) && !booked.has(g.casa) && !booked.has(g.fora));
-        if (!opts.length) continue;
-        const pick = opts.sort((a, b) =>
-          ((left.get(a.casa) ?? 0) + (left.get(a.fora) ?? 0)) -
-          ((left.get(b.casa) ?? 0) + (left.get(b.fora) ?? 0)))[Math.min(1, opts.length - 1)] ?? opts[0];
-        weeks[w].push(pick);
-        remaining.splice(remaining.indexOf(pick), 1);
-        left.set(pick.casa, (left.get(pick.casa) ?? 0) - 1);
-        left.set(pick.fora, (left.get(pick.fora) ?? 0) - 1);
-        booked.add(pick.casa); booked.add(pick.fora);
-        progress = true;
+  {
+    const byeWeeks = rng.shuffle([4, 5, 6, 7, 8, 9, 10, 11, 12, 13]).slice(0, 8);
+    const slots = new Map<number, string[]>();
+    for (const w of byeWeeks) slots.set(w, []);
+    for (const key of rng.shuffle([...byDiv.keys()])) {
+      const usedByDiv = new Set<number>();
+      for (const t of rng.shuffle(byDiv.get(key)!)) {
+        const open = byeWeeks
+          .filter(w => !usedByDiv.has(w) && (slots.get(w)?.length ?? 0) < 4)
+          .sort((a, b) => (slots.get(a)!.length - slots.get(b)!.length) || (rng.next() - 0.5));
+        const w = open[0] ?? byeWeeks[0];
+        slots.get(w)!.push(t.id);
+        usedByDiv.add(w);
+        bye.set(t.id, w);
       }
     }
   }
-  for (const g of remaining) {
+
+  /* Alocação semanas 1..17 — multissemente com varredura final.
+     GARANTIA: nenhum jogo é descartado (todo time termina com 17 partidas). */
+  let bestWeeks: Game[][] | null = null;
+  let bestLeft: Game[] = rest;
+  for (let attempt = 0; attempt < 40 && bestLeft.length > 0; attempt++) {
+    const r2 = new Rng((rng.int(1, 0x7fffffff) + attempt * 7919) >>> 0);
+    const weeks: Game[][] = Array.from({ length: 17 }, () => []);
+    const remaining = r2.shuffle([...rest]);
+    for (let w = 0; w < 17 && remaining.length; w++) {
+      const booked = new Set<string>();
+      for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
+      // múltiplas passadas por semana (approx. de matching máximo)
+      let progress = true;
+      while (progress) {
+        progress = false;
+        for (let i = remaining.length - 1; i >= 0; i--) {
+          const g = remaining[i];
+          if (booked.has(g.casa) || booked.has(g.fora)) continue;
+          weeks[w].push(g);
+          booked.add(g.casa); booked.add(g.fora);
+          remaining.splice(i, 1);
+          progress = true;
+        }
+      }
+    }
+    if (remaining.length < bestLeft.length) {
+      bestLeft = remaining;
+      bestWeeks = weeks;
+    }
+  }
+  const weeks = bestWeeks ?? Array.from({ length: 17 }, () => []);
+  if (!bestWeeks) {
+    // degenerate: aloca em ordem (raro)
+    const remaining = [...rest];
+    for (let w = 0; w < 17 && remaining.length; w++) {
+      const booked = new Set<string>();
+      for (let i = remaining.length - 1; i >= 0; i--) {
+        const g = remaining[i];
+        if (booked.has(g.casa) || booked.has(g.fora)) continue;
+        weeks[w].push(g); booked.add(g.casa); booked.add(g.fora);
+        remaining.splice(i, 1);
+      }
+    }
+    bestLeft = remaining;
+  }
+  // varredura final: jogos restantes entram em qualquer semana com os dois times livres
+  for (const g of [...bestLeft]) {
     for (let w = 0; w < 17; w++) {
-      if (bye.get(g.casa) === w || bye.get(g.fora) === w) continue;
       const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
-      if (!busy.has(g.casa) && !busy.has(g.fora)) { weeks[w].push(g); break; }
+      if (!busy.has(g.casa) && !busy.has(g.fora)) {
+        weeks[w].push(g);
+        bestLeft = bestLeft.filter(x => x !== g);
+        break;
+      }
+    }
+  }
+  if (bestLeft.length > 0) {
+    console.warn('Calendário: jogos realocados com semana de folga compartilhada:', bestLeft.length);
+    for (const g of bestLeft) {
+      for (let w = 0; w < 17; w++) {
+        const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
+        if (!busy.has(g.casa) || !busy.has(g.fora)) { weeks[w].push(g); break; }
+      }
     }
   }
   return { weeks, week18 };
@@ -597,6 +626,10 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
   const { fase, semana } = s.settings;
 
   const isUser = (m: Match) => m.casa === s.userTeam || m.fora === s.userTeam;
+
+  // Nos playoffs, garante que os jogos da rodada atual existam como partidas jogáveis.
+  if (fase === 'PO') syncPlayoffMatches(s);
+
   const weekMatches = s.matches.filter(m => m.fase === fase && m.rodada === semana && !m.jogada);
 
   for (const p of s.players) if (p.lesao > 0) {
@@ -682,13 +715,25 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     }
     else s.settings.semana++;
   } else if (fase === 'PO') {
-    const stillIn = s.bracket ? s.bracket[Math.min(semana - 1, s.bracket.length - 1)].jogos.some(j => (j.casa === s.userTeam || j.fora === s.userTeam) && !j.jogada) : false;
-    if (!stillIn && semana > 1) {
-      const t = teamById(s, s.userTeam);
-      pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
-      out.eliminado = true;
+    // Grava os resultados simulados no bracket e gera a próxima fase quando a rodada fecha.
+    const playedRodada = semana;                      // rodada recém-jogada
+    const roundsBefore = s.bracket?.length ?? 0;
+    syncRoundResults(s, playedRodada);
+    const roundsAfter = s.bracket?.length ?? 0;
+
+    // O usuário foi eliminado se a rodada fechou (nova fase gerada) e ele não está nela.
+    if (roundsAfter > roundsBefore && s.bracket) {
+      const nova = s.bracket[s.bracket.length - 1];
+      const stillIn = nova.jogos.some(j => j.casa === s.userTeam || j.fora === s.userTeam);
+      if (!stillIn) {
+        const t = teamById(s, s.userTeam);
+        pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
+        out.eliminado = true;
+      }
     }
+
     s.settings.semana++;
+    syncPlayoffMatches(s);   // prepara as partidas da nova rodada no calendário jogável
     if (s.settings.semana > (s.bracket?.length ?? 4)) endSeason(s, rng);
   }
   return { state: s, out, trainingResults };
@@ -714,6 +759,7 @@ function startPlayoffs(s: GameState) {
     const one = teamById(s, seeds[0].teamId);
     pushNews(s, 'PLAYOFFS', `${one.cidade} ${one.nome} é o seed #1 da ${conf} e folga no Wild Card.`);
   }
+  syncPlayoffMatches(s);   // cria as partidas jogáveis da rodada 1 imediatamente
 }
 
 function nextRound(s: GameState) {
@@ -759,13 +805,39 @@ function nextRound(s: GameState) {
   s.bracket!.push({ nome: nomes[idx + 1], jogos: next });
 }
 
-export function finishRound(s: GameState) {
-  const idx = s.settings.semana - 2;
-  if (idx < 0 || !s.bracket || idx >= s.bracket.length) return;
+/** Garante que os jogos da rodada atual de playoffs existam como partidas jogáveis. */
+function syncPlayoffMatches(s: GameState) {
+  if (!s.bracket) return;
+  const rodada = s.settings.semana;
+  const round = s.bracket[rodada - 1];
+  if (!round) return;
+  for (const j of round.jogos) {
+    const exists = s.matches.some(m =>
+      m.fase === 'PO' && m.rodada === rodada &&
+      ((m.casa === j.casa && m.fora === j.fora) || (m.casa === j.fora && m.fora === j.casa)));
+    if (!exists) {
+      s.matches.push({
+        id: `po-${rodada}-${j.casa}-${j.fora}`,
+        fase: 'PO', rodada,
+        casa: j.casa, fora: j.fora,
+        placarCasa: null, placarFora: null, jogada: false,
+      });
+    }
+  }
+}
+
+/** Grava os resultados das partidas jogadas no bracket e gera a próxima fase quando a rodada fecha. */
+function syncRoundResults(s: GameState, rodada: number) {
+  if (!s.bracket) return;
+  const idx = rodada - 1;
+  if (idx < 0 || idx >= s.bracket.length) return;
   const round = s.bracket[idx];
   for (const j of round.jogos) {
     if (j.jogada) continue;
-    const m = s.matches.find(x => x.fase === 'PO' && x.rodada === idx + 1 && ((x.casa === j.casa && x.fora === j.fora) || (x.casa === j.fora && x.fora === j.casa)) && x.jogada);
+    const m = s.matches.find(x =>
+      x.fase === 'PO' && x.rodada === rodada &&
+      ((x.casa === j.casa && x.fora === j.fora) || (x.casa === j.fora && x.fora === j.casa)) &&
+      x.jogada);
     if (!m) continue;
     j.pc = m.casa === j.casa ? m.placarCasa : m.placarFora;
     j.pf = m.casa === j.casa ? m.placarFora : m.placarCasa;
@@ -1445,6 +1517,14 @@ export function marketValue(p: Player, inflacao = 1): number {
   return Math.max(0.6, Math.round(base * (posMult[p.pos] ?? 1) * ageMult * inflacao * 10) / 10);
 }
 
+/** Focos de treinamento disponíveis no Centro de Treinamento. */
+export const FOCUS_INFO: Record<Focus, { label: string; desc: string }> = {
+  CORRIDA: { label: 'Jogo terrestre', desc: '+Corrida e +Bloqueio dos jovens' },
+  PASSE: { label: 'Jogo aéreo', desc: '+Passe e +Recepção dos jovens' },
+  DEFESA: { label: 'Defesa', desc: '+Tackle e +Velocidade dos jovens' },
+  FISICO: { label: 'Condicionamento', desc: '+Resistência e +Velocidade para todos' },
+};
+
 export function canSign(s: GameState, p: Player): { ok: boolean; motivo: string } {
   const ativos = playersOf(s, s.userTeam).filter(x => x.status !== 'PS').length;
   if (ativos >= 53) return { ok: false, motivo: 'Elenco ativo cheio (53).' };
@@ -1479,6 +1559,59 @@ export function releasePlayer(s: GameState, playerId: string): { ok: boolean; ms
   s.faPool.push(p);
   addChurn(s, s.userTeam, 6);    // corte abala o vestiário
   return { ok: true, msg: `${p.nome} dispensado — agora é free agent.` };
+}
+
+/** Contrata um free agent mediante oferta estruturada (Free Agency). */
+export function signFAWithOffer(s: GameState, p: Player, offer: ContractOffer): { ok: boolean; msg: string } {
+  const chk = canSign(s, p);
+  if (!chk.ok) return { ok: false, msg: chk.motivo };
+  if (offer.years < 1 || offer.years > 5) return { ok: false, msg: 'Contratos têm de 1 a 5 anos.' };
+  if (offer.base <= 0) return { ok: false, msg: 'Salário-base precisa ser positivo.' };
+
+  const usado = capUsed(s, s.userTeam);
+  const novoHit = makeContract(offer).capHits[0];
+  if (usado + novoHit > s.settings.cap) {
+    return { ok: false, msg: `Cap insuficiente: a oferta pesa ${fmtM(novoHit)} no ano 1 e restam ${fmtM(Math.max(0, Math.round((s.settings.cap - usado) * 10) / 10))}.` };
+  }
+
+  const hap = negotiationHappiness(p, offer, s.settings.inflacao);
+  const aceita = acceptanceRoll(hap.total, new Rng(newSeed()));
+  const exp = calcExpectations(p, s.settings.inflacao);
+
+  if (!aceita) {
+    return { ok: false, msg: `${p.nome} recusou (${hap.total}% de felicidade). O agente quer ${fmtM(exp.aav)}/ano por ${exp.anos} ano(s), ${STRUCT_LABEL[exp.structure].toLowerCase()}.` };
+  }
+
+  s.faPool = s.faPool.filter(x => x.id !== p.id);
+  p.teamId = s.userTeam; p.status = 'RES'; p.origem = undefined;
+  p.contract = makeContract(offer);
+  p.contrato = offer.years;
+  p.salario = offer.base;
+  p.holdout = false;
+  p.anosNoTime = 0;
+  p.moral = clamp(p.moral + 12, 25, 95);
+  s.players.push(p);
+  addChurn(s, s.userTeam, 8);
+  const t = teamById(s, s.userTeam);
+  pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}): ${offer.years} ano(s), ${fmtM(offer.base)}/ano, ${STRUCT_LABEL[offer.structure].toLowerCase()}${offer.bonus > 0 ? `, ${fmtM(offer.bonus)} de luvas` : ''} (felicidade ${hap.total}%).`);
+  return { ok: true, msg: `✍️ ${p.nome} contratado! (${hap.total}%)` };
+}
+
+/** Renovação de contrato da comissão técnica. */
+export function renewStaff(s: GameState, staffId: string, offer: ContractOffer): { ok: boolean; msg: string } {
+  const st = s.staff.find(x => x.id === staffId && x.teamId === s.userTeam);
+  if (!st) return { ok: false, msg: 'Profissional inválido.' };
+  if (st.contrato > 2) return { ok: false, msg: 'Renovação antecipada vale para contratos com ≤2 anos restantes.' };
+  const t = teamById(s, s.userTeam);
+  if (t.dinheiro < offer.bonus) return { ok: false, msg: `Caixa insuficiente para o bônus (tem ${fmtM(t.dinheiro)}).` };
+  const rng = new Rng(newSeed());
+  const hap = staffHappiness(st, offer);
+  if (!acceptanceRoll(hap.value, rng))
+    return { ok: false, msg: `Recusada! ${st.nome} pede ~${fmtM(staffExpectations(st).aav)}/ano. Felicidade: ${hap.value}%.` };
+  t.dinheiro = Math.round((t.dinheiro - offer.bonus) * 10) / 10;
+  st.salario = offer.base; st.bonus = offer.bonus; st.contrato = offer.years;
+  pushNews(s, 'COMISSÃO', `${st.nome} (${st.funcao}) renova: ${offer.years} ano(s), ${fmtM(offer.base)}/ano.`);
+  return { ok: true, msg: `✍️ ${st.nome} renovou!` };
 }
 
 /* ================= 💼 negociações (sistema de contratos) ================= */

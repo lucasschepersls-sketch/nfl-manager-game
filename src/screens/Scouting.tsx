@@ -52,7 +52,6 @@ export function ScoutingScreen() {
 
   return (
     <div className="space-y-4">
-      {/* cabeçalho: orçamento de scouting */}
       <div className="panel flex flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
         <div>
           <div className="font-disp text-[13px] font-semibold uppercase tracking-[0.25em] text-faint">Budget de Scouting</div>
@@ -74,7 +73,6 @@ export function ScoutingScreen() {
         </div>
       </div>
 
-      {/* filtros */}
       <div className="flex flex-wrap items-center gap-2">
         <button className={`btn btn-sm ${posF === 'ALL' ? 'btn-gold' : ''}`} onClick={() => setPosF('ALL')}>Todas pos</button>
         {(['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S', 'K', 'P'] as Pos[]).map(p => (
@@ -106,7 +104,6 @@ export function ScoutingScreen() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_280px]">
-        {/* tabela de prospectos */}
         <Panel title={`Prospectos — ${rows.length} de ${g.draftClass.length}`} pad={false}>
           <div className="max-h-[600px] overflow-y-auto">
             <table className="tbl">
@@ -184,7 +181,6 @@ export function ScoutingScreen() {
           </div>
         </Panel>
 
-        {/* legenda / como funciona */}
         <div className="space-y-4">
           <Panel title="Escala de notas" pad={false}>
             <div className="px-3.5 py-2.5">

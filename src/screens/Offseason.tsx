@@ -12,7 +12,7 @@ const PHASE_ICON = ['🤝', '✍️', '🎓', '✅'];
 export function OffseasonScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
-  const t = teamById(g, g.userTeam);
+  const teamByIdG = teamById(g, g.userTeam);
   const ph = g.offPhase ?? 1;
   const rules = validateRosterDetailed(g);
   const allOk = rules.every(r => r.ok);
@@ -24,7 +24,6 @@ export function OffseasonScreen() {
 
   const irPara = (destino: Screen) => dispatch({ type: 'SCREEN', screen: destino });
 
-  /* ---------- dados por fase ---------- */
   const fa = useMemo(() => {
     const rfa = g.faPool.filter(p => p.rfa).length;
     const ufa = g.faPool.length - rfa;
@@ -48,7 +47,6 @@ export function OffseasonScreen() {
 
   return (
     <div className="space-y-5">
-      {/* cabeçalho da offseason */}
       <div className="panel px-5 py-4">
         <div className="flex items-baseline justify-between gap-4">
           <div>
@@ -68,7 +66,6 @@ export function OffseasonScreen() {
           </div>
         </div>
 
-        {/* trilho das 4 fases */}
         <div className="mt-4 flex items-center gap-1">
           {OFF_PHASES.map((p, i) => {
             const done = p.n < ph;
@@ -93,7 +90,6 @@ export function OffseasonScreen() {
         <p className="mt-2 font-mono text-[12px] text-dim">{OFF_PHASES[ph - 1].desc}</p>
       </div>
 
-      {/* corpo da fase atual */}
       {ph === 1 && <FaseFA g={g} fa={fa} espaco={espaco} irPara={irPara} />}
       {ph === 2 && <FaseRenov g={g} renovaveis={renovaveis} irPara={irPara} />}
       {ph === 3 && <FaseDraft g={g} draft={draft} minhaPos={minhaPos} draftDone={draftDone} quentes={quentes} irPara={irPara} dispatch={dispatch} />}
@@ -105,7 +101,6 @@ export function OffseasonScreen() {
         />
       )}
 
-      {/* barra de avanço */}
       <div className="flex flex-wrap items-center gap-3">
         {ph === 1 && <span className="font-mono text-[11.5px] text-faint">Ao fechar o mercado, a IA faz a onda final de contratações e leva seus RFAs sem match.</span>}
         {ph === 3 && !draftDone && <span className="font-mono text-[11.5px] text-faint">O Draft precisa terminar (7 rodadas) para avançar.</span>}
@@ -133,17 +128,10 @@ export function OffseasonScreen() {
   );
 }
 
-/* ============ FASE 1 — FREE AGENCY ============ */
-function FaseFA({ g, fa, espaco, irPara }: {
-  g: ReturnType<typeof useGame>['st']['game'] & object;
-  fa: { rfa: number; ufa: number; meusRfa: { nome: string; pos: string; ovr: number }[]; top: any[] };
-  espaco: number;
-  irPara: (d: Screen) => void;
-}) {
-  const GG = g as any;
+function FaseFA({ g, fa, espaco, irPara }: any) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-      <Panel title={`Mercado aberto — ${GG.faPool.length} agentes livres`} pad={false}
+      <Panel title={`Mercado aberto — ${g.faPool.length} agentes livres`} pad={false}
         right={
           <span className="flex gap-2">
             <span className="tag border-ice/60 text-ice">RFA {fa.rfa}</span>
@@ -154,7 +142,7 @@ function FaseFA({ g, fa, espaco, irPara }: {
           <thead><tr><th>POS</th><th>Jogador</th><th>Origem</th><th>Tipo</th><th className="num">Idade</th><th className="num">OVR</th><th className="num">Pedido/ano</th></tr></thead>
           <tbody>
             {fa.top.map((p: any) => {
-              const origem = p.origem ? GG.teams.find((x: any) => x.id === p.origem) : null;
+              const origem = p.origem ? g.teams.find((x: any) => x.id === p.origem) : null;
               return (
                 <tr key={p.id}>
                   <td><PosBadge pos={p.pos} /></td>
@@ -169,7 +157,7 @@ function FaseFA({ g, fa, espaco, irPara }: {
                     : <span className="tag border-line text-dim">UFA</span>}</td>
                   <td className="num">{p.idade}</td>
                   <td className="num"><Ovr v={p.ovr} /></td>
-                  <td className="num text-goldhi">{fmtM(marketValue(p, GG.settings.inflacao))}</td>
+                  <td className="num text-goldhi">{fmtM(marketValue(p, g.settings.inflacao))}</td>
                 </tr>
               );
             })}
@@ -217,10 +205,7 @@ function FaseFA({ g, fa, espaco, irPara }: {
   );
 }
 
-/* ============ FASE 2 — RENOVAÇÕES ============ */
-function FaseRenov({ g, renovaveis, irPara }: {
-  g: any; renovaveis: any[]; irPara: (d: Screen) => void;
-}) {
+function FaseRenov({ g, renovaveis, irPara }: any) {
   return (
     <Panel
       title={`Renovações & extensões — ${renovaveis.length} elegíveis (≤2 anos restantes)`}
@@ -268,11 +253,7 @@ function FaseRenov({ g, renovaveis, irPara }: {
   );
 }
 
-/* ============ FASE 3 — DRAFT ============ */
-function FaseDraft({ g, draft, minhaPos, draftDone, quentes, irPara, dispatch }: {
-  g: any; draft: any; minhaPos: number; draftDone: boolean; quentes: any[];
-  irPara: (d: Screen) => void; dispatch: any;
-}) {
+function FaseDraft({ g, draft, minhaPos, draftDone, quentes, irPara, dispatch }: any) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
       <Panel title="Draft de Novatos — 7 rodadas" pad={false}>
@@ -324,12 +305,7 @@ function FaseDraft({ g, draft, minhaPos, draftDone, quentes, irPara, dispatch }:
   );
 }
 
-/* ============ FASE 4 — VALIDAÇÃO FINAL ============ */
-function FaseValida({ g, rules, allOk, nErr, ativos, folha, espaco, irPara, dispatch }: {
-  g: any; rules: ReturnType<typeof validateRosterDetailed>; allOk: boolean; nErr: number;
-  ativos: number; folha: number; espaco: number;
-  irPara: (d: Screen) => void; dispatch: any;
-}) {
+function FaseValida({ g, rules, allOk, nErr, ativos, folha, espaco, irPara, dispatch }: any) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
       <Panel
@@ -337,10 +313,10 @@ function FaseValida({ g, rules, allOk, nErr, ativos, folha, espaco, irPara, disp
         pad={false}
         right={allOk
           ? <span className="tag border-grass/60 text-grass">✓ APROVADO</span>
-          : <span className="tag border-blood/60 text-blood">{nErr} PENDÊNCIA{ nErr > 1 ? 'S' : ''}</span>}
+          : <span className="tag border-blood/60 text-blood">{nErr} PENDÊNCIA{nErr > 1 ? 'S' : ''}</span>}
       >
         <div className="divide-y divide-line2">
-          {rules.map(r => (
+          {rules.map((r: any) => (
             <div key={r.id} className={`flex items-center gap-3 px-4 py-2.5 ${r.ok ? '' : 'bg-[rgba(226,87,75,0.05)]'}`}>
               <span className={`grid h-6 w-6 shrink-0 place-items-center border font-bold ${r.ok ? 'border-grass/60 text-grass' : 'border-blood/60 text-blood'}`}>
                 {r.ok ? '✓' : '✗'}

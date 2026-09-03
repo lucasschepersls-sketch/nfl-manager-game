@@ -303,16 +303,14 @@ export class NFLMatchEngine {
 
   /**
    * Nervosismo (Away Game Pressure) — versão balanceada.
-   * Antes chegava a 1.0 (≈ −10% de precisão + turnover extra) e, somado ao
-   * mando de campo forte, produzia elásticos. Agora o teto é 0.55 e os
-   * fatores são menores: pressão pesa, mas não decide o jogo sozinha.
+   * Teto 0.55: pressão pesa, mas não decide o jogo sozinha.
    */
   private nervousness(off: Unit): number {
     if (off === this.uc) return 0;
     const qb = off.qb;
     if (!qb) return 0.4;
     const veteranoImune = qb.ovr > 85 && qb.jogosCarreira >= 50;
-    let nerv = 0.10 + this.casa.pressao / 400;      // base: 0.25–0.35 conforme o estádio
+    let nerv = 0.10 + this.casa.pressao / 400;
     if (!veteranoImune) {
       if (qb.jogosCarreira < 10) nerv += 0.12;      // inexperiente (antes +0.30)
       if (qb.ovr < 70) nerv += 0.08;                // rating baixo (antes +0.20)
@@ -380,7 +378,6 @@ export class NFLMatchEngine {
     };
 
     while (true) {
-      // zona vermelha: entrou uma vez no drive, conta tentativa; TD lá dentro conta conversão
       if (!rzEntered && ball >= 80) { this.rz[side].att++; rzEntered = true; }
       if (ball >= 100) {
         const beforeTd = this.lines.length;
@@ -788,7 +785,10 @@ export class NFLMatchEngine {
   private snap(p: Player | null) {
     if (p) {
       this.snaps.set(p.id, (this.snaps.get(p.id) ?? 0) + 1);
+<<<<<<< minimalist-american-football-game-dde7e
+=======
       // Atualiza snaps no box score rico
+>>>>>>> main
       const pl = this.gameLines[p.id];
       if (pl) pl.snaps = (pl.snaps ?? 0) + 1;
     }
@@ -882,7 +882,6 @@ export class NFLMatchEngine {
       possSecs: Math.round(side === 'casa' ? tot.sC : tot.sF),
     });
 
-    // passer rating + linhas
     const lines = Object.values(this.gameLines).map(l => {
       if ((l.att ?? 0) > 0) {
         l.rating = this.passerRating(l.cmp ?? 0, l.att ?? 0, l.py ?? 0, l.ptd ?? 0, l.int ?? 0);
@@ -892,7 +891,6 @@ export class NFLMatchEngine {
       return l;
     });
 
-    // MVP: maior impacto
     let mvp: RichBox['story']['mvp'] = null;
     let bestScore = 0;
     for (const l of lines) {

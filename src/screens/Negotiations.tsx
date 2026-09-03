@@ -11,7 +11,6 @@ import { Panel, PosBadge, Ovr, TeamCrest } from '../components/ui';
 type RowKind = 'holdout' | 'ultimo' | 'extensao';
 
 const STRUCTS: ContractStructure[] = ['FRONT', 'BALANCED', 'BACK'];
-/** mini-distribuição para visualização das estruturas (até 4 anos) */
 const STRUCT_BARS: Record<ContractStructure, number[]> = {
   FRONT: [35, 30, 22.5, 12.5],
   BALANCED: [25, 25, 25, 25],
@@ -26,7 +25,6 @@ export function NegotiationsScreen() {
   const t = teamById(g, g.userTeam);
   const infl = g.settings.inflacao;
 
-  /* ---------- elenco elegível ---------- */
   const roster = useMemo(() => playersOf(g, g.userTeam), [g]);
   const rows = useMemo(() => {
     const out: { p: Player; kind: RowKind }[] = [];
@@ -43,13 +41,11 @@ export function NegotiationsScreen() {
   const [selId, setSelId] = useState<string | null>(null);
   const sel = rows.find(r => r.p.id === selId)?.p ?? rows[0]?.p ?? null;
 
-  /* ---------- oferta em edição ---------- */
   const [years, setYears] = useState(3);
   const [base, setBase] = useState(5);
   const [bonus, setBonus] = useState(0);
   const [structure, setStructure] = useState<ContractStructure>('BALANCED');
 
-  // ao trocar de jogador, pré-preenche com a expectativa do agente
   useEffect(() => {
     if (!sel) return;
     const exp = calcExpectations(sel, infl);
@@ -87,7 +83,6 @@ export function NegotiationsScreen() {
       )}
 
       <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-        {/* ---------- lista de elegíveis ---------- */}
         <Panel title={`Negociáveis (${rows.length})`} pad={false}
           right={<span className="font-mono text-[11px] text-faint">inflação ×{infl.toFixed(2).replace('.', ',')}</span>}>
           <div className="max-h-[640px] overflow-y-auto">
@@ -119,10 +114,8 @@ export function NegotiationsScreen() {
           </div>
         </Panel>
 
-        {/* ---------- mesa de negociação ---------- */}
         {sel && hap && exp && contrato && verdict ? (
           <div className="space-y-5">
-            {/* cabeçalho do jogador */}
             <div className="panel relative overflow-hidden">
               <div className="absolute inset-0 opacity-[0.06]" style={{ background: `repeating-linear-gradient(90deg, ${t.cor} 0 2px, transparent 2px 90px)` }} />
               <div className="relative flex flex-wrap items-center gap-4 px-5 py-4">
@@ -148,9 +141,7 @@ export function NegotiationsScreen() {
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
-              {/* controles da oferta */}
               <Panel title="Sua oferta">
-                {/* duração */}
                 <div className="mb-5">
                   <div className="mb-1.5 flex items-baseline justify-between">
                     <span className="font-disp text-[15px] font-semibold uppercase tracking-wider text-dim">Duração</span>
@@ -164,7 +155,6 @@ export function NegotiationsScreen() {
                   </div>
                 </div>
 
-                {/* salário-base */}
                 <div className="mb-5">
                   <div className="mb-1.5 flex items-baseline justify-between">
                     <span className="font-disp text-[15px] font-semibold uppercase tracking-wider text-dim">Salário-base</span>
@@ -180,7 +170,6 @@ export function NegotiationsScreen() {
                   </div>
                 </div>
 
-                {/* bônus de assinatura */}
                 <div className="mb-5">
                   <div className="mb-1.5 flex items-baseline justify-between">
                     <span className="font-disp text-[15px] font-semibold uppercase tracking-wider text-dim">Bônus de assinatura</span>
@@ -190,7 +179,6 @@ export function NegotiationsScreen() {
                   <div className="mt-0.5 font-mono text-[10.5px] text-faint">amortizado igualmente nos {years} ano(s) — ajuda a convencer sem elevar tanto o cap hit do ano 1</div>
                 </div>
 
-                {/* estrutura */}
                 <div>
                   <div className="mb-2 font-disp text-[15px] font-semibold uppercase tracking-wider text-dim">Estrutura de pagamento</div>
                   <div className="grid grid-cols-3 gap-2.5">
@@ -217,7 +205,6 @@ export function NegotiationsScreen() {
                 </div>
               </Panel>
 
-              {/* felicidade + cap hits */}
               <div className="space-y-5">
                 <Panel title="Chance de aceitação">
                   <div className="mb-2 text-center">
@@ -291,7 +278,6 @@ export function NegotiationsScreen() {
               </div>
             </div>
 
-            {/* ação */}
             <div className="flex flex-wrap items-center gap-3">
               <button className="btn btn-gold btn-pulse text-[17px]"
                 disabled={estoura}
