@@ -760,6 +760,7 @@ function startPlayoffs(s: GameState) {
     const one = teamById(s, seeds[0].teamId);
     pushNews(s, 'PLAYOFFS', `${one.cidade} ${one.nome} é o seed #1 da ${conf} e folga no Wild Card.`);
   }
+  syncPlayoffMatches(s);   // cria as partidas jogáveis da rodada 1 imediatamente
 }
 
 function nextRound(s: GameState) {
@@ -805,13 +806,39 @@ function nextRound(s: GameState) {
   s.bracket!.push({ nome: nomes[idx + 1], jogos: next });
 }
 
-export function finishRound(s: GameState) {
-  const idx = s.settings.semana - 2;
-  if (idx < 0 || !s.bracket || idx >= s.bracket.length) return;
+/** Garante que os jogos da rodada atual de playoffs existam como partidas jogáveis. */
+function syncPlayoffMatches(s: GameState) {
+  if (!s.bracket) return;
+  const rodada = s.settings.semana;
+  const round = s.bracket[rodada - 1];
+  if (!round) return;
+  for (const j of round.jogos) {
+    const exists = s.matches.some(m =>
+      m.fase === 'PO' && m.rodada === rodada &&
+      ((m.casa === j.casa && m.fora === j.fora) || (m.casa === j.fora && m.fora === j.casa)));
+    if (!exists) {
+      s.matches.push({
+        id: `po-${rodada}-${j.casa}-${j.fora}`,
+        fase: 'PO', rodada,
+        casa: j.casa, fora: j.fora,
+        placarCasa: null, placarFora: null, jogada: false,
+      });
+    }
+  }
+}
+
+/** Grava os resultados das partidas jogadas no bracket e gera a próxima fase quando a rodada fecha. */
+function syncRoundResults(s: GameState, rodada: number) {
+  if (!s.bracket) return;
+  const idx = rodada - 1;
+  if (idx < 0 || idx >= s.bracket.length) return;
   const round = s.bracket[idx];
   for (const j of round.jogos) {
     if (j.jogada) continue;
-    const m = s.matches.find(x => x.fase === 'PO' && x.rodada === idx + 1 && ((x.casa === j.casa && x.fora === j.fora) || (x.casa === j.fora && x.fora === j.casa)) && x.jogada);
+    const m = s.matches.find(x =>
+      x.fase === 'PO' && x.rodada === rodada &&
+      ((x.casa === j.casa && x.fora === j.fora) || (x.casa === j.fora && x.fora === j.casa)) &&
+      x.jogada);
     if (!m) continue;
     j.pc = m.casa === j.casa ? m.placarCasa : m.placarFora;
     j.pf = m.casa === j.casa ? m.placarFora : m.placarCasa;

@@ -4,6 +4,7 @@ import {
 } from '../game/season';
 import { teamStage, teamChemistry, STAGE_ZONES, chemistryLabel } from '../game/franchise';
 import { TeamCrest, Bar, Panel, PosBadge, Ovr } from '../components/ui';
+import type { GameState, Team } from '../game/types';
 
 function StatChip({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
@@ -37,6 +38,13 @@ export function ClubHomeScreen() {
   const opp = oppId ? teamById(g, oppId) : null;
   const emCasa = proximo ? proximo.casa === g.userTeam : false;
 
+  // nome da rodada atual nos playoffs (Wild Card, Divisional, etc.)
+  const roundNome = fase === 'PO' && g.bracket ? g.bracket[semana - 1]?.nome : null;
+  // usuário eliminado: está nos playoffs mas não tem nenhum jogo futuro no bracket
+  const temJogoFuturo = g.bracket?.some(round => round.jogos.some(j =>
+    !j.jogada && (j.casa === g.userTeam || j.fora === g.userTeam))) ?? false;
+  const eliminado = fase === 'PO' && !temJogoFuturo;
+
   return (
     <div className="space-y-5">
       {/* banner da franquia */}
@@ -57,7 +65,7 @@ export function ClubHomeScreen() {
             )}
             {fase !== 'OFF' && (
               <button className="btn btn-gold btn-pulse" onClick={() => dispatch({ type: 'CONTINUE' })}>
-                Jogar Semana {semana} »
+                {fase === 'PO' && roundNome ? `${roundNome} »` : `Jogar Semana ${semana} »`}
               </button>
             )}
             {fase === 'OFF' && (
@@ -79,7 +87,10 @@ export function ClubHomeScreen() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        {/* próximo jogo */}
+        {/* próximo jogo / reta final dos playoffs */}
+        {eliminado ? (
+          <PlayoffTracker g={g} className="lg:col-span-2" />
+        ) : (
         <Panel title="Próximo compromisso" className="lg:col-span-2">
           {opp && proximo ? (
             <div className="flex items-center gap-5">
@@ -90,7 +101,7 @@ export function ClubHomeScreen() {
               <div className="flex-1 text-center">
                 <div className="font-disp text-[24px] font-extrabold uppercase text-goldhi">vs</div>
                 <div className="font-mono text-[12px] text-dim">
-                  Semana {semana} · {emCasa ? 'Em casa' : 'Fora'}
+                  {fase === 'PO' && roundNome ? roundNome : `Semana ${semana}`} · {emCasa ? 'Em casa' : 'Fora'}
                 </div>
                 <div className="mt-1 font-mono text-[11px] text-faint">
                   Força {opp ? teamStrength(g, opp.id) : '—'}
@@ -118,6 +129,7 @@ export function ClubHomeScreen() {
             </div>
           </div>
         </Panel>
+        )}
 
         {/* momento + química */}
         <Panel title="Momento da franquia">
@@ -167,5 +179,60 @@ export function ClubHomeScreen() {
         </Panel>
       </div>
     </div>
+  );
+}
+
+/* ============ Rastreador de playoffs (quando o usuário é eliminado) ============ */
+function MatchupRow({ team, score, win, played, isChamp }: { team: Team; score: number | null; win: boolean; played: boolean; isChamp: boolean }) {
+  return (
+    <div className={`flex items-center gap-2 px-2 py-1.5 ${win ? 'bg-[rgba(62,207,122,0.10)]' : ''} ${isChamp ? 'bg-[rgba(240,180,41,0.12)]' : ''}`}>
+      <TeamCrest cor={team.cor} cor2={team.cor2} sigla={team.sigla} conf={team.conf} size={20} />
+      <span className={`flex-1 truncate font-mono text-[12px] ${win ? 'font-bold text-grass' : played ? 'text-dim' : 'text-ink'}`}>
+        {team.sigla}
+      </span>
+      {isChamp && <span className="text-[13px]">🏆</span>}
+      {played && <span className={`font-disp text-[15px] font-bold ${win ? 'text-grass' : 'text-faint'}`}>{score}</span>}
+    </div>
+  );
+}
+
+function PlayoffTracker({ g, className }: { g: GameState; className?: string }) {
+  const champ = g.campeoes[g.campeoes.length - 1];
+  const champTeam = champ ? teamById(g, champ.teamId) : null;
+  return (
+    <Panel title="Eliminado — acompanhe a reta final" className={className}>
+      <p className="mb-3 font-mono text-[12px] text-dim">
+        Sua campanha terminou, mas a disputa pelo anel continua. Simule as semanas para ver quem avança até o Super Bowl.
+      </p>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {g.bracket?.map(round => (
+          <div key={round.nome}>
+            <div className="mb-2 border-b border-line2 pb-1 font-disp text-[13px] font-bold uppercase tracking-wider text-goldhi">{round.nome}</div>
+            <div className="space-y-2.5">
+              {round.jogos.map((j, i) => {
+                const c = teamById(g, j.casa); const f = teamById(g, j.fora);
+                const winC = j.jogada && (j.pc ?? 0) > (j.pf ?? 0);
+                const winF = j.jogada && (j.pf ?? 0) > (j.pc ?? 0);
+                const champC = !!champTeam && champTeam.id === c.id && round.nome === 'Super Bowl';
+                const champF = !!champTeam && champTeam.id === f.id && round.nome === 'Super Bowl';
+                return (
+                  <div key={i} className="divide-y divide-line2 border border-line2 bg-panel2">
+                    <MatchupRow team={c} score={j.pc} win={winC} played={j.jogada} isChamp={champC} />
+                    <MatchupRow team={f} score={j.pf} win={winF} played={j.jogada} isChamp={champF} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      {champTeam && (
+        <div className="mt-4 border border-gold/50 bg-[rgba(240,180,41,0.08)] p-3 text-center">
+          <span className="font-disp text-[15px] font-bold uppercase text-goldhi">
+            🏆 {champTeam.cidade} {champTeam.nome} — campeão da temporada {g.settings.temporada}
+          </span>
+        </div>
+      )}
+    </Panel>
   );
 }
