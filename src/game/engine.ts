@@ -785,6 +785,7 @@ export class NFLMatchEngine {
   private snap(p: Player | null) {
     if (p) {
       this.snaps.set(p.id, (this.snaps.get(p.id) ?? 0) + 1);
+      // Atualiza snaps no box score rico
       const pl = this.gameLines[p.id];
       if (pl) pl.snaps = (pl.snaps ?? 0) + 1;
     }
