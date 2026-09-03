@@ -185,7 +185,9 @@ export function executeProposal(s: GameState, p: TradeProposal, rng: Rng): Trade
     if (a.kind === 'pick') {
       const own = s.pickOwners[(a.round ?? 1) - 1]?.[a.slot ?? 0];
       const from = own?.from && own.from !== ownerSide ? ` (de ${teamById(s, own.from).sigla})` : '';
-      return `R${a.round}.${(a.slot ?? 0) + 1}${from}`;
+      const conditional = a.conditional;
+      const clause = conditional ? ` [condicional: ${conditional.condition} → R${conditional.upgradedRound}]` : '';
+      return `R${a.round}.${(a.slot ?? 0) + 1}${from}${clause}`;
     }
     const pl = s.players.find(x => x.id === a.playerId);
     return pl ? `${pl.nome} (${pl.pos})` : '?';
@@ -228,12 +230,14 @@ export function executeProposal(s: GameState, p: TradeProposal, rng: Rng): Trade
     if (a.kind !== 'pick') continue;
     const cell = s.pickOwners[(a.round ?? 1) - 1][(a.slot ?? 0)];
     cell.owner = p.to;
+    if (a.conditional) cell.conditional = { ...a.conditional };
   }
   for (const a of p.get) {
     if (a.kind !== 'pick') continue;
     const cell = s.pickOwners[(a.round ?? 1) - 1][(a.slot ?? 0)];
     if (!cell.from || cell.from === cell.owner) cell.from = p.to; // registra origem
     cell.owner = p.from;
+    if (a.conditional) cell.conditional = { ...a.conditional };
   }
 
   const aDesc = describe(p.give, p.from);

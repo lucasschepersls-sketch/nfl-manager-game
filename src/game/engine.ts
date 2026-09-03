@@ -312,9 +312,9 @@ export class NFLMatchEngine {
     const veteranoImune = qb.ovr > 85 && qb.jogosCarreira >= 50;
     let nerv = 0.10 + this.casa.pressao / 400;
     if (!veteranoImune) {
-      if (qb.jogosCarreira < 10) nerv += 0.12;
-      if (qb.ovr < 70) nerv += 0.08;
-      if (off.qbBackup) nerv += 0.20;
+      if (qb.jogosCarreira < 10) nerv += 0.12;      // inexperiente (antes +0.30)
+      if (qb.ovr < 70) nerv += 0.08;                // rating baixo (antes +0.20)
+      if (off.qbBackup) nerv += 0.20;               // reserva em campo (antes +0.40)
       if (this.opts?.rivalry && qb.idade < 25) nerv += 0.05;
     }
     return clamp(nerv, 0, 0.55);
@@ -785,6 +785,10 @@ export class NFLMatchEngine {
   private snap(p: Player | null) {
     if (p) {
       this.snaps.set(p.id, (this.snaps.get(p.id) ?? 0) + 1);
+<<<<<<< minimalist-american-football-game-dde7e
+=======
+      // Atualiza snaps no box score rico
+>>>>>>> main
       const pl = this.gameLines[p.id];
       if (pl) pl.snaps = (pl.snaps ?? 0) + 1;
     }

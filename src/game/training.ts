@@ -38,7 +38,7 @@ export function calculateGrowthPotential(player: Player, snapsJogados: number): 
   const ageFactor = Math.max(0, 28 - player.idade) / 10; // Até 28 anos cresce mais
   const potentialRoom = Math.max(0, player.pot - player.ovr) / 30;
   const playingTime = Math.min(1, snapsJogados / 60); // 60 snaps = temporada completa como titular
-
+  
   return ageFactor * 0.4 + potentialRoom * 0.4 + playingTime * 0.2;
 }
 
@@ -53,25 +53,35 @@ export function applyPlayerDevelopment(
   player: Player,
   focus: Focus,
   snapsJogados: number,
-  weekNumber: number
+  weekNumber: number,
+  intensity: TrainingCenterState['intensity'] = 'NORMAL',
 ): { improved: boolean; attrs: Partial<Record<AttrKey, number>> } {
-  void weekNumber;
-  const growthPot = calculateGrowthPotential(player, snapsJogados);
-
-  if (growthPot < 0.1) {
+  if (player.idade > 30) {
+    if (Math.random() < 0.15) {
+      player.ovr = Math.max(20, player.ovr - 1);
+      return { improved: false, attrs: {} };
+    }
     return { improved: false, attrs: {} };
   }
+  if (player.idade >= 25 || player.stats.jogos < 8) return { improved: false, attrs: {} };
+
+  const growthPot = calculateGrowthPotential(player, snapsJogados);
 
   const attrsToImprove: Partial<Record<AttrKey, number>> = {};
   const positionAttrs = POSITION_ATTRS[player.pos] || [];
   const focusAttrs = FOCUS_ATTRS[focus] || [];
-
+  
   // Combina atributos da posição com foco de treino
   const allAttrs = [...new Set([...positionAttrs, ...focusAttrs])];
-
+  
   // Chance base de melhoria
-  let baseChance = 0.15 + growthPot * 0.3;
-
+  let baseChance = 0.3;
+  if (snapsJogados >= 48) baseChance += 0.2;
+  if (focus === 'FISICO') baseChance += 0.1;
+  if (intensity === 'INTENSO') baseChance += 0.05;
+  if (intensity === 'LEVE') baseChance -= 0.05;
+  baseChance += growthPot * 0.1;
+  
   // Bônus por moral alta
   if (player.moral >= 75) {
     baseChance += 0.1;
@@ -86,11 +96,11 @@ export function applyPlayerDevelopment(
 
   for (const attr of allAttrs) {
     const currentAttr = player.attrs[attr as keyof typeof player.attrs];
-
+    
     // Atributos baixos crescem mais facilmente
     const roomForGrowth = (100 - currentAttr) / 100;
-    const improvementChance = baseChance * roomForGrowth;
-
+    const improvementChance = Math.min(0.95, baseChance * roomForGrowth);
+    
     // RNG simples para determinar se houve melhoria
     const roll = Math.random();
     if (roll < improvementChance) {
@@ -112,9 +122,9 @@ export function applyPlayerDevelopment(
     player.ovr = recalculateOVR(player);
   }
 
-  return {
-    improved: totalImprovement > 0,
-    attrs: attrsToImprove,
+  return { 
+    improved: totalImprovement > 0, 
+    attrs: attrsToImprove 
   };
 }
 
@@ -125,6 +135,7 @@ export function recalculateOVR(player: Player): number {
   const attrs = player.attrs;
   const pos = player.pos;
 
+  // Pesos diferentes por posição
   switch (pos) {
     case 'QB':
       return Math.round(
@@ -205,8 +216,8 @@ export function simulateTrainingWeek(
 
   for (const player of players) {
     const snaps = snapsPorJogador[player.id] || 0;
-    const result = applyPlayerDevelopment(player, state.focus, snaps, 0);
-
+    const result = applyPlayerDevelopment(player, state.focus, snaps, 0, state.intensity);
+    
     if (result.improved) {
       results.push({
         playerId: player.id,

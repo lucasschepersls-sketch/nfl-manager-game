@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../state/store';
-import { playersOf, teamById, capUsed, fmtM } from '../game/season';
-import { validateProposal, evaluateProposal, playerValue, TRADE_DEADLINE_WEEK } from '../game/trades';
-import { newSeed, Rng } from '../game/rng';
-import { Panel, PosBadge, Ovr, TeamDot, Bar } from '../components/ui';
-import type { TradeAsset } from '../game/types';
+import { teamById, playersOf, capUsed } from '../game/season';
+import {
+  validateProposal, evaluateProposal, pickValue, playerValue,
+  TRADE_DEADLINE_WEEK, ROUNDS,
+} from '../game/trades';
+import { Rng } from '../game/rng';
+import { Panel, PosBadge, Ovr, Bar } from '../components/ui';
+import type { ConditionalPickCondition, Player, TradeAsset, PickOwner } from '../game/types';
 
 export function TradesScreen() {
   const { st, dispatch } = useGame();
@@ -12,6 +15,10 @@ export function TradesScreen() {
   const [toId, setToId] = useState(g.teams.find(t => t.id !== g.userTeam)!.id);
   const [give, setGive] = useState<TradeAsset[]>([]);
   const [get, setGet] = useState<TradeAsset[]>([]);
+  const [conditionalMode, setConditionalMode] = useState(false);
+  const [condition, setCondition] = useState<ConditionalPickCondition>('team_makes_playoffs');
+  const [upgradedRound, setUpgradedRound] = useState(3);
+  const [conditionPlayerId, setConditionPlayerId] = useState('');
 
   const me = teamById(g, g.userTeam);
   const them = teamById(g, toId);
@@ -41,26 +48,29 @@ export function TradesScreen() {
   const val = validateProposal(g, proposal);
   const ev = useMemo(() => (give.length && get.length ? evaluateProposal(g, proposal, new Rng(newSeed())) : null), [g, toId, give, get]);
 
-  const toggle = (list: TradeAsset[], set: (a: TradeAsset[]) => void, a: TradeAsset) => {
-    const key = (x: TradeAsset) => x.kind === 'player' ? `p:${x.playerId}` : `k:${x.round}:${x.slot}`;
-    const has = list.some(x => key(x) === key(a));
-    set(has ? list.filter(x => key(x) !== key(a)) : [...list, a]);
+  const toggle = (side: 'give' | 'get', asset: TradeAsset) => {
+    const set = side === 'give' ? give : get;
+    const key = (a: TradeAsset) => a.kind === 'player' ? `p:${a.playerId}` : `k:${a.round}:${a.slot}:${a.conditional?.condition ?? ''}:${a.conditional?.upgradedRound ?? ''}`;
+    const k = key(asset);
+    const next = set.some(a => key(a) === k) ? set.filter(a => key(a) !== k) : [...set, asset];
+    if (side === 'give') setGive(next); else setGet(next);
+  };
+  const isSelected = (side: 'give' | 'get', asset: TradeAsset) => {
+    const set = side === 'give' ? give : get;
+    const key = (a: TradeAsset) => a.kind === 'player' ? `p:${a.playerId}` : `k:${a.round}:${a.slot}:${a.conditional?.condition ?? ''}:${a.conditional?.upgradedRound ?? ''}`;
+    return set.some(a => key(a) === key(asset));
   };
 
-  const playerCard = (p: typeof myPlayers[number], side: 'give' | 'get') => {
-    const list = side === 'give' ? give : get;
-    const set = side === 'give' ? setGive : setGet;
-    const on = list.some(x => x.kind === 'player' && x.playerId === p.id);
-    return (
-      <button key={p.id} onClick={() => toggle(list, set, { kind: 'player', playerId: p.id })}
-        className={`flex w-full items-center gap-2 border px-2.5 py-1.5 text-left transition-all ${on ? 'border-gold bg-[rgba(240,180,41,0.12)]' : 'border-line2 hover:border-gold/40'}`}>
-        <PosBadge pos={p.pos} />
-        <span className="truncate font-mono text-[12px]">{p.nome}</span>
-        <span className="ml-auto"><Ovr v={p.ovr} /></span>
-        <span className="font-mono text-[10.5px] text-faint">{playerValue(p)}pts</span>
-      </button>
-    );
+  const pickLabel = (a: { round: number; slot: number; cell: PickOwner }) => {
+    const from = a.cell.from && a.cell.from !== a.cell.owner ? ` (${teamById(g, a.cell.from).sigla})` : '';
+    const conditional = a.cell.conditional;
+    const clause = conditional ? ` · ${conditional.resolvedRound ? `resolvida R${conditional.resolvedRound}` : `cond. R${conditional.upgradedRound}`}` : '';
+    return `R${a.round} #${a.slot + 1}${from}${clause}`;
   };
+  const pickAsset = (pk: { round: number; slot: number; cell: PickOwner }): TradeAsset => ({
+    kind: 'pick', round: pk.round, slot: pk.slot,
+    conditional: pk.cell.conditional ?? (conditionalMode ? { baseRound: pk.round, condition, upgradedRound, conditionPlayerId: condition === 'player_makes_pro_bowl' ? conditionPlayerId : undefined } : undefined),
+  });
 
   return (
     <div className="space-y-4">
@@ -77,10 +87,49 @@ export function TradesScreen() {
         </select>
       </div>
 
+      <Panel title="Picks condicionais">
+        <label className="flex items-center gap-2 font-mono text-[12px] text-ink">
+          <input type="checkbox" checked={conditionalMode} onChange={e => setConditionalMode(e.target.checked)} />
+          Marcar picks selecionadas como condicionais
+        </label>
+        {conditionalMode && <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-[12px]">
+          <label>Condição <select value={condition} onChange={e => setCondition(e.target.value as ConditionalPickCondition)} className="ml-1 border border-line bg-panel2 px-2 py-1 text-ink">
+            <option value="team_makes_playoffs">Time chega aos playoffs</option>
+            <option value="player_makes_pro_bowl">Jogador chega ao Pro Bowl</option>
+          </select></label>
+          {condition === 'player_makes_pro_bowl' && <label>Jogador <select value={conditionPlayerId} onChange={e => setConditionPlayerId(e.target.value)} className="ml-1 border border-line bg-panel2 px-2 py-1 text-ink">
+            <option value="">Selecione</option>
+            {[...myPlayers, ...theirPlayers].map(player => <option key={player.id} value={player.id}>{player.nome} ({player.pos})</option>)}
+          </select></label>}
+          <label>Se cumprir, vira R<select value={upgradedRound} onChange={e => setUpgradedRound(+e.target.value)} className="ml-1 border border-line bg-panel2 px-2 py-1 text-ink">
+            {[1, 2, 3, 4, 5, 6, 7].map(round => <option key={round} value={round}>{round}</option>)}
+          </select></label>
+        </div>}
+      </Panel>
+
+      {/* colunas de seleção */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title={`Você entrega (${give.length})`} pad={false}>
-          <div className="max-h-[300px] space-y-1.5 overflow-y-auto p-3">
-            {myPlayers.slice(0, 30).map(p => playerCard(p, 'give'))}
+        {/* VOCÊ OFERECE */}
+        <Panel title={`Você oferece — ${myTeam.sigla}`} pad={false}
+          right={<span className="tag border-blood/50 text-blood">{give.length} item(ns)</span>}>
+          <div className="max-h-[420px] overflow-y-auto">
+            <div className="px-3.5 pt-2 font-disp text-[12px] font-bold uppercase tracking-widest text-faint">Jogadores</div>
+            <div className="flex flex-wrap gap-1.5 px-3.5 py-2">
+              {myPlayers.map(p => <PlayerChip key={p.id} p={p} sel={isSelected('give', { kind: 'player', playerId: p.id })} onClick={() => toggle('give', { kind: 'player', playerId: p.id })} />)}
+            </div>
+            {!afterDeadline && (
+              <>
+                <div className="px-3.5 pt-1 font-disp text-[12px] font-bold uppercase tracking-widest text-faint">Picks de draft</div>
+                <div className="flex flex-wrap gap-1.5 px-3.5 pb-3 pt-2">
+                  {myPicks.length === 0 && <span className="font-mono text-[11px] text-faint">Nenhuma pick disponível.</span>}
+                  {myPicks.map(pk => (
+                    <PickChip key={`${pk.round}-${pk.slot}`} label={pickLabel(pk)} value={pickValue(pk.round)}
+                      sel={isSelected('give', pickAsset(pk))}
+                      onClick={() => toggle('give', pickAsset(pk))} />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           {!afterDeadline && !inPlayoffs && (
             <div className="border-t border-line p-3">
@@ -99,9 +148,27 @@ export function TradesScreen() {
           )}
         </Panel>
 
-        <Panel title={`Você recebe (${get.length})`} pad={false}>
-          <div className="max-h-[300px] space-y-1.5 overflow-y-auto p-3">
-            {theirPlayers.slice(0, 30).map(p => playerCard(p, 'get'))}
+        {/* VOCÊ RECEBE */}
+        <Panel title={`Você recebe — ${partner.sigla}`} pad={false}
+          right={<span className="tag border-grass/50 text-grass">{get.length} item(ns)</span>}>
+          <div className="max-h-[420px] overflow-y-auto">
+            <div className="px-3.5 pt-2 font-disp text-[12px] font-bold uppercase tracking-widest text-faint">Jogadores</div>
+            <div className="flex flex-wrap gap-1.5 px-3.5 py-2">
+              {theirPlayers.map(p => <PlayerChip key={p.id} p={p} sel={isSelected('get', { kind: 'player', playerId: p.id })} onClick={() => toggle('get', { kind: 'player', playerId: p.id })} />)}
+            </div>
+            {!afterDeadline && (
+              <>
+                <div className="px-3.5 pt-1 font-disp text-[12px] font-bold uppercase tracking-widest text-faint">Picks de draft</div>
+                <div className="flex flex-wrap gap-1.5 px-3.5 pb-3 pt-2">
+                  {theirPicks.length === 0 && <span className="font-mono text-[11px] text-faint">Nenhuma pick disponível.</span>}
+                  {theirPicks.map(pk => (
+                    <PickChip key={`${pk.round}-${pk.slot}`} label={pickLabel(pk)} value={pickValue(pk.round)}
+                      sel={isSelected('get', pickAsset(pk))}
+                      onClick={() => toggle('get', pickAsset(pk))} />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           {!afterDeadline && !inPlayoffs && (
             <div className="border-t border-line p-3">

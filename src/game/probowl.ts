@@ -8,7 +8,7 @@
  * ============================================================ */
 
 import type { Conf, GameState, Pos, ProBowlState, ProBowlVote, RichBox, Team } from './types';
-import { Rng } from './rng';
+import { Rng, clamp } from './rng';
 import { passerRating } from './seasonStats';
 
 /** Box rico acompanhado dos IDs das franquias (casa × fora). */
@@ -248,6 +248,12 @@ export function selectProBowlRoster(s: GameState): void {
       .sort((a, b) => b.totalWeighted - a.totalWeighted)
       .slice(0, 3);
     for (const r of resto) { r.isReserve = true; reservas++; }
+  }
+  const selecionados = new Set(s.probowl.votes.filter(v => v.isStarter || v.isReserve).map(v => v.playerId));
+  for (const p of s.players) {
+    if (!p.teamId || !PROBOWL_POSITIONS.includes(p.pos)) continue;
+    if (selecionados.has(p.id)) { p.moral = clamp(p.moral + 10, 25, 95); p.careerProBowls = (p.careerProBowls ?? 0) + 1; }
+    else if (p.ovr >= 82) p.moral = clamp(p.moral - 7, 25, 95);
   }
   s.probowl.announced = true;
   pushNewsPb(s, 'PRO BOWL', `Roster anunciado! ${titulares} titulares (líderes por posição/conferência) e ${reservas} reservas representarão a liga no Pro Bowl.`);

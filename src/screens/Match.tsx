@@ -297,7 +297,9 @@ export default function MatchScreen() {
       <Field st={cur} casa={casa} fora={fora} />
       <MomentumPanel casa={casa} fora={fora} values={momentum} />
 
-      <div className="panel overflow-hidden">
+      <MomentumPanel casa={casa} fora={fora} values={momentum} />
+
+      <div className="panel">
         <div className="flex border-b border-line">
           {([['narracao', 'Narração'], ['stats', 'Ao Vivo'], ['box', 'Box Score']] as const).map(([k, l]) => (
             <button key={k}

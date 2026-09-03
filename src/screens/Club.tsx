@@ -36,7 +36,16 @@ export function ClubHomeScreen() {
     (m.casa === g.userTeam || m.fora === g.userTeam));
   const oppId = proximo ? (proximo.casa === g.userTeam ? proximo.fora : proximo.casa) : null;
   const opp = oppId ? teamById(g, oppId) : null;
-  const emCasa = proximo ? proximo.casa === g.userTeam : false;
+  const opponentReport = oppId ? g.opponentScouting.find(r => r.teamId === oppId && r.season === g.settings.temporada) : undefined;
+  const reportPlayers = opponentReport?.keyPlayers.map(id => g.players.find(p => p.id === id)).filter(Boolean) ?? [];
+  const emCasa = proxima ? proxima.casa === g.userTeam : proximoPO ? proximoPO.casa === g.userTeam : false;
+
+  const st_ = standings(g);
+  const minha = st_.find(r => r.teamId === g.userTeam)!;
+  const confTeams = st_.filter(r => teamById(g, r.teamId).conf === t.conf)
+    .sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net);
+  const rank = confTeams.findIndex(r => r.teamId === g.userTeam) + 1;
+  const inZone = playoffZone(g, t.conf).has(g.userTeam);
 
   // nome da rodada atual nos playoffs (Wild Card, Divisional, etc.)
   const roundNome = fase === 'PO' && g.bracket ? g.bracket[semana - 1]?.nome : null;
@@ -131,11 +140,27 @@ export function ClubHomeScreen() {
         </Panel>
         )}
 
-        {/* momento + química */}
-        <Panel title="Momento da franquia">
-          <div className="mb-1 flex justify-between font-mono text-[11.5px] text-dim"><span>Estágio</span><b className="text-ink">{stage.score}/100</b></div>
-          <Bar pct={stage.score} color={stage.score >= 75 ? 'var(--color-goldhi)' : stage.score >= 40 ? 'var(--color-grass)' : 'var(--color-ice)'} />
-          <div className="mt-1 font-disp text-[16px] font-bold uppercase text-gold">{stage.label}</div>
+      {opp && fase !== 'OFF' && (
+        <Panel title="Análise adversária" right={<span className="font-mono text-[11px] text-gold">1 ponto</span>}>
+          {!opponentReport ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="font-mono text-[12px] text-dim">Estude {opp.cidade} {opp.nome} antes do kickoff e ganhe +3% na performance defensiva.</p>
+              <button className="btn btn-ghost border-ice/60 text-ice" disabled={g.scoutBudget < 1} onClick={() => dispatch({ type: 'STUDY_OPPONENT', teamId: opp.id })}>
+                {g.scoutBudget < 1 ? 'Sem pontos' : 'Estudar adversário'}
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-3">
+              <div><div className="font-mono text-[10px] uppercase tracking-wider text-faint">Forças</div>{opponentReport.strengths.map(item => <div key={item} className="mt-1 text-[12px] text-blood">+ {item}</div>)}</div>
+              <div><div className="font-mono text-[10px] uppercase tracking-wider text-faint">Fraquezas</div>{opponentReport.weaknesses.map(item => <div key={item} className="mt-1 text-[12px] text-grass">− {item}</div>)}</div>
+              <div><div className="font-mono text-[10px] uppercase tracking-wider text-faint">Tendências · relatório {opponentReport.reports}</div><div className="mt-1 font-mono text-[12px] text-ink">Passe {opponentReport.passRate}% · Corrida na 1ª {opponentReport.runOnFirstDown}%</div><div className="mt-1 text-[12px] text-dim">Marcar: {reportPlayers.map(player => player?.nome).join(', ')}</div></div>
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {/* momento da franquia: REBUILD ↔ CONTENDER + química */}
+      <FranchiseMomentPanel g={g} teamId={g.userTeam} />
 
           <div className="mt-3 mb-1 flex justify-between font-mono text-[11.5px] text-dim"><span>Química</span><b className="text-ink">{chem.score}/100</b></div>
           <Bar pct={chem.score} color="var(--color-grass)" />
@@ -148,27 +173,9 @@ export function ClubHomeScreen() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {/* top jogadores */}
-        <Panel title="Estrelas do elenco" pad={false}>
-          <table className="tbl">
-            <thead><tr><th>POS</th><th>Jogador</th><th className="num">Idade</th><th className="num">OVR</th><th className="num">Salário</th></tr></thead>
-            <tbody>
-              {[...ativos].sort((a, b) => b.ovr - a.ovr).slice(0, 7).map(p => (
-                <tr key={p.id}>
-                  <td><PosBadge pos={p.pos} /></td>
-                  <td>{p.nome}{p.lesao > 0 && <span className="tag ml-2 border-blood/60 text-blood">DM {p.lesao}sem</span>}</td>
-                  <td className="num">{p.idade}</td>
-                  <td className="num"><Ovr v={p.ovr} /></td>
-                  <td className="num text-goldhi">{fmtM(capHitOf(p))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-
-        {/* notícias */}
-        <Panel title="Central de notícias" pad={false}>
-          <div className="max-h-[330px] overflow-y-auto">
+        <MiniStandings />
+        <Panel title="Manchetes da semana" pad={false}>
+          <div className="max-h-[340px] overflow-y-auto">
             {g.news.slice(0, 20).map(n => (
               <div key={n.id} className="flex gap-3 border-b border-line2 px-4 py-2.5">
                 <span className="tag mt-[2px] h-fit shrink-0 border-gold/40 text-gold">{n.rotulo}</span>

@@ -122,6 +122,7 @@ export function studyOpponent(s: GameState, teamId: string): { ok: boolean; msg:
   const team = s.teams.find(t => t.id === teamId);
   if (!team) return { ok: false, msg: 'Adversário não encontrado.' };
   const roster = s.players.filter(p => p.teamId === teamId && p.status !== 'PS');
+  const qb = roster.filter(p => p.pos === 'QB').sort((a, b) => b.ovr - a.ovr)[0];
   const passRate = 100 - team.tactics.corrida;
   const report: OpponentScoutingReport = {
     teamId, season: s.settings.temporada, reports: (s.opponentScouting.find(r => r.teamId === teamId && r.season === s.settings.temporada)?.reports ?? 0) + 1,
