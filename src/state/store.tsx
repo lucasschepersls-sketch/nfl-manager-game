@@ -5,7 +5,7 @@ import { newGame, buildWorldFor, buildRivalries } from '../game/generate';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser, autoFixRoster,
   enforceAllCompliance, hireScoutStaff, negotiateContract, newSeason, releasePlayer, renewPlayer,
-  setStatus, setTactics, signFA, upgrade, userDraftPick, validateRoster,
+  renewStaff, setStatus, setTactics, signFA, signFAWithOffer, upgrade, userDraftPick, validateRoster,
 } from '../game/season';
 import { newSeed, Rng } from '../game/rng';
 import { restructureContract } from '../game/contracts';
@@ -96,6 +96,8 @@ export type Action =
   | { type: 'START_SEASON' }
   | { type: 'AUTO_FIX' }
   | { type: 'NEGOTIATE'; playerId: string; offer: ContractOffer }
+  | { type: 'SIGN_OFFER'; playerId: string; offer: ContractOffer }
+  | { type: 'RENEW_STAFF'; staffId: string; offer: ContractOffer }
   | { type: 'TRADE_PROPOSE'; to: string; give: TradeAsset[]; get: TradeAsset[] }
   | { type: 'INVESTIGATE'; playerId: string }
   | { type: 'STUDY_OPPONENT'; teamId: string }
@@ -291,6 +293,20 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       if (!st.game) return st;
       const g = structuredClone(st.game);
       const r = negotiateContract(g, a.playerId, a.offer);
+      return { ...st, game: r.ok ? g : st.game, toast: r.msg };
+    }
+    case 'SIGN_OFFER': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const fa = g.faPool.find(p => p.id === a.playerId);
+      if (!fa) return { ...st, toast: 'Jogador indisponível.' };
+      const r = signFAWithOffer(g, fa, a.offer);
+      return { ...st, game: r.ok ? g : st.game, toast: r.msg };
+    }
+    case 'RENEW_STAFF': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = renewStaff(g, a.staffId, a.offer);
       return { ...st, game: r.ok ? g : st.game, toast: r.msg };
     }
     case 'TOAST_CLEAR':

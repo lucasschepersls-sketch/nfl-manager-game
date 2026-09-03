@@ -11,8 +11,8 @@ export function HallOfFameScreen() {
     <div className="space-y-4">
       <h2 className="font-disp text-[26px] font-extrabold uppercase tracking-wide">🏛️ Hall of Fame</h2>
 
-      <Panel title={`Imortalizados (${induzidos.length})`} pad={false}>
-        {induzidos.length === 0 ? (
+      <Panel title={`Imortalizados (${inducidos.length})`} pad={false}>
+        {inducidos.length === 0 ? (
           <p className="px-5 py-8 text-center font-mono text-[13px] text-dim">
             Nenhum jogador foi imortalizado ainda. Aposentados com grandes carreiras entram em consideração após algumas temporadas.
           </p>
@@ -20,7 +20,7 @@ export function HallOfFameScreen() {
           <table className="tbl">
             <thead><tr><th>POS</th><th>Jogador</th><th className="num">Pro Bowls</th><th className="num">Títulos</th><th className="num">Votos</th><th>Camisa</th></tr></thead>
             <tbody>
-              {induzidos.map(h => (
+              {inducidos.map(h => (
                 <tr key={h.playerId}>
                   <td><PosBadge pos={h.pos} /></td>
                   <td><b className="text-goldhi">{h.nome}</b></td>

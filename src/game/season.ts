@@ -13,6 +13,8 @@ import { Rng, clamp, newSeed } from './rng';
 import { computeOvr, genName, POS_ORDER, rookieSalary, salaryFor } from './data';
 import { NFLMatchEngine } from './engine';
 import { acceptanceRoll, makeContract, playerExpectations, playerHappiness, staffExpectations, staffHappiness, STRUCT_LABEL } from './negotiations';
+import { simulateTrainingWeek } from './training';
+import { calcExpectations, franchiseTagValue, makeTagContract } from './contracts';
 
 /* ================= helpers ================= */
 export const teamById = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -428,7 +430,7 @@ function mergeStats(s: GameState, r: GameResult) {
   }
 }
 
-export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome } {
+export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome; trainingResults?: { playerId: string; nome: string; improvements: Record<string, number> }[] } {
   const s = structuredClone(s0);
   const prev = s0;
   const out: AdvanceOutcome = {};
@@ -477,7 +479,27 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
     s.settings.semana++;
     if (s.settings.semana > (s.bracket?.length ?? 4)) endSeason(s, rng);
   }
-  return { state: s, out };
+
+  // Treinamento da semana: jogadores do time do usuário evoluem com base nos snaps
+  let trainingResults: { playerId: string; nome: string; improvements: Record<string, number> }[] | undefined;
+  if (s.trainingState) {
+    const meusJogadores = playersOf(s, s.userTeam).filter(p => p.status !== 'PS' && p.lesao === 0);
+    const snaps: Record<string, number> = {};
+    for (const p of meusJogadores) snaps[p.id] = p.status === 'TIT' ? 60 : 20;
+    trainingResults = simulateTrainingWeek(meusJogadores, s.trainingState, snaps);
+    // aplica as melhorias de atributos
+    for (const tr of trainingResults) {
+      const p = s.players.find(x => x.id === tr.playerId);
+      if (!p) continue;
+      for (const [attr, val] of Object.entries(tr.improvements)) {
+        const k = attr as keyof Player['attrs'];
+        if (k in p.attrs) p.attrs[k] = clamp(p.attrs[k] + val, 25, 95);
+      }
+      p.ovr = computeOvr(p.pos, p.attrs);
+    }
+  }
+
+  return { state: s, out, trainingResults };
 }
 
 const userStillAlive = (s: GameState) => {
@@ -919,6 +941,53 @@ export function autoFixRoster(s: GameState): { msg: string } {
     feitas.push('1 corte no Practice Squad');
   }
   return { msg: feitas.length ? `Auto-Fix: ${feitas.join(', ')}.` : 'Auto-Fix: nada a ajustar — elenco e cap em ordem.' };
+}
+
+/** Aplica compliance de cap em TODAS as franquias (corta até caber no teto). */
+export function enforceAllCompliance(s: GameState): void {
+  for (const t of s.teams) enforceCapCompliance(s, t.id);
+}
+
+/* ================= comissão técnica ================= */
+export const SCOUT_COST = 5; // $M por temporada para um olheiro extra
+export function hireScoutStaff(s: GameState): { ok: boolean; msg: string } {
+  const t = teamById(s, s.userTeam);
+  const olheiros = s.staff.filter(st => st.teamId === s.userTeam && st.funcao === 'Olheiro Extra').length;
+  if (olheiros >= 3) return { ok: false, msg: 'Limite de 3 olheiros extras atingido.' };
+  if (t.dinheiro < SCOUT_COST) return { ok: false, msg: `Caixa insuficiente: precisa de ${fmtM(SCOUT_COST)}.` };
+  t.dinheiro = Math.round((t.dinheiro - SCOUT_COST) * 10) / 10;
+  s.staff.push({
+    id: `olh${Date.now()}${Math.floor(Math.random() * 999)}`,
+    teamId: s.userTeam,
+    nome: genName(new Rng(newSeed())),
+    funcao: 'Olheiro Extra',
+    nivel: 3,
+    experiencia: 5,
+    salario: SCOUT_COST,
+    bonus: 0,
+    contrato: 1,
+    moral: 70,
+  });
+  s.scoutBudgetMax += 2;
+  s.scoutBudget += 2;
+  pushNews(s, 'SCOUTING', `${t.cidade} ${t.nome} contrata um olheiro extra: +2 pontos de orçamento por temporada.`);
+  return { ok: true, msg: 'Olheiro extra contratado! +2 pontos de scouting por temporada.' };
+}
+
+/* ================= renovação rápida ================= */
+/** Renova um jogador pela expectativa do agente (atalho do sistema de contratos). */
+export function renewPlayer(s: GameState, playerId: string): { ok: boolean; msg: string } {
+  const p = s.players.find(x => x.id === playerId);
+  if (!p || p.teamId !== s.userTeam) return { ok: false, msg: 'Jogador inválido.' };
+  if (p.tag) return { ok: false, msg: 'Jogador com franchise tag.' };
+  if (p.contrato > 2) return { ok: false, msg: 'Renovação antecipada só com ≤2 anos restantes.' };
+  const exp = calcExpectations(p, s.settings.inflacao);
+  return negotiateContract(s, playerId, {
+    years: exp.anos,
+    base: exp.aav,
+    bonus: Math.round(exp.aav * exp.anos * 0.1 * 10) / 10,
+    structure: exp.structure,
+  });
 }
 
 /* ================= ações do usuário ================= */
