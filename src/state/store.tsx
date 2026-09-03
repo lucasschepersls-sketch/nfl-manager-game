@@ -34,6 +34,7 @@ export function loadSave(): GameState | null {
     }
     if (!Array.isArray(s.narrativas)) s.narrativas = [];
     if (!Array.isArray(s.campeoes)) s.campeoes = [];
+    if (!s.historico) s.historico = {};
     if (!Array.isArray(s.faPool)) s.faPool = [];
     if (!Array.isArray(s.draftClass)) s.draftClass = [];
     if (!Array.isArray(s.staff)) s.staff = [];
