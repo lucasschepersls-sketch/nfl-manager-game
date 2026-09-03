@@ -19,6 +19,7 @@ import {
   makeContract, makeTagContract, negotiationHappiness, shouldHoldout,
   STRUCT_LABEL,
 } from './contracts';
+import { staffExpectations, staffHappiness } from './negotiations';
 import { simulateTrainingWeek, type TrainingCenterState } from './training';
 
 /* ================= helpers ================= */
