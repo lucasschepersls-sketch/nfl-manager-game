@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from '../state/store';
-import { teamById } from '../game/season';
-import { Panel, TeamCrest, PosBadge } from '../components/ui';
-import type { LineTipo, LiveEvent } from '../game/types';
+import { teamById, crowdPressure } from '../game/season';
+import { Panel, TeamCrest, PosBadge, Bar } from '../components/ui';
+import type { GameState, LineTipo, LiveEvent, PlayerLine, Team } from '../game/types';
 
 const LINE_STYLE: Record<LineTipo, string> = {
   info: 'text-faint italic',
@@ -13,10 +13,20 @@ const LINE_STYLE: Record<LineTipo, string> = {
   pen: 'text-ice',
   inj: 'text-blood bg-[rgba(226,87,75,0.09)] border-l-2 border-blood pl-2',
 };
-const NERVES = 'text-goldhi bg-[rgba(240,180,41,0.1)] border-l-2 border-gold pl-2 font-semibold';
+const NERVES_STYLE = 'text-goldhi bg-[rgba(240,180,41,0.1)] border-l-2 border-gold pl-2 font-semibold';
 const ORD = ['1ª', '2ª', '3ª', '4ª'];
+const SPEEDS = [
+  { label: 'Lento', ms: 320, step: 1 },
+  { label: 'Normal', ms: 150, step: 1 },
+  { label: 'Rápido', ms: 60, step: 2 },
+  { label: 'Turbo', ms: 16, step: 5 },
+];
 
-interface FieldState { ball: number; down: number; toGo: number; posse: 'casa' | 'fora'; pc: number; pf: number; quarter: number; clock: number; }
+interface FieldState {
+  ball: number; down: number; toGo: number;
+  posse: 'casa' | 'fora'; pc: number; pf: number;
+  quarter: number; clock: number;
+}
 const INIT: FieldState = { ball: 25, down: 1, toGo: 10, posse: 'casa', pc: 0, pf: 0, quarter: 1, clock: 0 };
 
 function derive(events: LiveEvent[], idx: number): FieldState {
@@ -45,69 +55,97 @@ function derive(events: LiveEvent[], idx: number): FieldState {
 const fmtClock = (clock: number, quarter: number) => {
   if (quarter >= 5) return 'OT';
   const inQ = Math.max(0, 900 - (clock % 900));
-  return `${Math.floor(inQ / 60)}:${String(Math.floor(inQ % 60)).padStart(2, '0')}`;
+  const m = Math.floor(inQ / 60); const ss = Math.floor(inQ % 60);
+  return `${m}:${String(ss).padStart(2, '0')}`;
 };
 
-function Field({ st, casaCor, casaSig, foraCor, foraSig }: {
-  st: FieldState; casaCor: string; casaSig: string; foraCor: string; foraSig: string;
-}) {
-  const offCor = st.posse === 'casa' ? casaCor : foraCor;
-  const offSig = st.posse === 'casa' ? casaSig : foraSig;
-  const defSig = st.posse === 'casa' ? foraSig : casaSig;
-  const ballX = (80 + Math.min(st.ball, 100) * 8.4) / 10;
-  const chainX = (80 + Math.min(st.ball + st.toGo, 100) * 8.4) / 10;
-  const yardLabel = st.ball >= 50 ? `${100 - Math.round(st.ball)} do ${defSig}` : `${Math.round(st.ball)} do ${offSig}`;
+function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
+  const off = st.posse === 'casa' ? casa : fora;
+  const isHome = st.posse === 'casa';
+  const rel = Math.max(0, Math.min(st.ball, 100));
+  const abs = isHome ? rel : 100 - rel;
+  const ballX = (80 + abs * 8.4) / 10;
+  const chainAbs = isHome ? Math.min(rel + st.toGo, 100) : Math.max(rel - st.toGo, 0);
+  const chainX = (80 + chainAbs * 8.4) / 10;
+  const scrimmage = abs <= 50 ? Math.round(abs) : Math.round(100 - abs);
+  const yardLabel = abs <= 50 ? `${Math.round(abs)} do ${casa.sigla}` : `${Math.round(100 - abs)} do ${fora.sigla}`;
 
   return (
-    <div className="relative overflow-hidden border border-line" style={{ background: '#0b2114' }}>
+    <div className="panel relative overflow-hidden" style={{ background: '#0b2114' }}>
       <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 font-disp text-[13px] font-bold uppercase tracking-[0.15em]">
         <span className="live-dot inline-block h-2 w-2 rounded-full bg-blood" />
         <span className="text-dim">Posse:</span>
-        <span style={{ color: offCor === '#A5ACAF' || offCor === '#D3BC8D' || offCor === '#FFB612' ? '#fff' : offCor }}>{offSig}</span>
-        <span className="text-faint">atacando →</span>
+        <TeamCrest cor={off.cor} cor2={off.cor2} sigla={off.sigla} conf={off.conf} size={18} />
+        <span style={{ color: off.cor }}>{off.sigla}</span>
+        <span className="text-faint">{isHome ? 'atacando →' : '← atacando'}</span>
         <span className="ml-auto font-mono text-[11px] font-normal normal-case tracking-normal text-faint">
           {ORD[st.down - 1]} descida &amp; {st.toGo > 0 ? st.toGo : 'goal'} · {yardLabel}
         </span>
       </div>
+
       <div className="relative">
-        <svg viewBox="0 0 1000 220" className="block w-full" aria-hidden>
-          <rect x="0" y="0" width="1000" height="220" fill="#0d2818" />
-          {[...Array(10)].map((_, i) => i % 2 === 0 && <rect key={i} x={80 + i * 84} y="0" width="84" height="220" fill="#123320" />)}
-          <rect x="0" y="0" width="80" height="220" fill={casaCor} opacity="0.55" />
-          <rect x="920" y="0" width="80" height="220" fill={foraCor} opacity="0.55" />
-          <text x="40" y="118" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="26" fill="#fff" opacity="0.85" transform="rotate(-90 40 118)">{casaSig}</text>
-          <text x="960" y="118" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="800" fontSize="26" fill="#fff" opacity="0.85" transform="rotate(90 960 118)">{foraSig}</text>
+        <svg viewBox="0 0 1000 240" className="block w-full" aria-hidden>
+          <rect x="0" y="0" width="1000" height="240" fill="#0d2818" />
+          {[...Array(10)].map((_, i) => i % 2 === 0 && (
+            <rect key={i} x={80 + i * 84} y="0" width="84" height="240" fill="#123320" />
+          ))}
+          <rect x="0" y="0" width="80" height="240" fill={casa.cor} opacity="0.55" />
+          <rect x="920" y="0" width="80" height="240" fill={fora.cor} opacity="0.55" />
+          <text x="40" y="130" textAnchor="middle" fontFamily="Anton" fontWeight="800" fontSize="28"
+            fill="#fff" opacity="0.85" transform="rotate(-90 40 130)">{casa.sigla}</text>
+          <text x="960" y="130" textAnchor="middle" fontFamily="Anton" fontWeight="800" fontSize="28"
+            fill="#fff" opacity="0.85" transform="rotate(90 960 130)">{fora.sigla}</text>
           {[...Array(11)].map((_, i) => {
             const x = 80 + i * 84;
             const num = i <= 5 ? i * 10 : (10 - i) * 10;
             return (
               <g key={i}>
-                <line x1={x} y1="0" x2={x} y2="220" stroke="rgba(255,255,255,0.3)" strokeWidth={i === 5 ? 2 : 1.2} />
-                {i > 0 && i < 10 && <text x={x} y="46" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="700" fontSize="22" fill="rgba(255,255,255,0.4)">{num}</text>}
+                <line x1={x} y1="0" x2={x} y2="240" stroke="rgba(255,255,255,0.3)" strokeWidth={i === 5 ? 2 : 1.2} />
+                {i > 0 && i < 10 && (
+                  <>
+                    <text x={x} y="52" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="700" fontSize="26" fill="rgba(255,255,255,0.42)">{num}</text>
+                    <text x={x} y="208" textAnchor="middle" fontFamily="Barlow Condensed" fontWeight="700" fontSize="26" fill="rgba(255,255,255,0.42)">{num}</text>
+                  </>
+                )}
               </g>
             );
           })}
+          <ellipse cx="500" cy="120" rx="20" ry="11" fill="none" stroke="var(--color-gold)" strokeWidth="2" opacity="0.5" />
         </svg>
-        <div className="absolute bottom-0 top-0 w-[2px] bg-ice/80" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }} />
+
+        <div className="absolute bottom-0 top-0 w-[2px]" style={{ left: `${ballX}%`, background: off.cor, boxShadow: `0 0 8px ${off.cor}`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1), background 0.3s, box-shadow 0.3s' }} />
         {st.ball < 100 && (
-          <div className="absolute bottom-0 top-0 w-[3px]" style={{ left: `${chainX}%`, background: 'var(--color-goldhi)', boxShadow: '0 0 8px rgba(255,211,94,0.6)', transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }}>
+          <div className="absolute bottom-0 top-0 w-[3px]" style={{
+            left: `${chainX}%`, background: 'var(--color-goldhi)',
+            boxShadow: '0 0 8px rgba(255,211,94,0.6)', transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)',
+          }}>
             <div className="absolute -left-[5px] top-1 h-[10px] w-[13px]" style={{ background: 'var(--color-goldhi)' }} />
           </div>
         )}
         <div className="absolute top-1/2 -translate-y-1/2" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }}>
           <div className="relative -translate-x-1/2">
-            <div className="h-[15px] w-[26px] rounded-[50%] border border-[#f3ead8]/70" style={{ background: 'radial-gradient(circle at 35% 30%, #a8622f, #6f3a14)', boxShadow: `0 0 14px 3px ${offCor}aa` }}>
+            <div className="h-[15px] w-[26px] rounded-[50%] border border-[#f3ead8]/70" style={{
+              background: 'radial-gradient(circle at 35% 30%, #a8622f, #6f3a14)',
+              boxShadow: `0 0 14px 3px ${off.cor}aa`,
+            }}>
               <div className="absolute left-1/2 top-1/2 h-[2px] w-[12px] -translate-x-1/2 -translate-y-1/2 bg-[#f3ead8]" />
             </div>
-            <div className="absolute left-1/2 top-full mt-1.5 -translate-x-1/2 whitespace-nowrap font-disp text-[13px] font-bold uppercase" style={{ color: 'var(--color-goldhi)', textShadow: '0 1px 4px #000' }}>
-              {ORD[st.down - 1]} &amp; {st.toGo > 0 ? st.toGo : 'goal'}
-            </div>
           </div>
+        </div>
+        <div className="absolute top-[30%] -translate-y-1/2" style={{ left: `${ballX}%`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1)' }}>
+          <svg width="26" height="16" viewBox="0 0 26 16" className="-translate-x-1/2" style={{ transform: `translateX(-50%) ${isHome ? '' : 'scaleX(-1)'}`, filter: `drop-shadow(0 0 4px ${off.cor})`, transition: 'transform 0.3s' }}>
+            <path d="M2 8 H18 M12 2 L20 8 L12 14" fill="none" stroke={off.cor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <div className="absolute bottom-1 left-1/2 -translate-x-1/2 font-disp text-[12px] font-bold uppercase text-goldhi" style={{ textShadow: '0 1px 4px #000' }}>
+          linha de {scrimmage}
         </div>
       </div>
     </div>
   );
 }
+
+type Side2 = { casa: number; fora: number };
 
 export default function MatchScreen() {
   const { st, dispatch } = useGame();
@@ -116,32 +154,69 @@ export default function MatchScreen() {
   const live: LiveEvent[] = r?.live?.length ? r.live : [];
 
   const [idx, setIdx] = useState(0);
-  const [speed, setSpeed] = useState(150);
-  const [tab, setTab] = useState<'narracao' | 'box'>('narracao');
+  const [speedIdx, setSpeedIdx] = useState(2);
+  const [tab, setTab] = useState<'narracao' | 'stats' | 'box'>('narracao');
   const feedRef = useRef<HTMLDivElement>(null);
   const done = idx >= live.length;
+  const speed = SPEEDS[speedIdx];
 
   useEffect(() => {
     if (!live.length || done) return;
-    const t = setInterval(() => setIdx(i => Math.min(live.length, i + (speed < 60 ? 4 : 1))), speed);
+    const t = setInterval(() => setIdx(i => Math.min(live.length, i + speed.step)), speed.ms);
     return () => clearInterval(t);
   }, [done, live.length, speed]);
 
   const cur = useMemo(() => derive(live, idx), [live, idx]);
+  const momentum = useMemo(() => {
+    const latest = [...live.slice(0, idx)].reverse().find(event => event.momentumCasa != null);
+    return { casa: latest?.momentumCasa ?? 50, fora: latest?.momentumFora ?? 50, result: latest?.momentumResult ?? 'kickoff' };
+  }, [live, idx]);
   useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [idx, tab]);
+
+  const liveStats = useMemo(() => {
+    if (done && r?.rich) {
+      return {
+        rush: { casa: r.rich.casa.rushYds, fora: r.rich.fora.rushYds },
+        pass: { casa: r.rich.casa.passYds, fora: r.rich.fora.passYds },
+        tos: { casa: r.rich.casa.tos, fora: r.rich.fora.tos },
+        faltas: { casa: r.rich.casa.pens, fora: r.rich.fora.pens },
+      };
+    }
+    const s = {
+      rush: { casa: 0, fora: 0 } as Side2, pass: { casa: 0, fora: 0 } as Side2,
+      tos: { casa: 0, fora: 0 } as Side2, faltas: { casa: 0, fora: 0 } as Side2,
+    };
+    for (const e of live.slice(0, idx)) {
+      if (e.kind === 'play') {
+        const side = e.posse ?? 'casa';
+        s.rush[side] += e.runYds ?? 0;
+        s.pass[side] += e.passYds ?? 0;
+        s.faltas[side] += e.penalties ?? 0;
+      } else if (e.kind === 'turnover') {
+        const loser = (e.posse ?? 'casa') === 'casa' ? 'fora' : 'casa';
+        s.rush[loser] += e.runYds ?? 0;
+        s.pass[loser] += e.passYds ?? 0;
+        s.faltas[loser] += e.penalties ?? 0;
+        s.tos[loser]++;
+      }
+    }
+    return s;
+  }, [live, idx, done, r]);
 
   const feed = useMemo(() => {
     const items: { t: string; tipo: LineTipo; nerves?: boolean }[] = [];
     for (const e of live.slice(0, idx)) {
       if (!e.texto) continue;
       if (e.kind === 'nerves') { items.push({ t: `⚡ ${e.texto}`, tipo: 'pen', nerves: true }); continue; }
-      const tipo: LineTipo =
-        e.kind === 'turnover' ? 'turn'
-          : e.kind === 'qb' || e.kind === 'qbinj' ? 'inj'
-            : e.kind === 'end' ? 'score'
-              : e.kind === 'quarter' ? 'info'
-                : e.kind === 'play' ? (e.tipo ?? 'ok') : 'info';
-      items.push({ t: e.texto, tipo });
+      for (const line of e.texto.split('\n')) {
+        const tipo: LineTipo =
+          e.kind === 'turnover' ? 'turn'
+            : e.kind === 'qb' || e.kind === 'qbinj' ? 'inj'
+              : e.kind === 'end' ? 'score'
+                : e.kind === 'quarter' ? 'info'
+                  : e.kind === 'play' ? (e.tipo ?? 'ok') : 'info';
+        items.push({ t: line, tipo });
+      }
     }
     return items;
   }, [live, idx]);
@@ -165,8 +240,7 @@ export default function MatchScreen() {
 
   return (
     <div className="space-y-4">
-      {/* placar */}
-      <div className="border border-line bg-panel">
+      <div className="panel overflow-hidden">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-5 py-4">
           <div className="flex items-center gap-3">
             <TeamCrest cor={casa.cor} cor2={casa.cor2} sigla={casa.sigla} conf={casa.conf} size={36} />
@@ -178,14 +252,18 @@ export default function MatchScreen() {
           </div>
           <div className="text-center">
             <div className="flex items-center justify-center gap-2">
-              {done ? <span className="tag border-line text-dim">ENCERRADO</span>
+              {done
+                ? <span className="tag border-line text-dim">ENCERRADO</span>
                 : <><span className="live-dot inline-block h-2.5 w-2.5 rounded-full bg-blood" /><span className="font-disp text-[15px] font-bold uppercase tracking-[0.2em] text-blood">Ao vivo</span></>}
             </div>
-            <div className="mt-1 font-disp text-[20px] font-bold text-goldhi">
-              {cur.quarter >= 5 ? 'PRORROGAÇÃO' : `${cur.quarter}º QUARTO`}
-              <span className="ml-2 font-mono text-[15px] text-ink">{fmtClock(cur.clock, cur.quarter)}</span>
+            <div className="mt-1 font-disp text-[22px] font-bold text-goldhi">
+              {done ? 'FINAL' : cur.quarter >= 5 ? 'PRORROGAÇÃO' : `${cur.quarter}º QUARTO`}
+              <span className="ml-2 font-mono text-[16px] text-ink">{done ? '' : fmtClock(cur.clock, cur.quarter)}</span>
             </div>
-            <div className="font-mono text-[11px] text-faint">{r.clima} {r.climaIcon} · público {r.publico.toLocaleString('pt-BR')}</div>
+            <div className="font-mono text-[11px] text-faint">
+              {r.clima} {r.climaIcon} · público {r.publico.toLocaleString('pt-BR')} ·{' '}
+              <span className={crowdPressure(casa) >= 80 ? 'text-blood' : ''}>pressão {crowdPressure(casa)}/100</span>
+            </div>
           </div>
           <div className="flex items-center justify-end gap-3">
             <span key={`f${cur.pf}`} className="score-pop score-digit mr-2">{cur.pf}</span>
@@ -196,113 +274,278 @@ export default function MatchScreen() {
             <TeamCrest cor={fora.cor} cor2={fora.cor2} sigla={fora.sigla} conf={fora.conf} size={36} />
           </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-line px-5 py-2 font-mono text-[11.5px] text-dim">
           {resultado && <span className="font-disp text-[16px] font-bold uppercase tracking-wider" style={{ color: resColor }}>{resultado}</span>}
+          {done && [...Array(Math.max(r.box.quartos.casa.length, r.box.quartos.fora.length))].map((_, i) => (
+            <span key={i} className="tabular-nums">{i < 4 ? `${i + 1}ºQ` : 'OT'}: <b className="text-ink">{r.box.quartos.casa[i] ?? 0}</b>–<b className="text-ink">{r.box.quartos.fora[i] ?? 0}</b></span>
+          ))}
           <div className="ml-auto flex gap-2">
             {!done && (
-              <>
-                <button className="btn btn-sm" onClick={() => setSpeed(s => (s === 150 ? 45 : 150))}>{speed === 150 ? 'Rápido' : 'Normal'}</button>
-                <button className="btn btn-sm btn-gold" onClick={() => setIdx(live.length)}>Pular »</button>
-              </>
+              <div className="flex gap-1">
+                {SPEEDS.map((sp, i) => (
+                  <button key={sp.label} className={`btn btn-sm ${speedIdx === i ? 'btn-gold' : 'btn-ghost'}`} onClick={() => setSpeedIdx(i)}>{sp.label}</button>
+                ))}
+                <button className="btn btn-sm btn-gold" onClick={() => setIdx(live.length)}>Placar final »</button>
+              </div>
             )}
             {done && <button className="btn btn-sm btn-gold" onClick={() => dispatch({ type: 'DISMISS_RESULT' })}>Voltar ao escritório »</button>}
           </div>
         </div>
       </div>
 
-      <Field st={cur} casaCor={casa.cor} casaSig={casa.sigla} foraCor={fora.cor} foraSig={fora.sigla} />
+      <Field st={cur} casa={casa} fora={fora} />
+      <MomentumPanel casa={casa} fora={fora} values={momentum} />
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        <Panel pad={false}
-          title={
-            <div className="flex gap-1">
-              {([['narracao', 'Narração'], ['box', 'Box Score']] as const).map(([k, l]) => (
-                <button key={k} className={`btn btn-sm ${tab === k ? 'btn-gold' : 'btn-ghost'}`} onClick={() => setTab(k)}>{l}</button>
-              ))}
-            </div>
-          }>
-          {tab === 'narracao' ? (
-            <div ref={feedRef} className="max-h-[460px] overflow-y-auto px-4 py-3 font-mono text-[12.5px] leading-[1.75]">
-              {feed.map((l, i) => <div key={i} className={`feed-line ${l.nerves ? NERVES : LINE_STYLE[l.tipo]}`}>{l.t}</div>)}
-              {!done && <div className="blink text-gold">▮ narrando…</div>}
-            </div>
-          ) : (
-            <div className="max-h-[460px] overflow-y-auto p-4">
-              {r.rich.story.mvp && (
-                <div className="mb-3 border border-gold/40 bg-[rgba(240,180,41,0.08)] p-3">
-                  <div className="font-disp text-[14px] font-bold uppercase text-goldhi">🏅 MVP da partida</div>
-                  <div className="mt-1 font-mono text-[12.5px] text-ink"><b>{r.rich.story.mvp.nome}</b> ({r.rich.story.mvp.pos}) — {r.rich.story.mvp.linha}</div>
-                </div>
-              )}
-              {r.rich.story.jogada && (
-                <div className="mb-3 border border-line bg-panel2 p-3">
-                  <div className="font-disp text-[14px] font-bold uppercase text-dim">⚡ Jogada do jogo</div>
-                  <div className="mt-1 font-mono text-[12px] text-ink">{r.rich.story.jogada.texto}</div>
-                </div>
-              )}
-              <table className="tbl">
-                <thead><tr><th>Equipe</th><th className="num">{casa.sigla}</th><th className="num">{fora.sigla}</th></tr></thead>
-                <tbody>
-                  <tr><td>Jardas totais</td><td className="num">{r.rich.casa.yds}</td><td className="num">{r.rich.fora.yds}</td></tr>
-                  <tr><td>Corrida</td><td className="num">{r.rich.casa.rushYds}</td><td className="num">{r.rich.fora.rushYds}</td></tr>
-                  <tr><td>Passe</td><td className="num">{r.rich.casa.passYds}</td><td className="num">{r.rich.fora.passYds}</td></tr>
-                  <tr><td>1ºs Downs</td><td className="num">{r.rich.casa.firstDowns}</td><td className="num">{r.rich.fora.firstDowns}</td></tr>
-                  <tr><td>3ª descida</td><td className="num">{r.rich.casa.thirdConv}/{r.rich.casa.thirdAtt}</td><td className="num">{r.rich.fora.thirdConv}/{r.rich.fora.thirdAtt}</td></tr>
-                  <tr><td>Zona vermelha</td><td className="num">{r.rich.casa.rzTd}/{r.rich.casa.rzAtt}</td><td className="num">{r.rich.fora.rzTd}/{r.rich.fora.rzAtt}</td></tr>
-                  <tr><td>Turnovers</td><td className="num">{r.rich.casa.tos}</td><td className="num">{r.rich.fora.tos}</td></tr>
-                  <tr><td>Penalidades</td><td className="num">{r.rich.casa.pens} / −{r.rich.casa.penYds}jd</td><td className="num">{r.rich.fora.pens} / −{r.rich.fora.penYds}jd</td></tr>
-                </tbody>
-              </table>
-              <div className="mt-3 border-t border-line pt-2">
-                <div className="mb-1.5 font-disp text-[13px] font-semibold uppercase tracking-widest text-faint">Líderes individuais</div>
-                {[...r.rich.lines].sort((a, b) => ((b.py ?? 0) + (b.ry ?? 0) + (b.recYds ?? 0)) - ((a.py ?? 0) + (a.ry ?? 0) + (a.recYds ?? 0))).slice(0, 6).map(l => (
-                  <div key={l.id} className="flex items-center gap-2 border-b border-line2 py-1.5 font-mono text-[11.5px]">
-                    <PosBadge pos={l.pos} />
-                    <span className="truncate text-ink">{l.nome}</span>
-                    <span className="ml-auto text-dim">
-                      {(l.py ?? 0) > 0 && `${l.cmp}/${l.att}, ${l.py}jd, ${l.ptd}TD `}
-                      {(l.ry ?? 0) > 0 && `${l.ry}jd corr `}
-                      {(l.recYds ?? 0) > 0 && `${l.rec} rec, ${l.recYds}jd `}
-                      {(l.sacks ?? 0) > 0 && `${l.sacks} sacks `}
-                      {(l.tackles ?? 0) > 0 && `${l.tackles} tack `}
-                      {(l.intDef ?? 0) > 0 && `${l.intDef} INT`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Panel>
-
-        <div className="space-y-4">
-          {r.lesoes.length > 0 && (
-            <Panel title="Boletim médico da partida">
-              <ul className="space-y-1.5 font-mono text-[12px]">
-                {r.lesoes.map((l, i) => (
-                  <li key={i} className="text-blood">⚕ {l.nome} ({l.pos}, {teamById(g, l.teamId).sigla}) — {l.tipo}, {l.semanas} sem.</li>
-                ))}
-              </ul>
-            </Panel>
-          )}
-          {g.weekResults.length > 0 && (
-            <Panel title="Resto da rodada" pad={false}>
-              <div className="max-h-[280px] overflow-y-auto">
-                {g.weekResults.map(m => {
-                  const c = teamById(g, m.casa); const f = teamById(g, m.fora);
-                  return (
-                    <div key={m.id} className="flex items-center gap-2 border-b border-line2 px-3.5 py-[7px] font-mono text-[12px]">
-                      <span className="inline-block h-[9px] w-[9px]" style={{ background: c.cor }} />
-                      <span className={m.placarCasa! >= m.placarFora! ? 'font-semibold text-ink' : 'text-dim'}>{c.sigla} {m.placarCasa}</span>
-                      <span className="text-faint">×</span>
-                      <span className={m.placarFora! >= m.placarCasa! ? 'font-semibold text-ink' : 'text-dim'}>{m.placarFora} {f.sigla}</span>
-                      <span className="inline-block h-[9px] w-[9px]" style={{ background: f.cor }} />
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-          )}
+      <div className="panel overflow-hidden">
+        <div className="flex border-b border-line">
+          {([['narracao', 'Narração'], ['stats', 'Ao Vivo'], ['box', 'Box Score']] as const).map(([k, l]) => (
+            <button key={k}
+              className={`border-b-2 px-5 py-2.5 font-disp text-[15px] font-bold uppercase tracking-wider transition-colors ${tab === k ? 'border-gold text-goldhi' : 'border-transparent text-dim hover:text-ink'}`}
+              onClick={() => setTab(k)}>{l}</button>
+          ))}
         </div>
+
+        {tab === 'narracao' && (
+          <div ref={feedRef} className="max-h-[460px] overflow-y-auto px-4 py-3 font-mono text-[12.5px] leading-[1.75]">
+            {feed.map((l, i) => <div key={i} className={`feed-line ${l.nerves ? NERVES_STYLE : LINE_STYLE[l.tipo]}`}>{l.t}</div>)}
+            {!done && <div className="blink text-gold">▮ narrando…</div>}
+          </div>
+        )}
+        {tab === 'stats' && (
+          <StatsView r={r} casa={casa} fora={fora} ls={liveStats} done={done} />
+        )}
+        {tab === 'box' && (
+          <BoxScoreView r={r} casa={casa} fora={fora} done={done} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MomentumPanel({ casa, fora, values }: { casa: Team; fora: Team; values: { casa: number; fora: number; result: string } }) {
+  const tone = (value: number) => value >= 80 ? 'var(--color-grass)' : value <= 20 ? 'var(--color-blood)' : 'var(--color-gold)';
+  const resultLabel: Record<string, string> = { td: 'Touchdown', interception: 'Interceptação', sack: 'Sack', sack_suffered: 'Sack sofrido', turnover: 'Turnover', penalty: 'Penalidade', third_down_conversion: '3ª descida convertida', three_and_out: '3-and-out', kickoff: 'Kickoff' };
+  return (
+    <div className="panel px-4 py-3">
+      <div className="mb-2 flex items-center justify-between"><span className="font-disp text-[14px] font-bold uppercase tracking-wider text-dim">Momentum</span><span className="font-mono text-[11px] text-faint">{resultLabel[values.result] ?? values.result}</span></div>
+      <div className="grid grid-cols-[1fr_38px_1fr] items-center gap-3 font-mono text-[12px]"><div><div className="mb-1 flex justify-between"><span>{casa.sigla}</span><b style={{ color: tone(values.casa) }}>{values.casa}</b></div><Bar pct={values.casa} color={tone(values.casa)} h={9} /></div><span className="text-center text-faint">VS</span><div><div className="mb-1 flex justify-between"><span>{fora.sigla}</span><b style={{ color: tone(values.fora) }}>{values.fora}</b></div><Bar pct={values.fora} color={tone(values.fora)} h={9} /></div></div>
+    </div>
+  );
+}
+
+function StatsView({ r, casa, fora, ls, done }: {
+  r: NonNullable<GameState['lastResult']>; casa: Team; fora: Team;
+  ls: { rush: Side2; pass: Side2; tos: Side2; faltas: Side2 };
+  done: boolean;
+}) {
+  const total: Side2 = { casa: ls.rush.casa + ls.pass.casa, fora: ls.rush.fora + ls.pass.fora };
+  return (
+    <div className="max-h-[460px] overflow-y-auto">
+      <div className="flex items-center gap-2 px-3.5 pt-2.5">
+        <span className={`inline-block h-2 w-2 rounded-full ${done ? 'bg-faint' : 'bg-blood live-dot'}`} />
+        <span className="font-mono text-[10.5px] uppercase tracking-wider text-faint">
+          {done ? 'Números finais' : 'Acumulando ao vivo…'}
+        </span>
+      </div>
+      <table className="tbl">
+        <thead><tr><th>Equipe</th><th className="num">{casa.sigla}</th><th className="num">{fora.sigla}</th></tr></thead>
+        <tbody>
+          <tr><td>Jardas totais</td><td className="num">{total.casa}</td><td className="num">{total.fora}</td></tr>
+          <tr><td>Corrida</td><td className="num">{ls.rush.casa}</td><td className="num">{ls.rush.fora}</td></tr>
+          <tr><td>Passe</td><td className="num">{ls.pass.casa}</td><td className="num">{ls.pass.fora}</td></tr>
+          <tr><td>Turnovers</td><td className="num">{ls.tos.casa}</td><td className="num">{ls.tos.fora}</td></tr>
+          <tr><td>Faltas</td><td className="num">{ls.faltas.casa}</td><td className="num">{ls.faltas.fora}</td></tr>
+        </tbody>
+      </table>
+      <div className="border-t border-line px-3.5 py-2.5">
+        <div className="mb-1.5 font-disp text-[13px] font-semibold uppercase tracking-widest text-faint">Destaques</div>
+        {done ? r.box.leaders.map(l => (
+          <div key={l.label} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+            <span className="w-[92px] shrink-0 text-faint">{l.label}</span>
+            <span className="truncate text-ink">{l.casa}</span>
+            <span className="ml-auto truncate pl-2 text-dim">{l.fora}</span>
+          </div>
+        )) : (
+          <p className="py-2 font-mono text-[11.5px] text-faint">Os destaques individuais aparecem ao fim da partida.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function fmtPoss(secs: number): string {
+  const m = Math.floor(secs / 60); const s = Math.floor(secs % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function StatRow({ label, casa, fora, winCasa, winFora, sub }: {
+  label: string; casa: string; fora: string;
+  winCasa?: boolean; winFora?: boolean; sub?: string;
+}) {
+  return (
+    <div className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-3 border-b border-line2/60 px-4 py-[7px] last:border-0">
+      <span className={`text-right font-mono text-[14px] tabular-nums ${winCasa ? 'font-bold text-goldhi' : 'text-ink'}`}>{casa}</span>
+      <span className="text-center">
+        <span className="font-disp text-[12px] font-semibold uppercase tracking-[0.12em] text-dim">{label}</span>
+        {sub && <span className="ml-1.5 font-mono text-[9.5px] text-faint">{sub}</span>}
+      </span>
+      <span className={`font-mono text-[14px] tabular-nums ${winFora ? 'font-bold text-goldhi' : 'text-ink'}`}>{fora}</span>
+    </div>
+  );
+}
+
+function BoxScoreView({ r, casa, fora, done }: {
+  r: NonNullable<GameState['lastResult']>; casa: Team; fora: Team; done: boolean;
+}) {
+  const { rich } = r;
+  const c = rich.casa; const f = rich.fora;
+  if (!done) {
+    return (
+      <div className="px-4 py-8 text-center font-mono text-[12.5px] text-faint">
+        O box score completo é fechado ao término da partida.
+      </div>
+    );
+  }
+
+  const leader = (key: (l: PlayerLine) => number, tid: string): PlayerLine | null => {
+    let best: PlayerLine | null = null; let bv = 0;
+    for (const l of rich.lines) if (l.teamId === tid) {
+      const v = key(l);
+      if (v > bv) { bv = v; best = l; }
+    }
+    return best;
+  };
+  const qbL = (tid: string) => leader(l => l.att ?? 0, tid);
+  const rushL = (tid: string) => leader(l => l.ry ?? 0, tid);
+  const recL = (tid: string) => leader(l => l.recYds ?? 0, tid);
+  const sackL = (tid: string) => leader(l => l.sacks ?? 0, tid);
+  const tackL = (tid: string) => leader(l => l.tackles ?? 0, tid);
+  const intL = (tid: string) => leader(l => l.intDef ?? 0, tid);
+
+  const thirdC = c.thirdAtt ? `${c.thirdConv}/${c.thirdAtt}` : '0/0';
+  const thirdF = f.thirdAtt ? `${f.thirdConv}/${f.thirdAtt}` : '0/0';
+  const rzC = c.rzAtt ? `${c.rzTd}/${c.rzAtt}` : '0/0';
+  const rzF = f.rzAtt ? `${f.rzTd}/${f.rzAtt}` : '0/0';
+
+  const qbCasa = qbL(casa.id); const qbFora = qbL(fora.id);
+  const rushCasa = rushL(casa.id); const rushFora = rushL(fora.id);
+  const recCasa = recL(casa.id); const recFora = recL(fora.id);
+
+  return (
+    <div className="max-h-[520px] space-y-5 overflow-y-auto px-1 py-3">
+      <div className="panel2 mx-3 border border-line2">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-line px-4 py-2.5">
+          <span className="flex items-center justify-end gap-2 font-disp text-[16px] font-bold uppercase">
+            {casa.sigla} <TeamCrest cor={casa.cor} cor2={casa.cor2} sigla={casa.sigla} conf={casa.conf} size={20} />
+          </span>
+          <span className="font-disp text-[12px] font-semibold uppercase tracking-[0.2em] text-faint">Equipe</span>
+          <span className="flex items-center gap-2 font-disp text-[16px] font-bold uppercase">
+            <TeamCrest cor={fora.cor} cor2={fora.cor2} sigla={fora.sigla} conf={fora.conf} size={20} /> {fora.sigla}
+          </span>
+        </div>
+        <StatRow label="Jardas Totais" casa={String(c.yds)} fora={String(f.yds)} winCasa={c.yds > f.yds} winFora={f.yds > c.yds} />
+        <StatRow label="Corrida" casa={String(c.rushYds)} fora={String(f.rushYds)} winCasa={c.rushYds > f.rushYds} winFora={f.rushYds > c.rushYds} sub="jd" />
+        <StatRow label="Passe" casa={String(c.passYds)} fora={String(f.passYds)} winCasa={c.passYds > f.passYds} winFora={f.passYds > c.passYds} sub="jd" />
+        <StatRow label="1ºs Downs" casa={String(c.firstDowns)} fora={String(f.firstDowns)} winCasa={c.firstDowns > f.firstDowns} winFora={f.firstDowns > c.firstDowns} />
+        <StatRow label="3ª Descida" casa={thirdC} fora={thirdF}
+          winCasa={c.thirdAtt ? c.thirdConv / c.thirdAtt > (f.thirdAtt ? f.thirdConv / f.thirdAtt : 0) : false}
+          winFora={f.thirdAtt ? f.thirdConv / f.thirdAtt > (c.thirdAtt ? c.thirdConv / c.thirdAtt : 0) : false} sub="conv" />
+        <StatRow label="Zona Vermelha" casa={rzC} fora={rzF}
+          winCasa={c.rzAtt ? c.rzTd / c.rzAtt > (f.rzAtt ? f.rzTd / f.rzAtt : 0) : false}
+          winFora={f.rzAtt ? f.rzTd / f.rzAtt > (c.rzAtt ? c.rzTd / c.rzAtt : 0) : false} sub="TD" />
+        <StatRow label="Turnovers" casa={String(c.tos)} fora={String(f.tos)} winCasa={c.tos < f.tos} winFora={f.tos < c.tos} />
+        <StatRow label="Penalidades" casa={`${c.pens} / ${c.penYds} jd`} fora={`${f.pens} / ${f.penYds} jd`} winCasa={c.penYds < f.penYds} winFora={f.penYds < c.penYds} />
+        <StatRow label="Posse de Bola" casa={fmtPoss(c.possSecs)} fora={fmtPoss(f.possSecs)} winCasa={c.possSecs > f.possSecs} winFora={f.possSecs > c.possSecs} />
+      </div>
+
+      <div className="grid gap-3 px-3 md:grid-cols-2">
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Passe</div>
+          {[{ t: casa, l: qbCasa }, { t: fora, l: qbFora }].map(({ t, l }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              {l && (l.att ?? 0) > 0 ? (
+                <span className="truncate text-ink">
+                  <b>{l.nome}</b> {l.cmp}/{l.att}, {l.py} jd, {l.ptd} TD{(l.int ?? 0) ? `, ${l.int} INT` : ''}
+                  <span className="ml-1.5 text-dim">· RTG <b className="text-goldhi">{l.rating}</b></span>
+                </span>
+              ) : <span className="text-faint">—</span>}
+            </div>
+          ))}
+        </div>
+
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Corrida</div>
+          {[{ t: casa, l: rushCasa }, { t: fora, l: rushFora }].map(({ t, l }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              {l && (l.ry ?? 0) > 0 ? (
+                <span className="truncate text-ink">
+                  <b>{l.nome}</b> {l.rAtt} att, {l.ry} jd{(l.rtd ?? 0) ? `, ${l.rtd} TD` : ''}
+                  <span className="ml-1.5 text-dim">· longa <b className="text-goldhi">{l.longRush} jd</b></span>
+                </span>
+              ) : <span className="text-faint">—</span>}
+            </div>
+          ))}
+        </div>
+
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Recepção</div>
+          {[{ t: casa, l: recCasa }, { t: fora, l: recFora }].map(({ t, l }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              {l && (l.recYds ?? 0) > 0 ? (
+                <span className="truncate text-ink">
+                  <b>{l.nome}</b> {l.rec} rec, {l.recYds} jd{(l.recTD ?? 0) ? `, ${l.recTD} TD` : ''}
+                  <span className="ml-1.5 text-dim">· longa <b className="text-goldhi">{l.longRec} jd</b></span>
+                </span>
+              ) : <span className="text-faint">—</span>}
+            </div>
+          ))}
+        </div>
+
+        <div className="panel2 border border-line2 p-3">
+          <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Defesa</div>
+          {[{ t: casa, s: sackL(casa.id), tk: tackL(casa.id), it: intL(casa.id) },
+            { t: fora, s: sackL(fora.id), tk: tackL(fora.id), it: intL(fora.id) }].map(({ t, s, tk, it }) => (
+            <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+              <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+              <span className="truncate text-ink">
+                {s && (s.sacks ?? 0) > 0 ? <><b>{s.nome}</b> {s.sacks} sack{(s.sacks ?? 0) > 1 ? 's' : ''} (−{s.sackYds} jd)</> : 'Sem sacks'}
+                {tk && (tk.tackles ?? 0) > 0 && <span className="ml-1.5 text-dim">· <b>{tk.nome}</b> {tk.tackles} tackles</span>}
+                {it && (it.intDef ?? 0) > 0 && <span className="ml-1.5 text-grass">· <b>{it.nome}</b> {it.intDef} INT</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 px-3 md:grid-cols-2">
+        {rich.story.mvp && (
+          <div className="panel2 border border-gold/50 bg-[rgba(240,180,41,0.05)] p-3">
+            <div className="mb-1 flex items-center gap-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">
+              <span>★</span> MVP da Partida
+            </div>
+            <div className="flex items-center gap-2 font-mono text-[12px]">
+              <PosBadge pos={rich.story.mvp.pos} />
+              <span>
+                <b className="text-[13px] text-goldhi">{rich.story.mvp.nome}</b>
+                <span className="ml-1.5 text-faint">({rich.story.mvp.teamId.toUpperCase()})</span>
+              </span>
+            </div>
+            <p className="mt-1.5 font-mono text-[11px] leading-relaxed text-dim">{rich.story.mvp.linha}</p>
+          </div>
+        )}
+        {rich.story.jogada && (
+          <div className="panel2 border border-ice/40 bg-[rgba(127,196,232,0.04)] p-3">
+            <div className="mb-1 flex items-center gap-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-ice">
+              <span>⚡</span> Jogada do Jogo
+            </div>
+            <p className="font-mono text-[11.5px] leading-relaxed text-ink">{rich.story.jogada.texto}</p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-faint">{rich.story.jogada.teamId.toUpperCase()}</p>
+          </div>
+        )}
       </div>
     </div>
   );
