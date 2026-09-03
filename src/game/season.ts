@@ -627,6 +627,10 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
   const { fase, semana } = s.settings;
 
   const isUser = (m: Match) => m.casa === s.userTeam || m.fora === s.userTeam;
+
+  // Nos playoffs, garante que os jogos da rodada atual existam como partidas jogáveis.
+  if (fase === 'PO') syncPlayoffMatches(s);
+
   const weekMatches = s.matches.filter(m => m.fase === fase && m.rodada === semana && !m.jogada);
 
   for (const p of s.players) if (p.lesao > 0) {
@@ -712,13 +716,25 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     }
     else s.settings.semana++;
   } else if (fase === 'PO') {
-    const stillIn = s.bracket ? s.bracket[Math.min(semana - 1, s.bracket.length - 1)].jogos.some(j => (j.casa === s.userTeam || j.fora === s.userTeam) && !j.jogada) : false;
-    if (!stillIn && semana > 1) {
-      const t = teamById(s, s.userTeam);
-      pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
-      out.eliminado = true;
+    // Grava os resultados simulados no bracket e gera a próxima fase quando a rodada fecha.
+    const playedRodada = semana;                      // rodada recém-jogada
+    const roundsBefore = s.bracket?.length ?? 0;
+    syncRoundResults(s, playedRodada);
+    const roundsAfter = s.bracket?.length ?? 0;
+
+    // O usuário foi eliminado se a rodada fechou (nova fase gerada) e ele não está nela.
+    if (roundsAfter > roundsBefore && s.bracket) {
+      const nova = s.bracket[s.bracket.length - 1];
+      const stillIn = nova.jogos.some(j => j.casa === s.userTeam || j.fora === s.userTeam);
+      if (!stillIn) {
+        const t = teamById(s, s.userTeam);
+        pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
+        out.eliminado = true;
+      }
     }
+
     s.settings.semana++;
+    syncPlayoffMatches(s);   // prepara as partidas da nova rodada no calendário jogável
     if (s.settings.semana > (s.bracket?.length ?? 4)) endSeason(s, rng);
   }
   return { state: s, out, trainingResults };
