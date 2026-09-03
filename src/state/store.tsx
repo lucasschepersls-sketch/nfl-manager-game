@@ -4,8 +4,9 @@ import { zeroStats } from '../game/types';
 import { newGame, buildWorldFor, buildRivalries } from '../game/generate';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser, autoFixRoster,
-  enforceAllCompliance, hireScoutStaff, negotiateContract, newSeason, releasePlayer, renewPlayer,
-  renewStaff, setStatus, setTactics, signFA, signFAWithOffer, upgrade, userDraftPick, validateRoster,
+  enforceAllCompliance, generateNFLSchedule, hireScoutStaff, negotiateContract, newSeason,
+  releasePlayer, renewPlayer, renewStaff, setStatus, setTactics, signFA, signFAWithOffer,
+  upgrade, userDraftPick, validateRoster, type RankMap,
 } from '../game/season';
 import { newSeed, Rng } from '../game/rng';
 import { restructureContract } from '../game/contracts';
@@ -66,6 +67,36 @@ export function loadSave(): GameState | null {
       if (typeof t.teamChurn !== 'number') t.teamChurn = 0;
       if (!t.tactics.playbook) t.tactics.playbook = 'balanced';
     }
+    /* Repara calendário incompleto (bug antigo gerava 16 jogos p/ alguns times).
+       Só regenera se nenhuma partida da temporada regular foi jogada. */
+    try {
+      const regPlayed = s.matches.some(m => m.fase === 'REG' && m.jogada);
+      if (!regPlayed) {
+        const cnt = new Map<string, number>();
+        for (const m of s.matches) if (m.fase === 'REG') {
+          cnt.set(m.casa, (cnt.get(m.casa) ?? 0) + 1);
+          cnt.set(m.fora, (cnt.get(m.fora) ?? 0) + 1);
+        }
+        if (s.teams.some(t => (cnt.get(t.id) ?? 0) !== 17)) {
+          const rng = new Rng(newSeed());
+          const ranks: RankMap = new Map();
+          for (const conf of ['AFC', 'NFC'] as const) {
+            for (let d = 0; d < 4; d++) {
+              const div = s.teams.filter(t => t.conf === conf && t.div === d)
+                .sort((a, b) => (b.histCampanha?.[0] ?? 0.5) - (a.histCampanha?.[0] ?? 0.5));
+              div.forEach((t, i) => ranks.set(t.id, i + 1));
+            }
+          }
+          const kept = s.matches.filter(m => m.fase !== 'REG');
+          const reg = generateNFLSchedule(
+            s.teams.map(t => ({ id: t.id, conf: t.conf, div: t.div })),
+            s.settings.temporada, ranks, rng,
+          );
+          s.matches = [...kept, ...reg];
+          s.news.unshift({ id: Date.now(), rotulo: 'LIGA', texto: 'Calendário da temporada regular regenerado (17 jogos por franquia).' });
+        }
+      }
+    } catch { /* mantém o calendário salvo se o reparo falhar */ }
     return s;
   } catch {
     return null;

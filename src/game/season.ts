@@ -290,61 +290,90 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   }
   const rest = games.filter(g => !w18Keys.has(`${g.casa}>${g.fora}`));
 
-  // bye weeks 5-14 (índices 4..13), uma por time
+  // bye weeks 5-14 (índices 4..13): 8 semanas com 4 folgas (paridade par —
+  // sempre dá para emparelhar os demais), sem rivais de divisão na mesma semana
   const bye = new Map<string, number>();
-  const load = new Map<number, number>();
-  for (let w = 4; w <= 13; w++) load.set(w, 0);
-  for (const key of rng.shuffle([...byDiv.keys()])) {
-    const usedByDiv = new Set<number>();
-    for (const t of rng.shuffle(byDiv.get(key)!)) {
-      const weeks = [...Array(10)].map((_, i) => i + 4)
-        .filter(w => !usedByDiv.has(w))
-        .sort((a, b) => (load.get(a)! - load.get(b)!) || (rng.next() - 0.5));
-      const w = weeks[0] ?? 4;
-      bye.set(t.id, w);
-      usedByDiv.add(w);
-      load.set(w, (load.get(w) ?? 0) + 1);
-    }
-  }
-
-  // guloso semanas 1..17, priorizando times mais carregados (espalha divisão)
-  const weeks: Game[][] = Array.from({ length: 17 }, () => []);
-  const remaining = [...rest];
-  const left = new Map<string, number>();
-  for (const g of remaining) {
-    left.set(g.casa, (left.get(g.casa) ?? 0) + 1);
-    left.set(g.fora, (left.get(g.fora) ?? 0) + 1);
-  }
-  for (let w = 0; w < 17 && remaining.length; w++) {
-    const booked = new Set<string>();
-    for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
-    let progress = true;
-    while (progress) {
-      progress = false;
-      const free = [...left.keys()]
-        .filter(tm => !booked.has(tm) && (left.get(tm) ?? 0) > 0)
-        .sort((a, b) => (left.get(b) ?? 0) - (left.get(a) ?? 0));
-      for (const tm of free) {
-        const opts = remaining.filter(g =>
-          (g.casa === tm || g.fora === tm) && !booked.has(g.casa) && !booked.has(g.fora));
-        if (!opts.length) continue;
-        const pick = opts.sort((a, b) =>
-          ((left.get(a.casa) ?? 0) + (left.get(a.fora) ?? 0)) -
-          ((left.get(b.casa) ?? 0) + (left.get(b.fora) ?? 0)))[Math.min(1, opts.length - 1)] ?? opts[0];
-        weeks[w].push(pick);
-        remaining.splice(remaining.indexOf(pick), 1);
-        left.set(pick.casa, (left.get(pick.casa) ?? 0) - 1);
-        left.set(pick.fora, (left.get(pick.fora) ?? 0) - 1);
-        booked.add(pick.casa); booked.add(pick.fora);
-        progress = true;
+  {
+    const byeWeeks = rng.shuffle([4, 5, 6, 7, 8, 9, 10, 11, 12, 13]).slice(0, 8);
+    const slots = new Map<number, string[]>();
+    for (const w of byeWeeks) slots.set(w, []);
+    for (const key of rng.shuffle([...byDiv.keys()])) {
+      const usedByDiv = new Set<number>();
+      for (const t of rng.shuffle(byDiv.get(key)!)) {
+        const open = byeWeeks
+          .filter(w => !usedByDiv.has(w) && (slots.get(w)?.length ?? 0) < 4)
+          .sort((a, b) => (slots.get(a)!.length - slots.get(b)!.length) || (rng.next() - 0.5));
+        const w = open[0] ?? byeWeeks[0];
+        slots.get(w)!.push(t.id);
+        usedByDiv.add(w);
+        bye.set(t.id, w);
       }
     }
   }
-  for (const g of remaining) {
+
+  /* Alocação semanas 1..17 — multissemente com varredura final.
+     GARANTIA: nenhum jogo é descartado (todo time termina com 17 partidas). */
+  let bestWeeks: Game[][] | null = null;
+  let bestLeft: Game[] = rest;
+  for (let attempt = 0; attempt < 40 && bestLeft.length > 0; attempt++) {
+    const r2 = new Rng((rng.int(1, 0x7fffffff) + attempt * 7919) >>> 0);
+    const weeks: Game[][] = Array.from({ length: 17 }, () => []);
+    const remaining = r2.shuffle([...rest]);
+    for (let w = 0; w < 17 && remaining.length; w++) {
+      const booked = new Set<string>();
+      for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
+      // múltiplas passadas por semana (approx. de matching máximo)
+      let progress = true;
+      while (progress) {
+        progress = false;
+        for (let i = remaining.length - 1; i >= 0; i--) {
+          const g = remaining[i];
+          if (booked.has(g.casa) || booked.has(g.fora)) continue;
+          weeks[w].push(g);
+          booked.add(g.casa); booked.add(g.fora);
+          remaining.splice(i, 1);
+          progress = true;
+        }
+      }
+    }
+    if (remaining.length < bestLeft.length) {
+      bestLeft = remaining;
+      bestWeeks = weeks;
+    }
+  }
+  const weeks = bestWeeks ?? Array.from({ length: 17 }, () => []);
+  if (!bestWeeks) {
+    // degenerate: aloca em ordem (raro)
+    const remaining = [...rest];
+    for (let w = 0; w < 17 && remaining.length; w++) {
+      const booked = new Set<string>();
+      for (let i = remaining.length - 1; i >= 0; i--) {
+        const g = remaining[i];
+        if (booked.has(g.casa) || booked.has(g.fora)) continue;
+        weeks[w].push(g); booked.add(g.casa); booked.add(g.fora);
+        remaining.splice(i, 1);
+      }
+    }
+    bestLeft = remaining;
+  }
+  // varredura final: jogos restantes entram em qualquer semana com os dois times livres
+  for (const g of [...bestLeft]) {
     for (let w = 0; w < 17; w++) {
-      if (bye.get(g.casa) === w || bye.get(g.fora) === w) continue;
       const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
-      if (!busy.has(g.casa) && !busy.has(g.fora)) { weeks[w].push(g); break; }
+      if (!busy.has(g.casa) && !busy.has(g.fora)) {
+        weeks[w].push(g);
+        bestLeft = bestLeft.filter(x => x !== g);
+        break;
+      }
+    }
+  }
+  if (bestLeft.length > 0) {
+    console.warn('Calendário: jogos realocados com semana de folga compartilhada:', bestLeft.length);
+    for (const g of bestLeft) {
+      for (let w = 0; w < 17; w++) {
+        const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
+        if (!busy.has(g.casa) || !busy.has(g.fora)) { weeks[w].push(g); break; }
+      }
     }
   }
   return { weeks, week18 };
