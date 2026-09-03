@@ -19,6 +19,7 @@ import {
   makeContract, makeTagContract, negotiationHappiness, shouldHoldout,
   STRUCT_LABEL,
 } from './contracts';
+import { staffExpectations, staffHappiness } from './negotiations';
 import { simulateTrainingWeek, type TrainingCenterState } from './training';
 
 /* ================= helpers ================= */
@@ -1445,6 +1446,14 @@ export function marketValue(p: Player, inflacao = 1): number {
   return Math.max(0.6, Math.round(base * (posMult[p.pos] ?? 1) * ageMult * inflacao * 10) / 10);
 }
 
+/** Focos de treinamento disponíveis no Centro de Treinamento. */
+export const FOCUS_INFO: Record<Focus, { label: string; desc: string }> = {
+  CORRIDA: { label: 'Jogo terrestre', desc: '+Corrida e +Bloqueio dos jovens' },
+  PASSE: { label: 'Jogo aéreo', desc: '+Passe e +Recepção dos jovens' },
+  DEFESA: { label: 'Defesa', desc: '+Tackle e +Velocidade dos jovens' },
+  FISICO: { label: 'Condicionamento', desc: '+Resistência e +Velocidade para todos' },
+};
+
 export function canSign(s: GameState, p: Player): { ok: boolean; motivo: string } {
   const ativos = playersOf(s, s.userTeam).filter(x => x.status !== 'PS').length;
   if (ativos >= 53) return { ok: false, motivo: 'Elenco ativo cheio (53).' };
@@ -1479,6 +1488,59 @@ export function releasePlayer(s: GameState, playerId: string): { ok: boolean; ms
   s.faPool.push(p);
   addChurn(s, s.userTeam, 6);    // corte abala o vestiário
   return { ok: true, msg: `${p.nome} dispensado — agora é free agent.` };
+}
+
+/** Contrata um free agent mediante oferta estruturada (Free Agency). */
+export function signFAWithOffer(s: GameState, p: Player, offer: ContractOffer): { ok: boolean; msg: string } {
+  const chk = canSign(s, p);
+  if (!chk.ok) return { ok: false, msg: chk.motivo };
+  if (offer.years < 1 || offer.years > 5) return { ok: false, msg: 'Contratos têm de 1 a 5 anos.' };
+  if (offer.base <= 0) return { ok: false, msg: 'Salário-base precisa ser positivo.' };
+
+  const usado = capUsed(s, s.userTeam);
+  const novoHit = makeContract(offer).capHits[0];
+  if (usado + novoHit > s.settings.cap) {
+    return { ok: false, msg: `Cap insuficiente: a oferta pesa ${fmtM(novoHit)} no ano 1 e restam ${fmtM(Math.max(0, Math.round((s.settings.cap - usado) * 10) / 10))}.` };
+  }
+
+  const hap = negotiationHappiness(p, offer, s.settings.inflacao);
+  const aceita = acceptanceRoll(hap.total, new Rng(newSeed()));
+  const exp = calcExpectations(p, s.settings.inflacao);
+
+  if (!aceita) {
+    return { ok: false, msg: `${p.nome} recusou (${hap.total}% de felicidade). O agente quer ${fmtM(exp.aav)}/ano por ${exp.anos} ano(s), ${STRUCT_LABEL[exp.structure].toLowerCase()}.` };
+  }
+
+  s.faPool = s.faPool.filter(x => x.id !== p.id);
+  p.teamId = s.userTeam; p.status = 'RES'; p.origem = undefined;
+  p.contract = makeContract(offer);
+  p.contrato = offer.years;
+  p.salario = offer.base;
+  p.holdout = false;
+  p.anosNoTime = 0;
+  p.moral = clamp(p.moral + 12, 25, 95);
+  s.players.push(p);
+  addChurn(s, s.userTeam, 8);
+  const t = teamById(s, s.userTeam);
+  pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}): ${offer.years} ano(s), ${fmtM(offer.base)}/ano, ${STRUCT_LABEL[offer.structure].toLowerCase()}${offer.bonus > 0 ? `, ${fmtM(offer.bonus)} de luvas` : ''} (felicidade ${hap.total}%).`);
+  return { ok: true, msg: `✍️ ${p.nome} contratado! (${hap.total}%)` };
+}
+
+/** Renovação de contrato da comissão técnica. */
+export function renewStaff(s: GameState, staffId: string, offer: ContractOffer): { ok: boolean; msg: string } {
+  const st = s.staff.find(x => x.id === staffId && x.teamId === s.userTeam);
+  if (!st) return { ok: false, msg: 'Profissional inválido.' };
+  if (st.contrato > 2) return { ok: false, msg: 'Renovação antecipada vale para contratos com ≤2 anos restantes.' };
+  const t = teamById(s, s.userTeam);
+  if (t.dinheiro < offer.bonus) return { ok: false, msg: `Caixa insuficiente para o bônus (tem ${fmtM(t.dinheiro)}).` };
+  const rng = new Rng(newSeed());
+  const hap = staffHappiness(st, offer);
+  if (!acceptanceRoll(hap.value, rng))
+    return { ok: false, msg: `Recusada! ${st.nome} pede ~${fmtM(staffExpectations(st).aav)}/ano. Felicidade: ${hap.value}%.` };
+  t.dinheiro = Math.round((t.dinheiro - offer.bonus) * 10) / 10;
+  st.salario = offer.base; st.bonus = offer.bonus; st.contrato = offer.years;
+  pushNews(s, 'COMISSÃO', `${st.nome} (${st.funcao}) renova: ${offer.years} ano(s), ${fmtM(offer.base)}/ano.`);
+  return { ok: true, msg: `✍️ ${st.nome} renovou!` };
 }
 
 /* ================= 💼 negociações (sistema de contratos) ================= */
