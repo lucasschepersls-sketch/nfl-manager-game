@@ -5,8 +5,41 @@
  * o % com ±10 de personalidade.
  * ============================================================ */
 
-import type { ContractOffer, Player, Staff } from './types';
+import type { ContractOffer, ContractStructure, Player, PlayerContract, Staff } from './types';
 import { Rng, clamp } from './rng';
+
+/* ---------- contrato estruturado ---------- */
+/** Pesos de distribuição do salário-base por estrutura (normalizados p/ qualquer duração). */
+function structureWeights(structure: ContractStructure, years: number): number[] {
+  if (years <= 1) return [100];
+  const t = years - 1; // 0..4
+  const w: number[] = [];
+  for (let i = 0; i < years; i++) {
+    const frac = i / t; // 0 (ano 1) .. 1 (último ano)
+    if (structure === 'FRONT') w.push(1.5 - frac);        // decrescente
+    else if (structure === 'BACK') w.push(0.5 + frac);    // crescente
+    else w.push(1);                                        // uniforme
+  }
+  const sum = w.reduce((a, b) => a + b, 0);
+  return w.map(x => (x / sum) * 100);
+}
+
+/** Constrói um PlayerContract a partir da oferta (cap hits incluem bônus amortizado). */
+export function makeContract(o: ContractOffer): PlayerContract {
+  const years = clamp(o.years, 1, 5);
+  const total = Math.round(o.base * years * 10) / 10;
+  const ws = structureWeights(o.structure, years);
+  const amort = o.bonus / years;
+  const capHits = ws.map(pct => Math.round((total * pct / 100 + amort) * 10) / 10);
+  // garantido: bônus (sempre) + base do ano 1 (proteção contra corte)
+  const baseAno1 = total * ws[0] / 100;
+  const guaranteed = Math.round((o.bonus + baseAno1) * 10) / 10;
+  return { years, total, bonus: o.bonus, structure: o.structure, capHits, guaranteed };
+}
+
+export const STRUCT_LABEL: Record<ContractStructure, string> = {
+  FRONT: 'Frontloaded', BALANCED: 'Balanceado', BACK: 'Backloaded',
+};
 
 /* ---------- valor de mercado ---------- */
 export function marketValue(ovr: number, idade: number, inflacao = 1): number {

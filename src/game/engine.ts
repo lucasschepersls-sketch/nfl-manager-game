@@ -6,7 +6,7 @@
 
 import type {
   AttrKey, GameResult, InjuryReport, LineTipo, LiveEvent, PlayLine, Player,
-  PlayerStats, Pos, Staff, Team,
+  PlayerLine, PlayerStats, Pos, RichBox, Staff, Team, TeamBox,
 } from './types';
 import { Rng, clamp } from './rng';
 import { INJ_TYPES, STARTER_SLOTS } from './data';
@@ -115,6 +115,12 @@ export class NFLMatchEngine {
   private snaps = new Map<string, number>();
   private pens: { casa: number; fora: number } = { casa: 0, fora: 0 };
   private penYds: { casa: number; fora: number } = { casa: 0, fora: 0 };
+  /* ----- box score rico ----- */
+  private gameLines: Record<string, PlayerLine> = {};
+  private fd = { casa: 0, fora: 0 };
+  private third = { casa: { att: 0, conv: 0 }, fora: { att: 0, conv: 0 } };
+  private rz = { casa: { att: 0, td: 0 }, fora: { att: 0, td: 0 } };
+  private bestPlay: { yds: number; texto: string; teamId: string; td: boolean } | null = null;
 
   constructor(
     private casa: Side,
@@ -217,7 +223,7 @@ export class NFLMatchEngine {
       placarCasa: this.scoreC, placarFora: this.scoreF,
       clima: this.clima.nome, climaIcon: this.clima.icon,
       publico, log: this.lines, live: this.events,
-      box: this.buildBox(qC, qF, tot), lesoes: this.lesoes,
+      box: this.buildBox(qC, qF, tot), rich: this.buildRichBox(tot), lesoes: this.lesoes,
       statDeltas: this.deltas, participantes: [...this.partes],
     };
   }
@@ -274,6 +280,7 @@ export class NFLMatchEngine {
     const out: DriveOutcome = { pts: 0, secs: 0, net: 0, passY: 0, rushY: 0, tos: 0 };
     let lastGain: ScrimRes['gain'] = null;
     let plays = 0;
+    let rzEntered = false;
 
     // acumulação por segmento: a narração segue jogada a jogada, mas os eventos
     // (frames do campo/estatísticas) saem só nos momentos relevantes.
@@ -295,6 +302,7 @@ export class NFLMatchEngine {
       if (ball >= 100) {
         const beforeTd = this.lines.length;
         out.pts = this.touchdown(off, lastGain);
+        if (rzEntered) this.rz[side].td++;
         const td = this.since(beforeTd);
         if (td.texto) { segTextos.push(td.texto); segTipo = 'score'; }
         flush();
@@ -370,7 +378,7 @@ export class NFLMatchEngine {
 
       const before = this.lines.length;
       const wasThird = down === 3;
-      void wasThird;
+      if (ball >= 80 && !rzEntered) { this.rz[side].att++; rzEntered = true; }
       const r = this.scrimmage(off, def, ball, down, toGo);
       ball = clamp(r.ball, 1, 100);
       out.secs += r.secs; this.clock += r.secs; out.passY += r.passY; out.rushY += r.rushY;
@@ -401,8 +409,11 @@ export class NFLMatchEngine {
       let firstDown = false;
       if (toGo <= 0 && ball < 100) {
         down = 1; toGo = 10; firstDown = true;
+        this.fd[side]++;
+        if (wasThird) this.third[side].conv++;
         if (this.rng.chance(0.4)) this.log(`Primeira descida: ${t.sigla} mantém o drive vivo.`, 'ok');
       } else if (ball < 100) down++;
+      if (wasThird) this.third[side].att++;
       plays++;
 
       // relevância: muda o rumo do drive ou é um momento de destaque
@@ -419,11 +430,6 @@ export class NFLMatchEngine {
     out.net = ball - start;
     if (ball >= 100) out.net = 100 - start;
     return out;
-  }
-
-  private penalize(side: 'casa' | 'fora', yds: number) {
-    this.pens[side]++;
-    this.penYds[side] += yds;
   }
 
   /* ---------------- scrimmage ---------------- */
@@ -689,7 +695,92 @@ export class NFLMatchEngine {
     };
   }
 
-  private buildBox(qC: number[], qF: number[], tot: { yC: number; yF: number; rC: number; rF: number; pC: number; pF: number; toC: number; toF: number }) {
+  /* ---------- box score rico ---------- */
+  private penalize(side: 'casa' | 'fora', yds: number) {
+    this.pens[side]++;
+    this.penYds[side] += yds;
+  }
+  private line(p: Player): PlayerLine {
+    const existing = this.gameLines[p.id];
+    if (!existing) {
+      this.gameLines[p.id] = { id: p.id, nome: p.nome, pos: p.pos, teamId: p.teamId ?? '', snaps: 0 };
+      return this.gameLines[p.id]!;
+    }
+    return existing;
+  }
+  private considerBest(yds: number, texto: string, teamId: string, td: boolean) {
+    const cur = this.bestPlay;
+    if (!cur) { this.bestPlay = { yds, texto, teamId, td }; return; }
+    if (td && !cur.td) { this.bestPlay = { yds, texto, teamId, td }; return; }
+    if (td === cur.td && yds > cur.yds) this.bestPlay = { yds, texto, teamId, td };
+  }
+  private passerRatingOf(cmp: number, att: number, yds: number, td: number, intc: number): number {
+    if (att <= 0) return 0;
+    const c = (x: number) => clamp(x, 0, 2.375);
+    const a = c((cmp / att - 0.3) * 5);
+    const b = c((yds / att - 3) * 0.25);
+    const d = c((td / att) * 20);
+    const e = c(2.375 - (intc / att) * 25);
+    return Math.round(((a + b + d + e) / 6) * 100 * 10) / 10;
+  }
+  private teamsForPlayer(teamId: string): Team | null {
+    return [this.casa.team, this.fora.team].find(team => team.id === teamId) ?? null;
+  }
+  private mvpLine(l: PlayerLine): string {
+    const parts: string[] = [];
+    if ((l.att ?? 0) > 0) parts.push(`${l.cmp}/${l.att} passes, ${l.py} jd, ${l.ptd} TD${(l.int ?? 0) ? `, ${l.int} INT` : ''}`);
+    if ((l.ry ?? 0) > 0) parts.push(`${l.ry} jd corridas${(l.rtd ?? 0) ? `, ${l.rtd} TD` : ''}`);
+    if ((l.recYds ?? 0) > 0) parts.push(`${l.rec} recepções, ${l.recYds} jd${(l.recTD ?? 0) ? `, ${l.recTD} TD` : ''}`);
+    if ((l.sacks ?? 0) > 0) parts.push(`${l.sacks} sacks (−${l.sackYds ?? 0} jd)`);
+    if ((l.tackles ?? 0) > 0) parts.push(`${l.tackles} tackles`);
+    if ((l.intDef ?? 0) > 0) parts.push(`${l.intDef} interceptações`);
+    if ((l.fgM ?? 0) > 0) parts.push(`${l.fgM}/${l.fgT} field goals`);
+    return parts.join(' · ');
+  }
+  private buildRichBox(tot: { yC: number; yF: number; rC: number; rF: number; pC: number; pF: number; toC: number; toF: number; sC: number; sF: number }): RichBox {
+    const tb = (side: 'casa' | 'fora'): TeamBox => ({
+      pts: side === 'casa' ? this.scoreC : this.scoreF,
+      yds: Math.max(0, Math.round(side === 'casa' ? tot.yC : tot.yF)),
+      rushYds: Math.max(0, Math.round(side === 'casa' ? tot.rC : tot.rF)),
+      passYds: Math.max(0, Math.round(side === 'casa' ? tot.pC : tot.pF)),
+      firstDowns: this.fd[side],
+      thirdAtt: this.third[side].att, thirdConv: this.third[side].conv,
+      rzAtt: this.rz[side].att, rzTd: this.rz[side].td,
+      tos: side === 'casa' ? tot.toC : tot.toF,
+      pens: this.pens[side], penYds: this.penYds[side],
+      possSecs: Math.round(side === 'casa' ? tot.sC : tot.sF),
+    });
+
+    const lines = Object.values(this.gameLines).map(l => {
+      if ((l.att ?? 0) > 0) {
+        l.rating = this.passerRatingOf(l.cmp ?? 0, l.att ?? 0, l.py ?? 0, l.ptd ?? 0, l.int ?? 0);
+        const team = this.teamsForPlayer(l.teamId);
+        if (l.pos === 'QB' && team?.tactics.playbook === 'pass_heavy') l.rating = Math.min(158.3, l.rating + 3);
+      }
+      return l;
+    });
+
+    let mvp: RichBox['story']['mvp'] = null;
+    let bestScore = 0;
+    for (const l of lines) {
+      const sc = (l.py ?? 0) + 25 * (l.ptd ?? 0) - 30 * (l.int ?? 0)
+        + (l.ry ?? 0) + 20 * (l.rtd ?? 0)
+        + (l.recYds ?? 0) + 20 * (l.recTD ?? 0)
+        + 10 * (l.sacks ?? 0) + 3 * (l.tackles ?? 0) + 45 * (l.intDef ?? 0)
+        + 15 * (l.fgM ?? 0);
+      if (sc > bestScore) { bestScore = sc; mvp = { nome: l.nome, pos: l.pos, teamId: l.teamId, linha: this.mvpLine(l) }; }
+    }
+
+    return {
+      casa: tb('casa'), fora: tb('fora'), lines,
+      story: {
+        mvp,
+        jogada: this.bestPlay ? { texto: this.bestPlay.texto, teamId: this.bestPlay.teamId } : null,
+      },
+    };
+  }
+
+  private buildBox(qC: number[], qF: number[], tot: { yC: number; yF: number; rC: number; rF: number; pC: number; pF: number; toC: number; toF: number; sC: number; sF: number }) {
     const leader = (key: keyof PlayerStats, unit: Unit, label: string) => {
       let best: Player | null = null; let bv = 0;
       const seen = new Set<string>();

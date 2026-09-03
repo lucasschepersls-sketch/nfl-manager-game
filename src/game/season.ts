@@ -12,7 +12,7 @@ import type { Side } from './engine';
 import { Rng, clamp, newSeed } from './rng';
 import { computeOvr, genName, POS_ORDER, rookieSalary, salaryFor } from './data';
 import { NFLMatchEngine } from './engine';
-import { acceptanceRoll, playerExpectations, playerHappiness, staffExpectations, staffHappiness } from './negotiations';
+import { acceptanceRoll, makeContract, playerExpectations, playerHappiness, staffExpectations, staffHappiness, STRUCT_LABEL } from './negotiations';
 
 /* ================= helpers ================= */
 export const teamById = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -20,8 +20,12 @@ export const playersOf = (s: GameState, teamId: string): Player[] => s.players.f
 export const staffOf = (s: GameState, teamId: string): Staff[] => s.staff.filter(st => st.teamId === teamId);
 export const fmtM = (v: number) => `$${v.toFixed(1).replace('.', ',')}M`;
 
-export const capHitOf = (p: Player) =>
-  p.salario + (p.bonus > 0 && p.contrato > 0 ? p.bonus / p.contrato : 0);
+export const capHitOf = (p: Player) => {
+  // contrato estruturado: cap hit do ano corrente já inclui o bônus amortizado
+  if (p.contract && p.contract.capHits.length) return p.contract.capHits[0];
+  const bonus = p.contract?.bonus ?? 0;
+  return p.salario + (bonus > 0 && p.contrato > 0 ? bonus / p.contrato : 0);
+};
 export const capUsed = (s: GameState, teamId: string) =>
   Math.round(playersOf(s, teamId).reduce((sum, p) => sum + capHitOf(p), 0) * 10) / 10;
 
@@ -657,20 +661,17 @@ function endSeason(s: GameState, rng: Rng) {
     }
     if (p.teamId === s.userTeam) expirandoUser.push(p.nome);
     p.origem = p.teamId ?? undefined;
-    p.teamId = null; p.status = 'RES'; p.bonus = 0;
+    p.teamId = null; p.status = 'RES'; p.contract = undefined;
     s.faPool.push(p);
     s.players = s.players.filter(x => x.id !== p.id);
   }
   if (expirandoUser.length)
     pushNews(s, 'MERCADO', `Contratos encerrados: ${expirandoUser.slice(0, 4).join(', ')}${expirandoUser.length > 4 ? '…' : ''} agora são free agents.`);
 
-  // comissão: contratos expiram → volta ao mercado
+  // comissão técnica: contratos expiram (mantidos na franquia no schema atual)
   for (const st of [...s.staff]) {
     st.contrato--;
-    if (st.contrato > 0) continue;
-    st.teamId = null;
-    s.staffPool.push(st);
-    s.staff = s.staff.filter(x => x.id !== st.id);
+    if (st.contrato <= 0) st.contrato = 1;
   }
 
   s.offPhase = 1;
@@ -723,8 +724,9 @@ export function aiPickFor(s: GameState, teamId: string): Player | null {
 
 function commitPick(s: GameState, p: Player, teamId: string) {
   s.draftClass = s.draftClass.filter(x => x.id !== p.id);
-  p.teamId = teamId; p.status = 'RES'; p.contrato = 4; p.bonus = 0;
+  p.teamId = teamId; p.status = 'RES'; p.contrato = 4; p.contract = undefined;
   p.salario = rookieSalary(p.ovr);
+  p.anosNoTime = 0;
   s.players.push(p);
 }
 
@@ -800,8 +802,9 @@ export function aiFreeAgency(s: GameState, rng: Rng) {
       const f = pool[0];
       if (!f) break;
       s.faPool = s.faPool.filter(x => x.id !== f.id);
-      f.teamId = t.id; f.status = 'RES'; f.origem = undefined; f.bonus = 0;
+      f.teamId = t.id; f.status = 'RES'; f.origem = undefined; f.contract = undefined;
       f.contrato = rng.int(1, 3);
+      f.anosNoTime = 0;
       s.players.push(f);
       space = s.settings.cap - capUsed(s, t.id);
       if (f.ovr >= 76) assinaturas.push(`${t.sigla} contrata ${f.nome} (${f.pos}, OVR ${f.ovr})`);
@@ -869,7 +872,7 @@ export function enforceCapCompliance(s: GameState, teamId: string): Player[] {
     const alvo = ps[0] ?? res[0] ?? tit[0];
     if (!alvo) break;
     s.players = s.players.filter(x => x.id !== alvo.id);
-    alvo.teamId = null; alvo.status = 'RES'; alvo.origem = teamId; alvo.bonus = 0;
+    alvo.teamId = null; alvo.status = 'RES'; alvo.origem = teamId; alvo.contract = undefined;
     s.faPool.push(alvo);
     cortados.push(alvo);
   }
@@ -973,7 +976,7 @@ export function releasePlayer(s: GameState, playerId: string): { ok: boolean; ms
   if (!p || p.teamId !== s.userTeam) return { ok: false, msg: 'Jogador inválido.' };
   if (p.tag) return { ok: false, msg: 'Jogador com franchise tag não pode ser dispensado.' };
   s.players = s.players.filter(x => x.id !== playerId);
-  p.teamId = null; p.status = 'RES'; p.origem = s.userTeam; p.bonus = 0;
+  p.teamId = null; p.status = 'RES'; p.origem = s.userTeam; p.contract = undefined;
   s.faPool.push(p);
   return { ok: true, msg: `${p.nome} dispensado — agora é free agent.` };
 }
@@ -1003,10 +1006,11 @@ export function negotiateContract(s: GameState, playerId: string, offer: Contrac
   if (novoCap > s.settings.cap) return { ok: false, msg: `A oferta estouraria o cap (${fmtM(novoCap)}).` };
   if (!acceptanceRoll(hap.value, rng))
     return { ok: false, msg: `Recusada! ${p.nome} quer se aproximar do pedido (${fmtM(playerExpectations(p, s.settings.inflacao).aav)}/ano). Felicidade: ${hap.value}%.` };
-  p.salario = offer.base; p.bonus = offer.bonus; p.contrato = offer.years; p.tag = false;
+  p.contract = makeContract(offer);
+  p.salario = offer.base; p.contrato = offer.years; p.tag = false;
   p.moral = clamp(p.moral + 8, 25, 95);
   void ativos;
-  pushNews(s, 'RENOVAÇÃO', `${p.nome} (${p.pos}, OVR ${p.ovr}) renova: ${offer.years} ano(s), ${fmtM(offer.base)}/ano + ${fmtM(offer.bonus)} de luvas.`);
+  pushNews(s, 'RENOVAÇÃO', `${p.nome} (${p.pos}, OVR ${p.ovr}) renova: ${offer.years} ano(s) ${STRUCT_LABEL[offer.structure]}, ${fmtM(offer.base)}/ano + ${fmtM(offer.bonus)} de luvas.`);
   return { ok: true, msg: `✍️ ${p.nome} renovou! (${hap.value}% de felicidade)` };
 }
 
@@ -1019,32 +1023,16 @@ export function signFAWithOffer(s: GameState, p: Player, offer: ContractOffer): 
     return { ok: false, msg: `Recusada! ${p.nome} pede ~${fmtM(playerExpectations(p, s.settings.inflacao).aav)}/ano. Felicidade: ${hap.value}%.` };
   s.faPool = s.faPool.filter(x => x.id !== p.id);
   p.teamId = s.userTeam; p.status = 'RES'; p.origem = undefined;
-  p.salario = offer.base; p.bonus = offer.bonus; p.contrato = offer.years;
+  p.contract = makeContract(offer);
+  p.salario = offer.base; p.contrato = offer.years;
+  p.anosNoTime = 0;
   p.moral = clamp(p.moral + 12, 25, 95);
   s.players.push(p);
-  pushNews(s, 'CONTRATAÇÃO', `${teamById(s, s.userTeam).sigla} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}): ${offer.years} ano(s), ${fmtM(offer.base)}/ano.`);
+  pushNews(s, 'CONTRATAÇÃO', `${teamById(s, s.userTeam).sigla} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}): ${offer.years} ano(s) ${STRUCT_LABEL[offer.structure]}, ${fmtM(offer.base)}/ano.`);
   return { ok: true, msg: `✍️ ${p.nome} contratado!` };
 }
 
 /* ---------- comissão técnica ---------- */
-export function hireStaff(s: GameState, staffId: string, offer: ContractOffer): { ok: boolean; msg: string } {
-  const st = s.staffPool.find(x => x.id === staffId);
-  if (!st) return { ok: false, msg: 'Profissional indisponível.' };
-  const t = teamById(s, s.userTeam);
-  if (t.dinheiro < offer.base + offer.bonus) return { ok: false, msg: `Caixa insuficiente (tem ${fmtM(t.dinheiro)}).` };
-  const rng = new Rng(newSeed());
-  const hap = staffHappiness(st, offer);
-  if (!acceptanceRoll(hap.value, rng))
-    return { ok: false, msg: `Recusada! ${st.nome} pede ~${fmtM(staffExpectations(st).aav)}/ano. Felicidade: ${hap.value}%.` };
-  t.dinheiro = Math.round((t.dinheiro - offer.bonus) * 10) / 10;
-  s.staffPool = s.staffPool.filter(x => x.id !== staffId);
-  st.teamId = s.userTeam; st.salario = offer.base; st.bonus = offer.bonus; st.contrato = offer.years;
-  st.origem = undefined;
-  s.staff.push(st);
-  pushNews(s, 'COMISSÃO', `${t.cidade} ${t.nome} contrata ${st.nome} (${st.funcao}, nv. ${st.nivel}): ${offer.years} ano(s), ${fmtM(offer.base)}/ano.`);
-  return { ok: true, msg: `✍️ ${st.nome} contratado!` };
-}
-
 export function renewStaff(s: GameState, staffId: string, offer: ContractOffer): { ok: boolean; msg: string } {
   const st = s.staff.find(x => x.id === staffId && x.teamId === s.userTeam);
   if (!st) return { ok: false, msg: 'Profissional inválido.' };
