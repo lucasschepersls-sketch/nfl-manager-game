@@ -352,7 +352,25 @@ export function applyToJob(s: GameState, jobId: number, rng: Rng): { ok: boolean
   return { ok: true, msg: `✍️ Contratado pelo ${team.sigla}!` };
 }
 
-/* ================= Pro Bowl ================= */
+/* ================= Pro Bowl (por conferência) ================= */
+export interface ProBowlPick { playerId: string; nome: string; pos: string; sigla: string; starter: boolean; }
+
+/** Monta os elencos do Pro Bowl separados por conferência (AFC / NFC). */
+export function proBowlRosterByConference(s: GameState): { afc: ProBowlPick[]; nfc: ProBowlPick[] } {
+  const afc: ProBowlPick[] = []; const nfc: ProBowlPick[] = [];
+  for (const v of s.probowl.votes) {
+    if (s.settings.temporada !== v.season) continue;
+    if (!v.isStarter && !v.isReserve) continue;
+    const p = s.players.find(x => x.id === v.playerId);
+    if (!p || !p.teamId) continue;
+    const t = teamOf(s, p.teamId);
+    const pick: ProBowlPick = { playerId: p.id, nome: p.nome, pos: p.pos, sigla: t.sigla, starter: !!v.isStarter };
+    (t.conf === 'AFC' ? afc : nfc).push(pick);
+  }
+  const ord = (a: ProBowlPick, b: ProBowlPick) => Number(b.starter) - Number(a.starter) || a.pos.localeCompare(b.pos);
+  return { afc: afc.sort(ord), nfc: nfc.sort(ord) };
+}
+
 export function sendProBowlResults(s: GameState): void {
   const mine = s.probowl.votes.filter(v => {
     if (s.settings.temporada !== v.season) return false;
@@ -361,26 +379,27 @@ export function sendProBowlResults(s: GameState): void {
   });
   const starters = mine.filter(v => v.isStarter);
   const reserves = mine.filter(v => v.isReserve);
-  const nameOf = (id: string) => {
-    const p = s.players.find(x => x.id === id);
-    return p ? `${p.nome} (${p.pos})` : '—';
-  };
-  const list = [
-    ...starters.map(v => `⭐ Titular: ${nameOf(v.playerId)}`),
-    ...reserves.map(v => `Reserva: ${nameOf(v.playerId)}`),
-  ];
+  const { afc, nfc } = proBowlRosterByConference(s);
+  const fmtRoster = (picks: ProBowlPick[]) =>
+    picks.map(p => `${p.starter ? '⭐' : '  •'} ${p.pos.padEnd(2)} ${p.nome} (${p.sigla})`).join('\n');
   notify(s, {
     category: 'pro_bowl',
-    sender: 'Liga',
-    subject: mine.length ? `Pro Bowl: ${mine.length} jogador(es) do seu time selecionados!` : 'Pro Bowl: nenhum jogador do seu time selecionado',
-    body: mine.length
-      ? `A votação dos fãs, jogadores e técnicos definiu os elencos do Pro Bowl. Seu time terá:\n${list.join('\n')}`
-      : `Nenhum atleta do seu elenco recebeu votos suficientes para o Pro Bowl desta temporada. ` +
-        `Desempenho individual e vitórias aumentam a visibilidade dos seus jogadores.`,
+    sender: 'Liga', senderIcon: '⭐',
+    subject: mine.length
+      ? `Pro Bowl: ${mine.length} jogador(es) do seu time selecionados!`
+      : 'Pro Bowl: elencos definidos — nenhum atleta seu foi escolhido',
+    body:
+      `A votação de fãs (75%), jogadores e técnicos definiu os elencos do Pro Bowl da temporada ${s.settings.temporada}.\n\n` +
+      `—— CONFERÊNCIA AFC ——\n${fmtRoster(afc)}\n\n` +
+      `—— CONFERÊNCIA NFC ——\n${fmtRoster(nfc)}\n\n` +
+      (mine.length
+        ? `Seu time terá ${starters.length} titular(es) e ${reserves.length} reserva(s). ⭐ = titular.`
+        : `Nenhum atleta do seu elenco recebeu votos suficientes. Desempenho individual e vitórias aumentam a visibilidade dos seus jogadores.`),
     priority: mine.length ? 'normal' : 'low',
     dataPayload: {
-      starters: starters.map(v => ({ playerId: v.playerId, nome: nameOf(v.playerId) })),
-      reserves: reserves.map(v => ({ playerId: v.playerId, nome: nameOf(v.playerId) })),
+      afc, nfc,
+      starters: starters.map(v => ({ playerId: v.playerId, nome: s.players.find(x => x.id === v.playerId)?.nome ?? '—' })),
+      reserves: reserves.map(v => ({ playerId: v.playerId, nome: s.players.find(x => x.id === v.playerId)?.nome ?? '—' })),
     },
   });
 }
@@ -417,5 +436,133 @@ export function sendInjuryMessage(s: GameState, playerName: string, pos: string,
     priority: weeks >= 4 ? 'urgent' : 'normal',
     dataPayload: { playerName, pos, weeks, tipo },
     availableActions: [{ id: 'goto_dm', label: 'Ver departamento médico', kind: 'goto', screen: 'dm' }],
+  });
+}
+
+/* ================= 1) RELATÓRIO DE TREINO (substitui o toast) ================= */
+export interface TrainingDelta { playerId: string; nome: string; improvements: Record<string, number>; }
+export function sendTrainingReport(s: GameState, results: TrainingDelta[]): void {
+  if (!results.length) return;
+  const top = [...results]
+    .map(r => ({ ...r, total: Object.values(r.improvements).reduce((a, b) => a + b, 0) }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 6);
+  const lines = top.map(r =>
+    `${r.nome}: ${Object.entries(r.improvements).map(([k, v]) => `${k} +${v}`).join(', ')} (total +${r.total})`);
+  const intensity = s.trainingState.intensity;
+  notify(s, {
+    category: 'training',
+    sender: 'Coordenação de Treino', senderIcon: '🏋️',
+    subject: `Relatório de treino — ${results.length} jogador(es) evoluíram`,
+    body:
+      `Sessão de treino (${intensity.toLowerCase()}) concluída. Destaques da semana:\n\n${lines.join('\n')}\n\n` +
+      `Jogadores com mais snaps em campo evoluem mais rápido. Ajuste a intensidade e o foco ` +
+      `na tela de Táticas & Treino para direcionar o desenvolvimento do elenco.`,
+    priority: 'low',
+    dataPayload: { results: top, intensity },
+    availableActions: [{ id: 'goto_taticas', label: 'Ajustar treino', kind: 'goto', screen: 'taticas' }],
+  });
+}
+
+/* ================= 2) PRESSÃO DA DIRETORIA (semanal) ================= */
+export function sendWeeklyPressure(s: GameState, perf: CoachPerformance): void {
+  const team = teamOf(s, s.userTeam);
+  const st = computeStandings(s);
+  const me = st.get(s.userTeam);
+  const seedTxt = me?.playoffSeed != null ? `zona de playoffs (seed #${me.playoffSeed})` : 'fora da zona de playoffs';
+  const last = s.coachHistory[s.coachHistory.length - 2];
+  const trend = last ? perf.overallRating - last.overallRating : 0;
+  const trendTxt = trend > 0 ? `em alta (+${trend})` : trend < 0 ? `em queda (${trend})` : 'estável';
+
+  let pressure: string;
+  if (perf.overallRating >= 65) pressure = 'A diretoria está satisfeita e o clima é de confiança. Mantenha o ritmo.';
+  else if (perf.overallRating >= 45) pressure = 'A diretoria acompanha de perto. Bons resultados nas próximas semanas são esperados.';
+  else pressure = '⚠ A diretoria está impaciente. Uma sequência ruim pode colocar seu cargo em risco.';
+
+  notify(s, {
+    category: 'front_office',
+    sender: 'Diretoria', senderIcon: '🏢',
+    subject: `Pressão da diretoria — Semana ${perf.week}`,
+    body:
+      `Resumo semanal do ${team.cidade} ${team.nome}:\n\n` +
+      `• Avaliação geral: ${perf.overallRating}/100 (${trendTxt})\n` +
+      `• Campanha: nota ${perf.winPctScore} — você está ${seedTxt}\n` +
+      `• Gestão do cap: nota ${perf.capManagementScore}\n\n` +
+      `${pressure}`,
+    priority: perf.overallRating < 40 ? 'urgent' : 'low',
+    dataPayload: { perf },
+    availableActions: [{ id: 'goto_standings', label: 'Ver classificação', kind: 'goto', screen: 'classificacao' }],
+  });
+}
+
+/* ================= 6) OUTROS TIPOS DE MENSAGENS ================= */
+
+/* --- Contrato / renovação --- */
+export function sendContractMessage(s: GameState, playerName: string, pos: string, years: number, base: number): void {
+  notify(s, {
+    category: 'contract',
+    sender: 'Agente do Jogador', senderIcon: '✍️',
+    subject: `Contrato fechado: ${playerName}`,
+    body: `${playerName} (${pos}) assinou por ${years} temporada(s) a $${base.toFixed(1)}M/ano. ` +
+      `O acordo foi registrado na liga e o cap hit já está computado.`,
+    priority: 'normal',
+    dataPayload: { playerName, pos, years, base },
+    availableActions: [{ id: 'goto_negociacoes', label: 'Ver contratos', kind: 'goto', screen: 'negociacoes' }],
+  });
+}
+
+/* --- Troca confirmada --- */
+export function sendTradeMessage(s: GameState, partnerSigla: string, gave: string, got: string): void {
+  notify(s, {
+    category: 'trade',
+    sender: 'Escritório da Liga', senderIcon: '🔄',
+    subject: `Troca confirmada com o ${partnerSigla}`,
+    body: `A liga homologou a troca.\n\nVocê enviou: ${gave}\nVocê recebeu: ${got}\n\n` +
+      `Jogadores recém-chegados precisam de algumas semanas para ganhar entrosamento.`,
+    priority: 'normal',
+    dataPayload: { partnerSigla, gave, got },
+    availableActions: [{ id: 'goto_trades', label: 'Central de trocas', kind: 'goto', screen: 'trades' }],
+  });
+}
+
+/* --- Contratação na free agency --- */
+export function sendFreeAgentMessage(s: GameState, playerName: string, pos: string, ovr: number, salary: number): void {
+  notify(s, {
+    category: 'agent',
+    sender: 'Agente do Jogador', senderIcon: '🤝',
+    subject: `Reforço contratado: ${playerName}`,
+    body: `${playerName} (${pos}, OVR ${ovr}) aceitou sua proposta de $${salary.toFixed(1)}M/ano ` +
+      `e já está integrado ao elenco. Avalie o encaixe tático na próxima partida.`,
+    priority: 'normal',
+    dataPayload: { playerName, pos, ovr, salary },
+    availableActions: [{ id: 'goto_elenco', label: 'Ver elenco', kind: 'goto', screen: 'elenco' }],
+  });
+}
+
+/* --- Escolha no draft --- */
+export function sendDraftMessage(s: GameState, round: number, playerName: string, pos: string, college: string): void {
+  notify(s, {
+    category: 'scouting',
+    sender: 'Scout Chefe', senderIcon: '🔍',
+    subject: `Draft: ${playerName} selecionado na rodada ${round}`,
+    body: `O ${s.teams.find(t => t.id === s.userTeam)?.sigla} usou a escolha da rodada ${round} em ` +
+      `${playerName} (${pos}), vindo de ${college}. O novato assinou por 4 temporadas. ` +
+      `Desenvolva-o com snaps e treino para atingir o potencial projetado.`,
+    priority: 'normal',
+    dataPayload: { round, playerName, pos, college },
+    availableActions: [{ id: 'goto_elenco', label: 'Ver elenco', kind: 'goto', screen: 'elenco' }],
+  });
+}
+
+/* --- Marco / recorde de um jogador --- */
+export function sendMilestoneMessage(s: GameState, playerName: string, feito: string): void {
+  notify(s, {
+    category: 'media',
+    sender: 'Mídia NFL', senderIcon: '📰',
+    subject: `${playerName} atinge novo marco`,
+    body: `${playerName} ${feito}. A imprensa destaca o momento do atleta e a torcida celebra. ` +
+      `A valorização do jogador no mercado tende a subir.`,
+    priority: 'low',
+    dataPayload: { playerName, feito },
   });
 }
