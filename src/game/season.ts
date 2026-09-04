@@ -15,7 +15,7 @@ import { applyDraftSurprise, resetScouting, scoutBudgetMaxFor } from './scouting
 import { emptyProBowl, runWeeklyProBowlVoting, selectProBowlRoster, type WeekBox } from './probowl';
 import {
   recordCoachEvaluation, sendEvaluationMessage, sendWeeklyPressure, sendTrainingReport,
-  checkUserFiring, generateAiCoachFirings, sendProBowlResults, sendSuperBowlMessage,
+  checkUserFiring, checkEndSeasonFiring, generateAiCoachFirings, sendProBowlResults, sendSuperBowlMessage,
   sendInjuryMessage, sendDraftMessage, sendFreeAgentMessage, sendContractMessage, notify,
 } from './messaging';
 import { addChurn, recalcChemistry } from './franchise';
@@ -765,6 +765,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
   // Mapa para acumular snaps da semana por jogador
   const snapsPorJogadorSemana = new Map<string, number>();
 
+  let superBowlResult: GameResult | null = null;
   for (const m of weekMatches) {
     const user = isUser(m);
     const rivalry = s.rivalries.find(r =>
@@ -798,6 +799,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     }
     
     if (fase === 'REG') weekBoxes.push({ casaId: m.casa, foraId: m.fora, rich: r.rich });
+    if (fase === 'PO' && semana === 4) superBowlResult = r; // Super Bowl: guarda p/ MVP e destaques
     if (user) { userRes = r; out.match = r; }
   }
   updateMediaNarratives(s, results);
@@ -875,7 +877,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
           if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
             const champId = (sb.pc ?? 0) >= (sb.pf ?? 0) ? sb.casa : sb.fora;
             s.campeoes.push({ temporada: s.settings.temporada, teamId: champId });
-            sendSuperBowlMessage(s, champId);
+            sendSuperBowlMessage(s, champId, superBowlResult ?? undefined);
           }
         }
       }
@@ -1022,6 +1024,9 @@ function resolveConditionalPicks(s: GameState): void {
 
 function endSeason(s: GameState, rng: Rng) {
   s.settings.fase = 'OFF'; s.settings.semana = 0;
+
+  // 📧 avaliação de fim de temporada: pode resultar em demissão
+  checkEndSeasonFiring(s, rng);
   
   // vagas não preenchidas expiram; técnico ainda demitido segue desempregado
   s.jobOpenings = s.jobOpenings.filter(j => j.isFilled);
