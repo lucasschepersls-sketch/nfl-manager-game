@@ -76,3 +76,37 @@ export function applyDraftSurprise(s: GameState, p: Player, rng: Rng): boolean {
   void oldOvr;
   return true;
 }
+
+/* ---------- estudo de adversário (relatório pré-jogo) ---------- */
+export function studyOpponent(s: GameState, teamId: string): { ok: boolean; msg: string } {
+  if (s.scoutBudget < 1) return { ok: false, msg: 'Sem pontos de scouting disponíveis.' };
+  const rng = new Rng(Math.floor(Math.random() * 0xffffffff));
+  const opp = s.teams.find(t => t.id === teamId);
+  if (!opp) return { ok: false, msg: 'Adversário inválido.' };
+
+  const roster = s.players.filter(p => p.teamId === teamId && p.status !== 'PS');
+  const top = [...roster].sort((a, b) => b.ovr - a.ovr).slice(0, 3).map(p => p.id);
+  const passHeavy = opp.tactics.corrida < 45;
+
+  const existing = s.opponentScouting.find(r => r.teamId === teamId && r.season === s.settings.temporada);
+  if (existing) {
+    existing.reports += 1;
+    s.scoutBudget -= 1;
+    return { ok: true, msg: `Relatório de ${opp.sigla} atualizado (nível ${existing.reports}).` };
+  }
+
+  s.opponentScouting.push({
+    teamId, season: s.settings.temporada, reports: 1,
+    strengths: passHeavy
+      ? ['Ataque aéreo explosivo', 'QB preciso', 'WRs rápidos']
+      : ['Jogo terrestre físico', 'OL dominante', 'Controle de relógio'],
+    weaknesses: passHeavy
+      ? ['Corrida inconsistente', 'Vulnerável a blitz', 'Secundária exposta em bolas longas']
+      : ['Passe previsível', 'QB sob pressão', 'Pouca ameaça profunda'],
+    keyPlayers: top,
+    passRate: passHeavy ? rng.int(58, 70) : rng.int(38, 50),
+    runOnFirstDown: passHeavy ? rng.int(25, 40) : rng.int(50, 65),
+  });
+  s.scoutBudget -= 1;
+  return { ok: true, msg: `Relatório de ${opp.sigla} criado (+3% defensivo na partida).` };
+}
