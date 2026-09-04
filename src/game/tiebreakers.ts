@@ -244,12 +244,12 @@ function critLabel(c: Crit): string {
 }
 
 /**
- * Ordena um grupo aplicando os critérios EM CASCATA (regra NFL): a cada
- * critério, quem é o melhor isolado avança; quem é o pior isolado cai para o
- * fim; e os critérios RECOMEÇAM do 1º para o subgrupo restante.
- * A campanha (winPct) é a chave primária — só times empatados chegam aqui.
+ * Cascata de tiebreakers (regra NFL p/ 2+ times EMPATADOS): a cada critério,
+ * quem é o melhor isolado avança; quem é o pior isolado cai para o fim; e os
+ * critérios RECOMEÇAM do 1º para o subgrupo restante.
+ * ⚠️ Deve receber APENAS times com o MESMO winPct (agrupados pelo rankGroup).
  */
-function rankGroup(group: TeamStanding[], crits: Crit[], ctx: Ctx): TeamStanding[] {
+function cascadeTiebreaks(group: TeamStanding[], crits: Crit[], ctx: Ctx): TeamStanding[] {
   if (group.length <= 1) return [...group];
   const front: TeamStanding[] = [];
   const back: TeamStanding[] = [];
@@ -296,6 +296,51 @@ function rankGroup(group: TeamStanding[], crits: Crit[], ctx: Ctx): TeamStanding
     front.push(remaining[0]);
   }
   return [...front, ...back];
+}
+
+/**
+ * CAMADA 1 (regra de ouro da NFL): a campanha (winPct) é SEMPRE o critério
+ * primário. Times com campanhas diferentes NUNCA são comparados por tiebreaker.
+ *
+ * Agrupa os times por winPct idêntico, ordena os blocos de forma descendente e,
+ * somente DENTRO de cada bloco com 2+ times empatados, aplica a cascata de
+ * tiebreakers (CAMADA 2). Isso garante que um time 1-0 (1.000) jamais fique
+ * atrás de um time 0-10-1 (.000), não importando H2H ou qualquer outro critério.
+ */
+function rankGroup(group: TeamStanding[], crits: Crit[], ctx: Ctx): TeamStanding[] {
+  if (group.length <= 1) {
+    if (group.length === 1) group[0].tiedAbove = false;
+    return [...group];
+  }
+
+  // zera as anotações de desempate antes de recalcular
+  for (const t of group) { t.tiedAbove = false; t.tiebreakKey = ''; t.tiebreakNote = ''; }
+
+  // CAMADA 1 — agrupa por winPct idêntico (tolerância de ponto flutuante)
+  const EPS = 1e-9;
+  const sorted = [...group].sort((a, b) => b.winPct - a.winPct);
+  const blocks: TeamStanding[][] = [];
+  for (const t of sorted) {
+    const last = blocks[blocks.length - 1];
+    if (last && Math.abs(last[0].winPct - t.winPct) <= EPS) last.push(t);
+    else blocks.push([t]);
+  }
+
+  // CAMADA 2 — cascata de tiebreakers apenas dentro de cada bloco de empatados
+  const result: TeamStanding[] = [];
+  for (const block of blocks) {
+    result.push(...cascadeTiebreaks(block, crits, ctx));
+  }
+
+  // passada final: tiedAbove = mesma campanha do time imediatamente acima;
+  // limpa o chip de desempate de quem não está empatado com o de cima
+  result[0].tiedAbove = false;
+  for (let i = 1; i < result.length; i++) {
+    result[i].tiedAbove = Math.abs(result[i].winPct - result[i - 1].winPct) <= EPS;
+    if (!result[i].tiedAbove) { result[i].tiebreakKey = ''; result[i].tiebreakNote = ''; }
+  }
+
+  return result;
 }
 
 /* ---------- Games Behind em relação ao líder do grupo ---------- */
