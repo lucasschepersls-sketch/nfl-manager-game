@@ -22,6 +22,7 @@ import { ClubHomeScreen } from './screens/Club';
 import { TradesScreen } from './screens/Trades';
 import { InboxScreen, JobsScreen } from './screens/Inbox';
 import { StandingsScreen } from './screens/Standings';
+import { WeekLeagueScreen } from './screens/WeekLeague';
 import { unreadCount } from './game/messaging';
 
 /* ============ navegação lateral ============ */
@@ -204,6 +205,7 @@ function Shell() {
       case 'home': return <ClubHomeScreen />;
       case 'trades': return <TradesScreen />;
       case 'classificacao': return <StandingsScreen />;
+      case 'calendario-liga': return <WeekLeagueScreen />;
       case 'inbox': return <InboxScreen />;
       case 'jobs': return <JobsScreen />;
       default: return <MissingScreen screen={st.screen} />;

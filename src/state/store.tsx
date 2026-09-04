@@ -86,8 +86,21 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       return st.game ? { ...st, game: { ...st.game, lastResult: null }, screen: 'home' } : st;
     case 'CONTINUE': {
       if (!st.game) return st;
-      const { state, out } = advance(st.game);
-      return { ...st, game: state, screen: out.match ? 'partida' : st.screen };
+      try {
+        const { state, out } = advance(st.game);
+        // Se o usuário jogou, mostra a partida; se não (ex.: eliminado/não foi aos
+        // playoffs), leva para a Semana da Liga para acompanhar os resultados.
+        const nextScreen = out.match
+          ? 'partida'
+          : state.settings.fase === 'PO'
+            ? 'calendario-liga'
+            : st.screen;
+        return { ...st, game: state, screen: nextScreen };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[TAG] Erro ao simular rodada:', e);
+        return { ...st, toast: `Erro ao simular rodada: ${msg}` };
+      }
     }
     case 'SIGN': {
       if (!st.game) return st;

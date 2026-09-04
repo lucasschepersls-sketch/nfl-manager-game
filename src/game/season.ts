@@ -667,34 +667,33 @@ function nextRound(s: GameState) {
   }
 
   const next: { casa: string; fora: string; pc: number | null; pf: number | null; jogada: boolean }[] = [];
+  const winner = (j: { casa: string; fora: string; pc: number | null; pf: number | null }) =>
+    (j.pc ?? 0) >= (j.pf ?? 0) ? j.casa : j.fora;
+
   if (nomes[idx + 1] === 'Super Bowl') {
-    const afcChamp = winnersByConf.get('AFC')![0]?.winner ?? (round.jogos[0] && (round.jogos[0].pc ?? 0) >= (round.jogos[0].pf ?? 0) ? round.jogos[0].casa : round.jogos[0].fora);
-    const nfcChamp = winnersByConf.get('NFC')![0]?.winner ?? (round.jogos[3] && (round.jogos[3].pc ?? 0) >= (round.jogos[3].pf ?? 0) ? round.jogos[3].casa : round.jogos[3].fora);
-    next.push({ casa: afcChamp, fora: nfcChamp, pc: null, pf: null, jogada: false });
+    // Final de Conferência → Super Bowl: vencedor AFC × vencedor NFC
+    const afcChamp = winnersByConf.get('AFC')![0]?.winner;
+    const nfcChamp = winnersByConf.get('NFC')![0]?.winner;
+    if (afcChamp && nfcChamp) next.push({ casa: afcChamp, fora: nfcChamp, pc: null, pf: null, jogada: false });
   } else {
     for (const conf of ['AFC', 'NFC'] as Conf[]) {
       const seeds = conferenceSeeds(s, conf);
-      const roundWinners: string[] = [];
-      for (const j of round.jogos) {
-        const infoCasa = seedOf.get(j.casa);
-        const infoFora = seedOf.get(j.fora);
-        if (infoCasa?.conf !== conf && infoFora?.conf !== conf) continue;
-        roundWinners.push((j.pc ?? 0) >= (j.pf ?? 0) ? j.casa : j.fora);
-      }
+      const confJogos = round.jogos.filter(j => seedOf.get(j.casa)?.conf === conf || seedOf.get(j.fora)?.conf === conf);
+      const seedsOf = (j: { casa: string; fora: string }) =>
+        [seedOf.get(j.casa)?.seed, seedOf.get(j.fora)?.seed].sort((a, b) => (a ?? 9) - (b ?? 9));
+
       if (nomes[idx + 1] === 'Divisional') {
+        // Wild Card → Divisional (regra NFL): seed 1 × vencedor(4v5); vencedor(2v7) × vencedor(3v6)
+        const jogo27 = confJogos.find(j => { const sd = seedsOf(j); return sd[0] === 2 && sd[1] === 7; });
+        const jogo36 = confJogos.find(j => { const sd = seedsOf(j); return sd[0] === 3 && sd[1] === 6; });
+        const jogo45 = confJogos.find(j => { const sd = seedsOf(j); return sd[0] === 4 && sd[1] === 5; });
         const one = seeds.find(x => x.seed === 1)!.teamId;
-        const sortedW = roundWinners
-          .map(id => ({ id, seed: seedOf.get(id)?.seed ?? 9 }))
-          .sort((a, b) => b.seed - a.seed);
-        const low = sortedW[0]?.id; const high = sortedW[1]?.id;
-        const two = seeds.find(x => x.seed === 2)!.teamId;
-        if (low) next.push({ casa: one, fora: low, pc: null, pf: null, jogada: false });
-        if (high) next.push({ casa: two, fora: high, pc: null, pf: null, jogada: false });
+        if (jogo45) next.push({ casa: one, fora: winner(jogo45), pc: null, pf: null, jogada: false });
+        if (jogo27 && jogo36) next.push({ casa: winner(jogo27), fora: winner(jogo36), pc: null, pf: null, jogada: false });
       } else {
-        const sortedW = roundWinners
-          .map(id => ({ id, seed: seedOf.get(id)?.seed ?? 9 }))
-          .sort((a, b) => a.seed - b.seed);
-        if (sortedW.length >= 2) next.push({ casa: sortedW[0].id, fora: sortedW[1].id, pc: null, pf: null, jogada: false });
+        // Divisional → Final de Conferência: os 2 vencedores da conferência se enfrentam
+        const sortedW = confJogos.map(j => winner(j));
+        if (sortedW.length >= 2) next.push({ casa: sortedW[0], fora: sortedW[1], pc: null, pf: null, jogada: false });
       }
     }
   }
