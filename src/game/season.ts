@@ -18,8 +18,9 @@ import { NFLMatchEngine } from './engine';
 import { resetScouting, aiScoutingWave, applyDraftSurprise } from './scouting';
 import { emptyProBowl, runWeeklyProBowlVoting, selectProBowlRoster, type WeekBox } from './probowl';
 import {
-  recordCoachEvaluation, sendEvaluationMessage, checkUserFiring, generateAiCoachFirings,
-  sendProBowlResults, sendSuperBowlMessage, sendInjuryMessage, notify,
+  recordCoachEvaluation, sendEvaluationMessage, sendWeeklyPressure, sendTrainingReport,
+  checkUserFiring, generateAiCoachFirings, sendProBowlResults, sendSuperBowlMessage,
+  sendInjuryMessage, sendDraftMessage, sendFreeAgentMessage, sendContractMessage, notify,
 } from './messaging';
 import { addChurn, recalcChemistry } from './franchise';
 import {
@@ -543,6 +544,8 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
     trainingResults = simulateTrainingWeek(s.players, s.trainingState, snapsObj);
     out.trainingResults = trainingResults;
     if (trainingResults.length > 0) {
+      // 📧 relatório de treino como mensagem persistente (substitui o toast)
+      sendTrainingReport(s, trainingResults);
       const destaques = trainingResults.slice(0, 3);
       const txt = destaques.map(t => `${t.nome} (+${Object.values(t.improvements).reduce((a, b) => a + b, 0)})`).join(', ');
       pushNews(s, 'TREINO', `Evolução da semana: ${txt}.`);
@@ -556,8 +559,9 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
       pushNews(s, 'TEMPORADA REGULAR', 'A pré-temporada acabou! 18 semanas valem a vaga nos playoffs. Semana 18 é 100% divisão.');
     } else s.settings.semana++;
   } else if (fase === 'REG') {
-    // 📧 avaliação semanal da diretoria + mensagens a cada 4 semanas
+    // 📧 pressão da diretoria: toda semana + boletim detalhado a cada 4 semanas
     const perf = recordCoachEvaluation(s);
+    sendWeeklyPressure(s, perf);
     if (semana % 4 === 0) sendEvaluationMessage(s, perf);
     // 📧 demissões de técnicos da IA abrem vagas no mercado
     generateAiCoachFirings(s, rng);
@@ -844,8 +848,10 @@ export function userDraftPick(s: GameState, playerId: string): { ok: boolean; ms
   const ativos = playersOf(s, s.userTeam).filter(x => x.status !== 'PS').length;
   if (ativos >= 53) return { ok: false, msg: 'Elenco cheio (53).' };
   const rng = new Rng(newSeed());
+  const round = d.round;
   commitPick(s, p, s.userTeam, rng);
-  pushNews(s, 'DRAFT', `Rodada ${d.round}: você escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}).`);
+  pushNews(s, 'DRAFT', `Rodada ${round}: você escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}).`);
+  sendDraftMessage(s, round, p.nome, p.pos, p.scout?.college ?? 'universidade');
   advanceDraft(s, rng);
   return { ok: true, msg: `${p.nome} draftado!` };
 }
@@ -1098,6 +1104,7 @@ export function signFA(s: GameState, playerId: string): { ok: boolean; msg: stri
   addChurn(s, s.userTeam, 8);
   const t = teamById(s, s.userTeam);
   pushNews(s, 'CONTRATAÇÃO', `${t.sigla} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}) por ${fmtM(p.salario)}/ano.`);
+  sendFreeAgentMessage(s, p.nome, p.pos, p.ovr, p.salario);
   return { ok: true, msg: `${p.nome} contratado!` };
 }
 
@@ -1141,6 +1148,7 @@ export function negotiateContract(s: GameState, playerId: string, o: ContractOff
   p.holdout = false;
   p.moral = clamp(p.moral + 8, 25, 95);
   pushNews(s, 'CONTRATO', `${p.nome} assina: ${o.years} ano(s), ${fmtM(o.base)}/ano, ${STRUCT_LABEL[o.structure].toLowerCase()}.`);
+  sendContractMessage(s, p.nome, p.pos, o.years, o.base);
   return { ok: true, msg: `${p.nome} assinou! (${hap.total}%)` };
 }
 

@@ -13,6 +13,7 @@ import type { GameState, PickOwner, Player, Pos, TradeAsset, TradeProposal } fro
 import { addChurn } from './franchise';
 import { Rng, clamp } from './rng';
 import { playersOf, capUsed, teamById } from './season';
+import { sendTradeMessage } from './messaging';
 
 export const TRADE_DEADLINE_WEEK = 9;
 export const ROSTER_MIN_ACTIVE = 44;
@@ -252,6 +253,11 @@ export function executeProposal(s: GameState, p: TradeProposal, rng: Rng): Trade
     rotulo: 'TRADE',
     texto: `${teamById(s, p.from).sigla} envia ${aDesc} para ${teamById(s, p.to).sigla} e recebe ${bDesc}.`,
   });
+  // 📧 mensagem persistente no inbox (apenas para trocas do usuário)
+  if (p.from === s.userTeam || p.to === s.userTeam) {
+    const partnerSigla = p.from === s.userTeam ? teamById(s, p.to).sigla : teamById(s, p.from).sigla;
+    sendTradeMessage(s, partnerSigla, aDesc, bDesc);
+  }
   return { ok: true, aceita: true, msg: `TROCA FECHADA! ${teamById(s, p.to).sigla} aceitou (chance ${ev.chance}%).` };
 }
 
