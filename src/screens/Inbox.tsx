@@ -51,26 +51,52 @@ function PerfPayload({ perf }: { perf: CoachPerformance }) {
   );
 }
 
-/* ---------- payload: Pro Bowl ---------- */
+/* ---------- payload: Pro Bowl (por conferência) ---------- */
+interface ProBowlPickView { playerId: string; nome: string; pos: string; sigla: string; starter: boolean; }
 function ProBowlPayload({ msg }: { msg: Message }) {
-  const starters = (msg.dataPayload?.starters ?? []) as { playerId: string; nome: string }[];
-  const reserves = (msg.dataPayload?.reserves ?? []) as { playerId: string; nome: string }[];
-  if (!starters.length && !reserves.length) return null;
+    const afc = (msg.dataPayload?.afc ?? []) as ProBowlPickView[];
+  const nfc = (msg.dataPayload?.nfc ?? []) as ProBowlPickView[];
+  if (!afc.length && !nfc.length) return null;
+  const col = (title: string, picks: ProBowlPickView[], color: string) => (
+    <div>
+      <div className="mb-1.5 font-disp text-[12.5px] font-bold uppercase tracking-wider" style={{ color }}>{title}</div>
+      {picks.map(p => (
+        <div key={p.playerId} className="flex items-center gap-1.5 py-[3px] font-mono text-[11.5px]">
+          <span className={p.starter ? 'text-goldhi' : 'text-faint'}>{p.starter ? '⭐' : '•'}</span>
+          <span className="w-7 shrink-0 text-[10px] uppercase text-faint">{p.pos}</span>
+          <span className={p.starter ? 'text-ink' : 'text-dim'}>{p.nome}</span>
+          <span className="ml-auto text-[10px] text-faint">{p.sigla}</span>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div className="mt-3 grid gap-3 border border-line2 bg-pitcho/60 p-3 sm:grid-cols-2">
+      {col('Conferência AFC', afc, 'var(--color-ice)')}
+      {col('Conferência NFC', nfc, 'var(--color-grass)')}
+    </div>
+  );
+}
+
+/* ---------- payload: relatório de treino ---------- */
+function TrainingPayload({ msg }: { msg: Message }) {
+  const results = (msg.dataPayload?.results ?? []) as { nome: string; improvements: Record<string, number>; total?: number }[];
+  if (!results.length) return null;
   return (
     <div className="mt-3 border border-line2 bg-pitcho/60 p-3">
-      <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-wider text-goldhi">Selecionados</div>
-      {starters.map(x => (
-        <div key={x.playerId} className="flex items-center gap-2 py-0.5 font-mono text-[12px]">
-          <span className="text-goldhi">⭐</span><span className="text-ink">{x.nome}</span>
-          <span className="ml-auto text-[10px] uppercase text-gold">Titular</span>
-        </div>
-      ))}
-      {reserves.map(x => (
-        <div key={x.playerId} className="flex items-center gap-2 py-0.5 font-mono text-[12px]">
-          <span className="text-dim">•</span><span className="text-dim">{x.nome}</span>
-          <span className="ml-auto text-[10px] uppercase text-faint">Reserva</span>
-        </div>
-      ))}
+      <div className="mb-1.5 font-disp text-[12.5px] font-bold uppercase tracking-wider text-grass">Destaques da sessão</div>
+      {results.map((r, i) => {
+        const total = r.total ?? Object.values(r.improvements).reduce((a, b) => a + b, 0);
+        return (
+          <div key={i} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
+            <span className="text-ink">{r.nome}</span>
+            <span className="truncate text-[10.5px] text-dim">
+              {Object.entries(r.improvements).map(([k, v]) => `${k} +${v}`).join(' · ')}
+            </span>
+            <span className="ml-auto shrink-0 font-bold text-grass">+{total}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -250,6 +276,7 @@ export function InboxScreen() {
                 <PerfPayload perf={selected.dataPayload.perf as CoachPerformance} />
               ) : null}
               {selected.category === 'pro_bowl' && <ProBowlPayload msg={selected} />}
+              {selected.category === 'training' && <TrainingPayload msg={selected} />}
 
               {selected.availableActions && selected.availableActions.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
