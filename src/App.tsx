@@ -4,6 +4,21 @@ import { teamById } from './game/season';
 import { Icons, TeamCrest } from './components/ui';
 import type { Screen } from './game/types';
 
+/* ---------- ícones SVG desenhados (envelope e maleta) ---------- */
+const InboxIcon = (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 8 L12 13 L21 8" />
+  </svg>
+);
+const JobsIcon = (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="3" y="8" width="18" height="12" rx="2" />
+    <path d="M8 8 V6 a2 2 0 0 1 2-2 h4 a2 2 0 0 1 2 2 v2" />
+    <path d="M3 13 h18" />
+  </svg>
+);
+
 import StartScreen from './screens/Start';
 import MatchScreen from './screens/Match';
 import StatsScreen from './screens/Stats';
@@ -24,10 +39,10 @@ import { ProBowlScreen } from './screens/ProBowl';
 import { HallOfFameScreen } from './screens/HallOfFame';
 
 /* ---------- navegação ---------- */
-const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }[] = [
+const NAV: { s: Screen; label: string; glyph: ReactNode; grupo: string }[] = [
   { s: 'home', label: 'Visão Geral', icon: 'home', grupo: 'CLUBE' },
-  { s: 'inbox', label: 'Mensagens', glyph: '📧', grupo: 'CLUBE' },
-  { s: 'jobs', label: 'Carreira', glyph: '💼', grupo: 'CLUBE' },
+  { s: 'inbox', label: 'Mensagens', glyph: InboxIcon, grupo: 'CLUBE' },
+  { s: 'jobs', label: 'Carreira', glyph: JobsIcon, grupo: 'CLUBE' },
   { s: 'offseason', label: 'Offseason', icon: 'offseason', grupo: 'CLUBE' },
   { s: 'elenco', label: 'Elenco', icon: 'roster', grupo: 'CLUBE' },
   { s: 'taticas', label: 'Táticas & Treino', icon: 'tactics', grupo: 'CLUBE' },
@@ -137,6 +152,9 @@ function Sidebar() {
         <div key={gr} className="mb-4">
           <div className="px-4 pb-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-faint">{gr}</div>
           {NAV.filter(n => n.grupo === gr).map(n => (
+            const unread = n.s === 'inbox' && st.game
+              ? st.game.messages.filter(m => !m.isRead && !m.isArchived).length
+            : 0;
             <button key={n.s} className={`nav-item ${st.screen === n.s ? 'on' : ''}`} onClick={() => dispatch({ type: 'SCREEN', screen: n.s })}>
               <span className="shrink-0 opacity-90">{Icons[n.icon]}</span>
               <span className="truncate">{n.label}</span>
