@@ -219,9 +219,17 @@ function MiniStandings({ g }: { g: GameState }) {
   const seeds = conferenceSeeds(g, t.conf);
   const seedOf = new Map(seeds.map(s => [s.teamId, s.seed]));
   const inZone = playoffZone(g, t.conf).has(g.userTeam);
+  // ordem = playoff picture: seeds 1→7 primeiro, depois os demais por campanha
   const rows = standings(g)
     .filter(r => teamById(g, r.teamId).conf === t.conf)
-    .sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net)
+    .sort((a, b) => {
+      const sa = seedOf.get(a.teamId);
+      const sb = seedOf.get(b.teamId);
+      if (sa != null && sb != null) return sa - sb;   // ambos com seed: pela posição
+      if (sa != null) return -1;                      // com seed vem antes
+      if (sb != null) return 1;
+      return (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net;  // sem seed: campanha
+    })
     .slice(0, 9);
 
   return (
