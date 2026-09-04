@@ -14,8 +14,9 @@ import { NFLMatchEngine } from './engine';
 import { applyDraftSurprise, resetScouting, scoutBudgetMaxFor } from './scouting';
 import { emptyProBowl, runWeeklyProBowlVoting, selectProBowlRoster, type WeekBox } from './probowl';
 import {
-  recordCoachEvaluation, sendEvaluationMessage, checkUserFiring, generateAiCoachFirings,
-  sendProBowlResults, sendSuperBowlMessage, sendInjuryMessage, notify,
+  recordCoachEvaluation, sendEvaluationMessage, sendWeeklyPressure, sendTrainingReport,
+  checkUserFiring, generateAiCoachFirings, sendProBowlResults, sendSuperBowlMessage,
+  sendInjuryMessage, sendDraftMessage, sendFreeAgentMessage, sendContractMessage, notify,
 } from './messaging';
 import { addChurn, recalcChemistry } from './franchise';
 import {
@@ -816,6 +817,8 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     
     // Notícia se houver evoluções relevantes
     if (trainingResults.length > 0) {
+      // 📧 relatório de treino como mensagem persistente (substitui o toast)
+      sendTrainingReport(s, trainingResults);
       const destaques = trainingResults.slice(0, 3);
       const nomes = destaques.map(d => d.nome).join(', ');
       pushNews(s, 'TREINAMENTO', `Jogadores evoluíram: ${nomes}${trainingResults.length > 3 ? ' e mais ' + (trainingResults.length - 3) : ''}.`);
@@ -829,8 +832,9 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
       pushNews(s, 'TEMPORADA REGULAR', 'A pré-temporada acabou! 18 semanas valem a vaga nos playoffs. Semana 18 é 100% divisão.');
     } else s.settings.semana++;
   } else if (fase === 'REG') {
-    // 📧 avaliação semanal da diretoria + mensagens a cada 4 semanas
+    // 📧 pressão da diretoria: toda semana + boletim detalhado a cada 4 semanas
     const perf = recordCoachEvaluation(s);
+    sendWeeklyPressure(s, perf);
     if (semana % 4 === 0) sendEvaluationMessage(s, perf);
     // 📧 demissões de técnicos da IA abrem vagas no mercado
     generateAiCoachFirings(s, rng);
@@ -1543,9 +1547,11 @@ export function userDraftPick(s: GameState, playerId: string): { ok: boolean; ms
   const ativos = playersOf(s, s.userTeam).filter(x => x.status !== 'PS').length;
   if (ativos >= 53) return { ok: false, msg: 'Elenco cheio (53). Dispense alguém antes de draftar.' };
   const rng = new Rng(newSeed());
+  const round = d.round;
   const surprise = commitPick(s, p, s.userTeam, rng);
   addChurn(s, s.userTeam, 3);   // novato entra no vestiário — leve ajuste de química
-  pushNews(s, 'DRAFT', `Rodada ${d.round}: ${teamById(s, s.userTeam).sigla} escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}).`);
+  pushNews(s, 'DRAFT', `Rodada ${round}: você escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}).`);
+  sendDraftMessage(s, round, p.nome, p.pos, p.scout?.college ?? 'universidade');
   if (surprise) pushNews(s, 'COMBINE', surprise);
   advanceDraft(s);
   return { ok: true, msg: surprise ? `${p.nome} draftado! ${surprise}` : `${p.nome} draftado!` };
@@ -1706,6 +1712,7 @@ export function signFA(s: GameState, playerId: string): { ok: boolean; msg: stri
   addChurn(s, s.userTeam, 8);    // contratação mexe com a química do vestiário
   const t = teamById(s, s.userTeam);
   pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}) por ${fmtM(p.salario)}/ano.`);
+  sendFreeAgentMessage(s, p.nome, p.pos, p.ovr, p.salario);
   return { ok: true, msg: `${p.nome} contratado!` };
 }
 
@@ -1753,6 +1760,7 @@ export function signFAWithOffer(s: GameState, p: Player, offer: ContractOffer): 
   addChurn(s, s.userTeam, 8);
   const t = teamById(s, s.userTeam);
   pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}): ${offer.years} ano(s), ${fmtM(offer.base)}/ano, ${STRUCT_LABEL[offer.structure].toLowerCase()}${offer.bonus > 0 ? `, ${fmtM(offer.bonus)} de luvas` : ''} (felicidade ${hap.total}%).`);
+  sendContractMessage(s, p.nome, p.pos, o.years, o.base);
   return { ok: true, msg: `✍️ ${p.nome} contratado! (${hap.total}%)` };
 }
 
