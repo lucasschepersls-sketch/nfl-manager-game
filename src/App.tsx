@@ -183,6 +183,7 @@ function Shell() {
     switch (st.screen) {
       case 'home': return <ClubHomeScreen />;
       case 'trades': return <TradesScreen />;
+      case 'classificacao': return <StandingsScreen />;
       default: return <MissingScreen screen={st.screen} />;
     }
   };
