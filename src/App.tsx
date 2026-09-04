@@ -40,32 +40,32 @@ import { HallOfFameScreen } from './screens/HallOfFame';
 
 /* ---------- navegação ---------- */
 const NAV: { s: Screen; label: string; glyph: ReactNode; grupo: string }[] = [
-  { s: 'home', label: 'Visão Geral', icon: 'home', grupo: 'CLUBE' },
+  { s: 'home', label: 'Visão Geral', glyph: Icons.home, grupo: 'CLUBE' },
   { s: 'inbox', label: 'Mensagens', glyph: InboxIcon, grupo: 'CLUBE' },
   { s: 'jobs', label: 'Carreira', glyph: JobsIcon, grupo: 'CLUBE' },
-  { s: 'offseason', label: 'Offseason', icon: 'offseason', grupo: 'CLUBE' },
-  { s: 'elenco', label: 'Elenco', icon: 'roster', grupo: 'CLUBE' },
-  { s: 'taticas', label: 'Táticas & Treino', icon: 'tactics', grupo: 'CLUBE' },
-  { s: 'dm', label: 'Depto. Médico', icon: 'medical', grupo: 'CLUBE' },
-  { s: 'negociacoes', label: 'Contratos', icon: 'contract', grupo: 'CLUBE' },
-  { s: 'trades', label: 'Trades', icon: 'trade', grupo: 'CLUBE' },
-  { s: 'financas', label: 'Finanças', icon: 'money', grupo: 'CLUBE' },
-  { s: 'calendario', label: 'Calendário', icon: 'calendar', grupo: 'LIGA' },
-  { s: 'calendario-liga', label: 'Semana da Liga', icon: 'grid', grupo: 'LIGA' },
-  { s: 'classificacao', label: 'Classificação', icon: 'standings', grupo: 'LIGA' },
-  { s: 'probowl', label: 'Pro Bowl', icon: 'trophy', grupo: 'LIGA' },
-  { s: 'hall-of-fame', label: 'Hall of Fame', icon: 'trophy', grupo: 'LIGA' },
-  { s: 'rivalidades', label: 'Rivalidades', icon: 'trophy', grupo: 'LIGA' },
-  { s: 'elencos-liga', label: 'Elencos da Liga', icon: 'roster', grupo: 'LIGA' },
-  { s: 'comparador', label: 'Comparador H2H', icon: 'standings', grupo: 'LIGA' },
-  { s: 'power-rankings', label: 'Power Rankings', icon: 'standings', grupo: 'LIGA' },
-  { s: 'storylines', label: 'Narrativas da Temporada', icon: 'grid', grupo: 'LIGA' },
-  { s: 'scouting', label: 'Scouting', icon: 'scout', grupo: 'LIGA' },
-  { s: 'draft', label: 'Draft', icon: 'draft', grupo: 'LIGA' },
-  { s: 'stats-teams', label: 'Ranking Times', icon: 'standings', grupo: 'RANKINGS' },
-  { s: 'stats-off', label: 'Ofensiva', icon: 'tactics', grupo: 'RANKINGS' },
-  { s: 'stats-def', label: 'Defensiva', icon: 'shield', grupo: 'RANKINGS' },
-  { s: 'stats-st', label: 'Special Teams', icon: 'whistle', grupo: 'RANKINGS' },
+  { s: 'offseason', label: 'Offseason', glyph: Icons.offseason, grupo: 'CLUBE' },
+  { s: 'elenco', label: 'Elenco', glyph: Icons.roster, grupo: 'CLUBE' },
+  { s: 'taticas', label: 'Táticas & Treino', glyph: Icons.tactics, grupo: 'CLUBE' },
+  { s: 'dm', label: 'Depto. Médico', glyph: Icons.medical, grupo: 'CLUBE' },
+  { s: 'negociacoes', label: 'Contratos', glyph: Icons.contract, grupo: 'CLUBE' },
+  { s: 'trades', label: 'Trades', glyph: Icons.trade, grupo: 'CLUBE' },
+  { s: 'financas', label: 'Finanças', glyph: Icons.money, grupo: 'CLUBE' },
+  { s: 'calendario', label: 'Calendário', glyph: Icons.calendar, grupo: 'LIGA' },
+  { s: 'calendario-liga', label: 'Semana da Liga', glyph: Icons.grid, grupo: 'LIGA' },
+  { s: 'classificacao', label: 'Classificação', glyph: Icons.standings, grupo: 'LIGA' },
+  { s: 'probowl', label: 'Pro Bowl', glyph: Icons.trophy, grupo: 'LIGA' },
+  { s: 'hall-of-fame', label: 'Hall of Fame', glyph: Icons.trophy, grupo: 'LIGA' },
+  { s: 'rivalidades', label: 'Rivalidades', glyph: Icons.trophy, grupo: 'LIGA' },
+  { s: 'elencos-liga', label: 'Elencos da Liga', glyph: Icons.roster, grupo: 'LIGA' },
+  { s: 'comparador', label: 'Comparador H2H', glyph: Icons.standings, grupo: 'LIGA' },
+  { s: 'power-rankings', label: 'Power Rankings', glyph: Icons.standings, grupo: 'LIGA' },
+  { s: 'storylines', label: 'Narrativas da Temporada', glyph: Icons.grid, grupo: 'LIGA' },
+  { s: 'scouting', label: 'Scouting', glyph: Icons.scout, grupo: 'LIGA' },
+  { s: 'draft', label: 'Draft', glyph: Icons.draft, grupo: 'LIGA' },
+  { s: 'stats-teams', label: 'Ranking Times', glyph: Icons.standings, grupo: 'RANKINGS' },
+  { s: 'stats-off', label: 'Ofensiva', glyph: Icons.tactics, grupo: 'RANKINGS' },
+  { s: 'stats-def', label: 'Defensiva', glyph: Icons.shield, grupo: 'RANKINGS' },
+  { s: 'stats-st', label: 'Special Teams', glyph: Icons.whistle, grupo: 'RANKINGS' },
 ];
 
 const FASE_LABEL: Record<string, string> = {
@@ -161,7 +161,7 @@ function Sidebar() {
                 className={`nav-item ${st.screen === n.s ? 'on' : ''}`}
                 onClick={() => dispatch({ type: 'SCREEN', screen: n.s })}
               >
-                <span className="shrink-0 opacity-90">{Icons[n.icon]}</span>
+                <span className="flex shrink-0 items-center opacity-90">{n.glyph}</span>
                 <span className="truncate">{n.label}</span>
                 {unread > 0 && (
                   <span
