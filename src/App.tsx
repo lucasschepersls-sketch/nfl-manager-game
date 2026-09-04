@@ -16,6 +16,7 @@ import { OffseasonScreen } from './screens/Offseason';
 import { ScoutingScreen } from './screens/Scouting';
 import { NegotiationsScreen } from './screens/Negotiations';
 import { TradesScreen } from './screens/Trades';
+import { StandingsScreen } from './screens/Standings';
 import { WeekLeagueScreen } from './screens/WeekLeague';
 import { ProBowlScreen } from './screens/ProBowl';
 import { HallOfFameScreen } from './screens/HallOfFame';
