@@ -1,4 +1,12 @@
-*
+/* ============================================================
+ * 🏆 Sistema oficial de classificação da NFL — DUAS CAMADAS.
+ *
+ * CAMADA 1 (SEMPRE): Win Percentage é o critério PRIMÁRIO.
+ *   Times com campanhas diferentes NUNCA precisam de desempate.
+ * CAMADA 2 (SÓ EM EMPATE): a cascata de critérios só é aplicada
+ *   entre times com EXATAMENTE o mesmo Win Percentage.
+ *
+ *
  * Divisão: 15 critérios sequenciais · Conferência: 10 critérios.
  * Regra de ouro: campeões de divisão SEMPRE à frente de wild cards.
  *  - Strength of Victory / Strength of Schedule recalculados a cada leitura
