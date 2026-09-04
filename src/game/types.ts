@@ -15,7 +15,7 @@ export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'calendario' | 'classificacao'
   | 'mercado' | 'draft' | 'financas' | 'dm' | 'partida' | 'scouting'
   | 'offseason' | 'staff' | 'negociacoes' | 'trades' | 'calendario-liga'
-  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st' | 'probowl' | 'hall-of-fame' | 'rivalidades' | 'elencos-liga' | 'comparador' | 'power-rankings' | 'storylines';
+  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st' | 'probowl' | 'hall-of-fame' | 'rivalidades' | 'elencos-liga' | 'comparador' | 'power-rankings' | 'storylines' | 'inbox' | 'jobs';
 
 export type StatsTab = 'teams' | 'off' | 'def' | 'st';
 
@@ -310,6 +310,70 @@ export interface LeagueSettings {
 }
 
 export interface NewsItem { id: number; rotulo: string; texto: string; }
+
+/* ================= Sistema de Mensagens / Inbox ================= */
+export type MessageCategory =
+  | 'training' | 'front_office' | 'pro_bowl' | 'super_bowl' | 'trade'
+  | 'injury' | 'media' | 'scouting' | 'agent' | 'contract' | 'job';
+export type MessagePriority = 'urgent' | 'normal' | 'low';
+
+/** Ação disponível dentro de uma mensagem. */
+export interface MessageAction {
+  id: string;
+  label: string;
+  kind: 'goto' | 'apply_job' | 'dismiss';
+  screen?: Screen;
+  jobId?: number;
+}
+
+export interface Message {
+  id: number;
+  season: number;
+  week: number;
+  category: MessageCategory;
+  priority: MessagePriority;
+  isRead: boolean;
+  isArchived: boolean;
+  isStarred: boolean;
+  sender: string;
+  senderIcon: string;
+  subject: string;
+  body: string;
+  dataPayload?: Record<string, unknown>;
+  availableActions?: MessageAction[];
+  createdAt: number;   // timestamp (ordenação)
+  readAt?: number;
+}
+
+export interface CoachPerformance {
+  season: number;
+  week: number;
+  winPctScore: number;        // 0-100
+  playoffProgressScore: number;
+  playerDevelopmentScore: number;
+  capManagementScore: number;
+  mediaRelationsScore: number;
+  overallRating: number;      // média ponderada
+  isFired: boolean;
+  fireReason?: string;
+}
+
+export interface JobOpening {
+  id: number;
+  season: number;
+  week: number;
+  teamId: string;
+  reason: string;             // 'fired_coach' | 'contract_ended' | 'promotion'
+  teamQuality: 'contender' | 'playoff_team' | 'rebuilding' | 'disaster';
+  rosterQuality: 'elite' | 'good' | 'average' | 'poor';
+  capSpace: number;
+  draftPicks: number[];       // rodadas disponíveis
+  expectations: 'win_now' | 'develop_young_players' | 'rebuild';
+  pressureLevel: number;      // 1-10
+  isFilled: boolean;
+  filledByUser: boolean;
+}
+
 export interface HallOfFameEntry {
   playerId: string;
   nome: string;
@@ -450,4 +514,8 @@ export interface GameState {
   powerRankings: PowerRankingSnapshot[];
   probowl: ProBowlState;               // votação semanal do Pro Bowl
   trainingState: TrainingCenterState;  // estado do centro de treinamento
+  messages: Message[];                 // caixa de entrada centralizada
+  coachHistory: CoachPerformance[];    // avaliações semanais do técnico
+  jobOpenings: JobOpening[];           // vagas de técnico abertas
+  coachFired: boolean;                 // usuário foi demitido (aguardando recolocação)
 }
