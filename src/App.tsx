@@ -169,7 +169,6 @@ function Content() {
     case 'financas': return <FinanceScreen />;
     case 'calendario': return <ScheduleScreen />;
     case 'calendario-liga': return <WeekLeagueScreen />;
-    case 'classificacao': return <StandingsScreen />;
     case 'probowl': return <ProBowlScreen />;
     case 'hall-of-fame': return <HallOfFameScreen />;
     case 'rivalidades': return <RivalriesScreen />;
