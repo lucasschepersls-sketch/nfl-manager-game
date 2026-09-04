@@ -184,6 +184,7 @@ function Content() {
     case 'stats-off': return <StatsScreen tab="off" />;
     case 'stats-def': return <StatsScreen tab="def" />;
     case 'stats-st': return <StatsScreen tab="st" />;
+    case 'classificacao': return <StandingsScreen />;
     default: return <ClubHomeScreen />;
   }
 }
