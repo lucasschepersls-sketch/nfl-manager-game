@@ -16,7 +16,9 @@ import { OffseasonScreen } from './screens/Offseason';
 import { ScoutingScreen } from './screens/Scouting';
 import { NegotiationsScreen } from './screens/Negotiations';
 import { TradesScreen } from './screens/Trades';
+import { InboxScreen, JobsScreen } from './screens/Inbox';
 import { StandingsScreen } from './screens/Standings';
+import { unreadCount } from './game/messaging';
 import { WeekLeagueScreen } from './screens/WeekLeague';
 import { ProBowlScreen } from './screens/ProBowl';
 import { HallOfFameScreen } from './screens/HallOfFame';
@@ -24,6 +26,8 @@ import { HallOfFameScreen } from './screens/HallOfFame';
 /* ---------- navegação ---------- */
 const NAV: { s: Screen; label: string; icon: keyof typeof Icons; grupo: string }[] = [
   { s: 'home', label: 'Visão Geral', icon: 'home', grupo: 'CLUBE' },
+  { s: 'inbox', label: 'Mensagens', glyph: '📧', grupo: 'CLUBE' },
+  { s: 'jobs', label: 'Carreira', glyph: '💼', grupo: 'CLUBE' },
   { s: 'offseason', label: 'Offseason', icon: 'offseason', grupo: 'CLUBE' },
   { s: 'elenco', label: 'Elenco', icon: 'roster', grupo: 'CLUBE' },
   { s: 'taticas', label: 'Táticas & Treino', icon: 'tactics', grupo: 'CLUBE' },
@@ -185,6 +189,8 @@ function Content() {
     case 'stats-def': return <StatsScreen tab="def" />;
     case 'stats-st': return <StatsScreen tab="st" />;
     case 'classificacao': return <StandingsScreen />;
+    case 'inbox': return <InboxScreen />;
+    case 'jobs': return <JobsScreen />;
     default: return <ClubHomeScreen />;
   }
 }
