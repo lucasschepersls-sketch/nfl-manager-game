@@ -1,8 +1,23 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { GameProvider, useGame, loadSave } from './state/store';
 import type { Screen } from './game/types';
 import { TEAMS_DEF, DIV_NAMES, CONF_LABEL } from './game/data';
 import { Panel, TeamCrest, Bar } from './components/ui';
+
+/* ---------- ícones SVG desenhados (envelope e maleta) ---------- */
+const InboxIcon = (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 8 L12 13 L21 8" />
+  </svg>
+);
+const JobsIcon = (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="3" y="8" width="18" height="12" rx="2" />
+    <path d="M8 8 V6 a2 2 0 0 1 2-2 h4 a2 2 0 0 1 2 2 v2" />
+    <path d="M3 13 h18" />
+  </svg>
+);
 import { ClubHomeScreen } from './screens/Club';
 import { TradesScreen } from './screens/Trades';
 import { InboxScreen, JobsScreen } from './screens/Inbox';
@@ -10,10 +25,10 @@ import { StandingsScreen } from './screens/Standings';
 import { unreadCount } from './game/messaging';
 
 /* ============ navegação lateral ============ */
-const NAV: { s: Screen; label: string; glyph: string; grupo: string }[] = [
+const NAV: { s: Screen; label: string; glyph: ReactNode; grupo: string }[] = [
   { s: 'home', label: 'Visão Geral', glyph: '🏈', grupo: 'CLUBE' },
-  { s: 'inbox', label: 'Mensagens', glyph: '📧', grupo: 'CLUBE' },
-  { s: 'jobs', label: 'Carreira', glyph: '💼', grupo: 'CLUBE' },
+  { s: 'inbox', label: 'Mensagens', glyph: InboxIcon, grupo: 'CLUBE' },
+  { s: 'jobs', label: 'Carreira', glyph: JobsIcon, grupo: 'CLUBE' },
   { s: 'elenco', label: 'Elenco', glyph: '👥', grupo: 'CLUBE' },
   { s: 'taticas', label: 'Táticas & Treino', glyph: '📋', grupo: 'CLUBE' },
   { s: 'dm', label: 'Depto. Médico', glyph: '⚕️', grupo: 'CLUBE' },
@@ -221,6 +236,9 @@ function Shell() {
                 <div className="mb-1 px-2 font-mono text-[9.5px] uppercase tracking-[0.25em] text-faint">{gr}</div>
                 {NAV.filter(n => n.grupo === gr).map(n => {
                   const on = st.screen === n.s;
+                  const unread = n.s === 'inbox' && st.game
+                    ? st.game.messages.filter(m => !m.isRead && !m.isArchived).length
+                    : 0;
                   return (
                     <button
                       key={n.s}
@@ -232,8 +250,16 @@ function Shell() {
                         background: on ? 'linear-gradient(90deg, rgba(240,180,41,0.10), transparent)' : undefined,
                       }}
                     >
-                      <span>{n.glyph}</span>
+                      <span className="flex items-center">{n.glyph}</span>
                       <span>{n.label}</span>
+                      {unread > 0 && (
+                        <span
+                          className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-blood px-1 font-mono text-[10px] font-bold text-white"
+                          title={`${unread} mensagem(ns) não lida(s)`}
+                        >
+                          {unread > 99 ? '99+' : unread}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
