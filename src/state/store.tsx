@@ -78,7 +78,16 @@ export function loadSave(): GameState | null {
           cnt.set(m.casa, (cnt.get(m.casa) ?? 0) + 1);
           cnt.set(m.fora, (cnt.get(m.fora) ?? 0) + 1);
         }
-        if (s.teams.some(t => (cnt.get(t.id) ?? 0) !== 17)) {
+        // detecta time jogando 2x na mesma semana (bug antigo de agendamento)
+        const perWeek = new Map<number, Set<string>>();
+        let weekConflict = false;
+        for (const m of s.matches) if (m.fase === 'REG') {
+          const set = perWeek.get(m.rodada) ?? new Set<string>();
+          if (set.has(m.casa) || set.has(m.fora)) { weekConflict = true; break; }
+          set.add(m.casa); set.add(m.fora);
+          perWeek.set(m.rodada, set);
+        }
+        if (weekConflict || s.teams.some(t => (cnt.get(t.id) ?? 0) !== 17)) {
           const rng = new Rng(newSeed());
           const ranks: RankMap = new Map();
           for (const conf of ['AFC', 'NFC'] as const) {
