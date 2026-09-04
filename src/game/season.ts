@@ -484,6 +484,12 @@ export interface TableRow {
   winPct?: number; divPct?: number; confPct?: number;
   sov?: number; sos?: number;
   tiebreakNote?: string | null;
+  tiebreakKey?: string;   // chave curta do critério de desempate (H2H, DIV, SOV…)
+  gamesBehind?: number;   // jogos atrás do líder
+  tiedAbove?: boolean;    // mesma campanha do time de cima
+  divRec?: string;        // recorde dentro da divisão "4-2"
+  isChamp?: boolean;
+  seed?: number | null;
 }
 export type { TeamStanding };
 export { computeFullStandings, rankDivisionTb, conferenceOrder, generatePlayoffBracket };
@@ -515,7 +521,29 @@ export function divisionTable(s: GameState, conf: Conf, div: number): TableRow[]
     return {
       ...b,
       winPct: t.winPct, divPct: t.divPct, confPct: t.confPct,
-      sov: t.sov, sos: t.sos, tiebreakNote: t.tiebreakNote,
+      sov: t.sov, sos: t.sos,
+      tiebreakNote: t.tiebreakNote, tiebreakKey: t.tiebreakKey,
+      gamesBehind: t.gamesBehind, tiedAbove: t.tiedAbove,
+      divRec: `${t.divWins}-${t.divLosses}${t.divTies ? `-${t.divTies}` : ''}`,
+      isChamp: t.isDivisionChampion,
+    };
+  });
+}
+
+/** Conferência inteira ordenada (campeões 1–4 + wild cards 5–7 + bolha), com GB e desempates. */
+export function conferenceTable(s: GameState, conf: Conf): TableRow[] {
+  const ordered = conferenceOrder(s, conf);
+  const base = new Map(standings(s).map(r => [r.teamId, r]));
+  return ordered.map(t => {
+    const b = base.get(t.teamId)!;
+    return {
+      ...b,
+      winPct: t.winPct, divPct: t.divPct, confPct: t.confPct,
+      sov: t.sov, sos: t.sos,
+      tiebreakNote: t.tiebreakNote, tiebreakKey: t.tiebreakKey,
+      gamesBehind: t.gamesBehind, tiedAbove: t.tiedAbove,
+      divRec: `${t.divWins}-${t.divLosses}${t.divTies ? `-${t.divTies}` : ''}`,
+      isChamp: t.isDivisionChampion, seed: t.playoffSeed,
     };
   });
 }
