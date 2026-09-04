@@ -32,6 +32,13 @@ export const playersOf = (s: GameState, teamId: string): Player[] => s.players.f
 export const staffOf = (s: GameState, teamId: string): Staff[] => s.staff.filter(st => st.teamId === teamId);
 export const fmtM = (v: number) => `$${v.toFixed(1).replace('.', ',')}M`;
 
+/**
+ * 🏈 Campanha no formato oficial W-L-T (vitória-derrota-empate).
+ * O empate (T) só aparece quando houver ao menos 1, ex.: `11-6` ou `11-6-2`.
+ */
+export const fmtRecord = (v: number, d: number, e: number): string =>
+  e > 0 ? `${v}-${d}-${e}` : `${v}-${d}`;
+
 /** Cap hit atual: contrato estruturado (ano 1) ou salário simples. */
 export const capHitOf = (p: Player) =>
   p.contract && p.contract.capHits.length ? p.contract.capHits[0] : p.salario;
