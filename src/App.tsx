@@ -236,9 +236,11 @@ function Shell() {
                 <div className="mb-1 px-2 font-mono text-[9.5px] uppercase tracking-[0.25em] text-faint">{gr}</div>
                 {NAV.filter(n => n.grupo === gr).map(n => {
                   const on = st.screen === n.s;
-                  const unread = n.s === 'inbox' && st.game
-                    ? st.game.messages.filter(m => !m.isRead && !m.isArchived).length
-                    : 0;
+                  const unreadMsgs = n.s === 'inbox' && st.game
+                    ? st.game.messages.filter(m => !m.isRead && !m.isArchived)
+                    : [];
+                  const unread = unreadMsgs.length;
+                  const urgentUnread = unreadMsgs.filter(m => m.priority === 'urgent').length;
                   return (
                     <button
                       key={n.s}
@@ -254,8 +256,13 @@ function Shell() {
                       <span>{n.label}</span>
                       {unread > 0 && (
                         <span
-                          className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-blood px-1 font-mono text-[10px] font-bold text-white"
-                          title={`${unread} mensagem(ns) não lida(s)`}
+                          className={[
+                            'ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-mono text-[10px] font-bold',
+                            urgentUnread > 0 ? 'animate-pulse bg-blood text-white' : 'bg-gold text-pitcho',
+                          ].join(' ')}
+                          title={urgentUnread > 0
+                            ? `${urgentUnread} URGENTE(S) · ${unread} não lida(s)`
+                            : `${unread} mensagem(ns) não lida(s)`}
                         >
                           {unread > 99 ? '99+' : unread}
                         </span>
