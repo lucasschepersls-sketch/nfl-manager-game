@@ -3,7 +3,7 @@
  * diretoria, demissão/recolocação e resultados Pro Bowl/Super Bowl.
  * ============================================================ */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '../state/store';
 import { teamById, fmtM } from '../game/season';
 import { CATEGORY_META, PRIORITY_META, unreadByCategory } from '../game/messaging';
@@ -96,6 +96,13 @@ export function InboxScreen() {
   }, [g.messages, cat, showArchived]);
 
   const selected = filtered.find(m => m.id === selectedId) ?? filtered[0] ?? null;
+  
+  // marca como lida automaticamente quando a mensagem é exibida no painel
+  // (resolve o caso da primeira mensagem auto-selecionada nunca ser marcada)
+  useEffect(() => {
+    if (selected && !selected.isRead) dispatch({ type: 'MSG_READ', id: selected.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, selected?.isRead]);
 
   const open = (m: Message) => {
     setSelectedId(m.id);
