@@ -1,11 +1,4 @@
-/* ============================================================
- * 🏆 Sistema oficial de classificação da NFL — DUAS CAMADAS.
- *
- * CAMADA 1 (SEMPRE): Win Percentage é o critério PRIMÁRIO.
- *   Times com campanhas diferentes NUNCA precisam de desempate.
- * CAMADA 2 (SÓ EM EMPATE): a cascata de critérios só é aplicada
- *   entre times com EXATAMENTE o mesmo Win Percentage.
- *
+*
  * Divisão: 15 critérios sequenciais · Conferência: 10 critérios.
  * Regra de ouro: campeões de divisão SEMPRE à frente de wild cards.
  *  - Strength of Victory / Strength of Schedule recalculados a cada leitura
@@ -21,8 +14,8 @@ export interface TeamStanding {
   gamesBehind: number;      // jogos atrás do líder (passos de 0.5)
   divWins: number; divLosses: number; divTies: number; divPct: number;
   confWins: number; confLosses: number; confTies: number; confPct: number;
-  sov: 'Strength of Victory (campanha dos times que venceu)',
-  sos: 'Strength of Schedule (campanha dos times que enfrentou)',
+  sov: number;
+  sos: number;
   pf: number; pa: number; net: number;
   confPf: number; confPa: number; confNet: number;
   oppNet: number;   // soma do saldo de todos os adversários
@@ -31,8 +24,8 @@ export interface TeamStanding {
   playoffSeed: number | null;
   isDivisionChampion: boolean;
   isPlayoffTeam: boolean;
-  tiebreakKey: string;      // chave do critério que quebrou o empate ('' = sem empate)
-  tiebreakNote: string;     // rótulo legível do critério
+  tiebreakKey: string;      // chave curta do critério ('' = sem desempate)
+  tiebreakNote: string | null;  // rótulo legível do critério
   tiedAbove: boolean;       // mesma campanha do time imediatamente acima
 }
 
@@ -52,7 +45,12 @@ const pctOf = (w: number, l: number, t: number) => {
   return g === 0 ? 0 : (w + 0.5 * t) / g;
 };
 /** formato NFL: .750 */
-export const fmtPct = (p: number) => p.toFixed(3).replace(/^0+/, '');
+export const fmtPct = (p: number) => (p >= 1 ? '1.000' : p.toFixed(3).replace(/^0/, ''));
+/** Games behind no formato NFL: "—" para o líder, senão "2.0" / "0.5". */
+export const fmtGB = (gb: number) => (gb <= 0 ? '—' : (Math.round(gb * 10) / 10).toFixed(1));
+/** Win % no formato NFL: ".647" (sem o zero à esquerda). Alias p/ compat. */
+export const fmtWinPct = fmtPct;
+
 const hashIds = (s: string) => { let h = 7; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 
 function regGames(s: GameState): GameRow[] {
@@ -71,12 +69,12 @@ export function computeStandings(s: GameState): Map<string, TeamStanding> {
   const st = new Map<string, TeamStanding>();
   for (const t of s.teams) {
     st.set(t.id, {
-      teamId: t.id, wins: 0, losses: 0, ties: 0, winPct: 0,
+      teamId: t.id, wins: 0, losses: 0, ties: 0, winPct: 0, gamesBehind: 0,
       divWins: 0, divLosses: 0, divTies: 0, divPct: 0,
       confWins: 0, confLosses: 0, confTies: 0, confPct: 0,
       sov: 0, sos: 0, pf: 0, pa: 0, net: 0, confPf: 0, confPa: 0, confNet: 0, oppNet: 0,
       divRank: 0, confRank: 0, playoffSeed: null,
-      isDivisionChampion: false, isPlayoffTeam: false, tiebreakNote: null,
+      isDivisionChampion: false, isPlayoffTeam: false, tiebreakKey: '', tiebreakNote: null, tiedAbove: false,
     });
   }
 
@@ -140,38 +138,38 @@ type Crit =
   | { kind: 'h2h' }
   | { kind: 'common' }
   | { kind: 'coin' }
-  | { kind: 'num'; label: string; get: (t: TeamStanding) => number; lower?: boolean };
+  | { kind: 'num'; key: string; label: string; get: (t: TeamStanding) => number; lower?: boolean };
 
 /** 15 tiebreakers oficiais de DIVISÃO. */
 export const DIVISION_CRITERIA: Crit[] = [
   { kind: 'h2h' },
-  { kind: 'num', label: '% de vitórias na divisão', get: t => t.divPct },
+  { kind: 'num', key: 'div', label: '% de vitórias na divisão', get: t => t.divPct },
   { kind: 'common' },
-  { kind: 'num', label: '% de vitórias na conferência', get: t => t.confPct },
-  { kind: 'num', label: 'Strength of Victory', get: t => t.sov },
-  { kind: 'num', label: 'Strength of Schedule', get: t => t.sos },
-  { kind: 'num', label: 'saldo de pontos na conferência', get: t => t.confNet },
-  { kind: 'num', label: 'pontos marcados na conferência', get: t => t.confPf },
-  { kind: 'num', label: 'pontos sofridos na conferência', get: t => t.confPa, lower: true },
-  { kind: 'num', label: 'saldo de pontos na liga', get: t => t.net },
-  { kind: 'num', label: 'pontos marcados na liga', get: t => t.pf },
-  { kind: 'num', label: 'pontos sofridos na liga', get: t => t.pa, lower: true },
-  { kind: 'num', label: 'saldo de pontos (net)', get: t => t.net },
-  { kind: 'num', label: 'saldo de todos os adversários', get: t => t.oppNet },
+  { kind: 'num', key: 'conf', label: '% de vitórias na conferência', get: t => t.confPct },
+  { kind: 'num', key: 'sov', label: 'Strength of Victory', get: t => t.sov },
+  { kind: 'num', key: 'sos', label: 'Strength of Schedule', get: t => t.sos },
+  { kind: 'num', key: 'confPtsRank', label: 'saldo de pontos na conferência', get: t => t.confNet },
+  { kind: 'num', key: 'confPtsFor', label: 'pontos marcados na conferência', get: t => t.confPf },
+  { kind: 'num', key: 'confPtsAgainst', label: 'pontos sofridos na conferência', get: t => t.confPa, lower: true },
+  { kind: 'num', key: 'leaguePtsRank', label: 'saldo de pontos na liga', get: t => t.net },
+  { kind: 'num', key: 'ptsFor', label: 'pontos marcados na liga', get: t => t.pf },
+  { kind: 'num', key: 'ptsAgainst', label: 'pontos sofridos na liga', get: t => t.pa, lower: true },
+  { kind: 'num', key: 'net', label: 'net points na liga', get: t => t.net },
+  { kind: 'num', key: 'oppNet', label: 'saldo de todos os adversários', get: t => t.oppNet },
   { kind: 'coin' },
 ];
 
 /** 10 tiebreakers oficiais de CONFERÊNCIA (wild cards). */
 export const CONFERENCE_CRITERIA: Crit[] = [
   { kind: 'h2h' },
-  { kind: 'num', label: '% de vitórias na conferência', get: t => t.confPct },
+  { kind: 'num', key: 'conf', label: '% de vitórias na conferência', get: t => t.confPct },
   { kind: 'common' },
-  { kind: 'num', label: 'Strength of Victory', get: t => t.sov },
-  { kind: 'num', label: 'Strength of Schedule', get: t => t.sos },
-  { kind: 'num', label: 'saldo de pontos na conferência', get: t => t.confNet },
-  { kind: 'num', label: 'pontos marcados na conferência', get: t => t.confPf },
-  { kind: 'num', label: 'pontos sofridos na conferência', get: t => t.confPa, lower: true },
-  { kind: 'num', label: 'saldo de pontos na liga', get: t => t.net },
+  { kind: 'num', key: 'sov', label: 'Strength of Victory', get: t => t.sov },
+  { kind: 'num', key: 'sos', label: 'Strength of Schedule', get: t => t.sos },
+  { kind: 'num', key: 'confPtsRank', label: 'saldo de pontos na conferência', get: t => t.confNet },
+  { kind: 'num', key: 'confPtsFor', label: 'pontos marcados na conferência', get: t => t.confPf },
+  { kind: 'num', key: 'confPtsAgainst', label: 'pontos sofridos na conferência', get: t => t.confPa, lower: true },
+  { kind: 'num', key: 'net', label: 'net points na liga', get: t => t.net },
   { kind: 'coin' },
 ];
 
@@ -217,26 +215,45 @@ function groupCommon(group: TeamStanding[], ctx: Ctx): Map<string, number> | nul
 const coinOrder = (group: TeamStanding[]) =>
   [...group].sort((a, b) => hashIds(a.teamId) - hashIds(b.teamId));
 
+/** Resolve o critério p/ anotar no time (chave curta + nota legível). */
+function critVals(c: Crit, remaining: TeamStanding[], ctx: Ctx): Map<string, number> | null {
+  if (c.kind === 'h2h') return groupH2H(remaining, ctx);
+  if (c.kind === 'common') return groupCommon(remaining, ctx);
+  if (c.kind === 'coin') return null;
+  return new Map(remaining.map(t => [t.teamId, c.get(t)]));
+}
+function critKey(c: Crit): string {
+  if (c.kind === 'h2h') return 'h2h';
+  if (c.kind === 'common') return 'common';
+  if (c.kind === 'coin') return 'coin';
+  return c.key;
+}
+function critLabel(c: Crit): string {
+  if (c.kind === 'h2h') return 'confronto direto (head-to-head)';
+  if (c.kind === 'common') return 'adversários comuns (mín. 4 jogos)';
+  if (c.kind === 'coin') return 'sorteio (cara ou coroa)';
+  return c.label;
+}
+
 /**
  * Ordena um grupo aplicando os critérios EM CASCATA (regra NFL): a cada
  * critério, quem é o melhor isolado avança; quem é o pior isolado cai para o
  * fim; e os critérios RECOMEÇAM do 1º para o subgrupo restante.
+ * A campanha (winPct) é a chave primária — só times empatados chegam aqui.
  */
 function rankGroup(group: TeamStanding[], crits: Crit[], ctx: Ctx): TeamStanding[] {
   if (group.length <= 1) return [...group];
   const front: TeamStanding[] = [];
   const back: TeamStanding[] = [];
   let remaining = [...group];
+  let lastSplitCrit: Crit | null = null;
 
   while (remaining.length > 1) {
     let split = false;
     for (const c of crits) {
       if (c.kind === 'coin') break;
-      const vals = c.kind === 'h2h' ? groupH2H(remaining, ctx)
-        : c.kind === 'common' ? groupCommon(remaining, ctx)
-          : new Map(remaining.map(t => [t.teamId, c.get(t)]));
+      const vals = critVals(c, remaining, ctx);
       if (!vals) continue;
-      const lower = c.kind === 'num' && c.lower;
       let bestV = -Infinity, worstV = Infinity;
       for (const t of remaining) {
         const v = vals.get(t.teamId)!;
@@ -245,55 +262,41 @@ function rankGroup(group: TeamStanding[], crits: Crit[], ctx: Ctx): TeamStanding
       if (bestV === worstV) continue; // não separa
       const best = remaining.filter(t => vals.get(t.teamId) === bestV);
       const worst = remaining.filter(t => vals.get(t.teamId) === worstV);
-      if (best.length === 1) { front.push(best[0]); remaining = remaining.filter(t => t !== best[0]); split = true; break; }
-      if (worst.length === 1) { back.unshift(worst[0]); remaining = remaining.filter(t => t !== worst[0]); split = true; break; }
-      void lower;
+      if (best.length === 1) {
+        best[0].tiedAbove = remaining.length > 1;
+        best[0].tiebreakKey = critKey(c); best[0].tiebreakNote = critLabel(c);
+        front.push(best[0]); remaining = remaining.filter(t => t !== best[0]);
+        lastSplitCrit = c; split = true; break;
+      }
+      if (worst.length === 1) {
+        worst[0].tiedAbove = true;
+        worst[0].tiebreakKey = critKey(c); worst[0].tiebreakNote = critLabel(c);
+        back.unshift(worst[0]); remaining = remaining.filter(t => t !== worst[0]);
+        lastSplitCrit = c; split = true; break;
+      }
     }
     if (!split) {
       const order = coinOrder(remaining);
-      order.forEach((t, i) => { if (i > 0) t.tiebreakNote = 'Desempate por sorteio (cara ou coroa)'; });
+      order.forEach((t, i) => {
+        if (i > 0) { t.tiedAbove = true; t.tiebreakKey = 'coin'; t.tiebreakNote = 'sorteio (cara ou coroa)'; }
+      });
       return [...front, ...order, ...back];
     }
   }
-  if (remaining.length === 1) front.push(remaining[0]);
+  if (remaining.length === 1) {
+    remaining[0].tiedAbove = front.length > 0 || back.length > 0 || lastSplitCrit != null;
+    front.push(remaining[0]);
+  }
   return [...front, ...back];
 }
 
-/* ---------- decisivo entre dois times (para o tooltip) ---------- */
-export function decisiveBetween(a: TeamStanding, b: TeamStanding, ctx: Ctx, crits: Crit[]): string {
-  for (const c of crits) {
-    if (c.kind === 'coin') return 'sorteio (cara ou coroa)';
-    if (c.kind === 'h2h') {
-      const direct = ctx.games.filter(g =>
-        (g.casa === a.teamId && g.fora === b.teamId) || (g.casa === b.teamId && g.fora === a.teamId));
-      if (!direct.length) continue;
-      const rec = (id: string) => {
-        let w = 0, l = 0, t = 0;
-        for (const g of direct) {
-          if (g.casa === id) { if (g.pc > g.pf) w++; else if (g.pc < g.pf) l++; else t++; }
-          else { if (g.pf > g.pc) w++; else if (g.pf < g.pc) l++; else t++; }
-        }
-        return pctOf(w, l, t);
-      };
-      const va = rec(a.teamId); const vb = rec(b.teamId);
-      if (va !== vb) return `confronto direto (${fmtPct(va)} × ${fmtPct(vb)})`;
-      continue;
-    }
-    if (c.kind === 'common') {
-      const vals = groupCommon([a, b], ctx);
-      if (!vals) continue;
-      const va = vals.get(a.teamId)!; const vb = vals.get(b.teamId)!;
-      if (va !== vb) return `adversários comuns (${fmtPct(va)} × ${fmtPct(vb)})`;
-      continue;
-    }
-    const va = c.get(a); const vb = c.get(b);
-    if (va !== vb) {
-      const fmt = (v: number) => (c.label.startsWith('%') || c.label === 'Strength of Victory' || c.label === 'Strength of Schedule')
-        ? fmtPct(v) : String(v);
-      return `${c.label} (${fmt(va)} × ${fmt(vb)})`;
-    }
+/* ---------- Games Behind em relação ao líder do grupo ---------- */
+function applyGamesBehind(ordered: TeamStanding[]): void {
+  const leader = ordered[0];
+  if (!leader) return;
+  for (const r of ordered) {
+    r.gamesBehind = Math.max(0, ((leader.wins - r.wins) + (r.losses - leader.losses)) / 2);
   }
-  return 'sorteio (cara ou coroa)';
 }
 
 /* ---------- ranking de DIVISÃO (1º ao 4º) ---------- */
@@ -302,17 +305,11 @@ export function rankDivision(s: GameState, conf: Conf, div: number, stMap?: Map<
   const ctx: Ctx = { games: regGames(s), perOpp: id => perOppOf(s, id) };
   const group = s.teams.filter(t => t.conf === conf && t.div === div).map(t => st.get(t.id)!);
   const ordered = rankGroup(group, DIVISION_CRITERIA, ctx);
-  // notas de desempate entre vizinhos
-  for (let i = 1; i < ordered.length; i++) {
-    const above = ordered[i - 1]; const below = ordered[i];
-    const sigAbove = s.teams.find(t => t.id === above.teamId)!.sigla;
-    below.tiebreakNote = below.tiebreakNote
-      ?? `Atrás de ${sigAbove}: ${decisiveBetween(above, below, ctx, DIVISION_CRITERIA)}`;
-  }
   ordered.forEach((t, i) => {
     t.divRank = i + 1;
     t.isDivisionChampion = i === 0;
   });
+  applyGamesBehind(ordered);
   return ordered;
 }
 
@@ -334,12 +331,6 @@ export function conferenceOrder(s: GameState, conf: Conf, stMap?: Map<string, Te
     t.confRank = i + 1;
     t.isPlayoffTeam = true;
   });
-  for (let i = 1; i < champsRanked.length; i++) {
-    const above = champsRanked[i - 1]; const below = champsRanked[i];
-    const sigAbove = s.teams.find(t => t.id === above.teamId)!.sigla;
-    below.tiebreakNote = below.tiebreakNote
-      ?? `Seed atrás de ${sigAbove}: ${decisiveBetween(above, below, ctx, CONFERENCE_CRITERIA)}`;
-  }
 
   // 3) os 12 restantes → wild cards 5–7 (critérios de conferência)
   const champIds = new Set(champs.map(c => c.teamId));
@@ -349,20 +340,10 @@ export function conferenceOrder(s: GameState, conf: Conf, stMap?: Map<string, Te
     t.confRank = 5 + i;
     if (i < 3) { t.playoffSeed = 5 + i; t.isPlayoffTeam = true; }
   });
-  for (let i = 1; i < restRanked.length; i++) {
-    const above = restRanked[i - 1]; const below = restRanked[i];
-    const sigAbove = s.teams.find(t => t.id === above.teamId)!.sigla;
-    if (i < 3) {
-      below.tiebreakNote = below.tiebreakNote
-        ?? `Wild card atrás de ${sigAbove}: ${decisiveBetween(above, below, ctx, CONFERENCE_CRITERIA)}`;
-    } else if (i === 3) {
-      const sigLast = s.teams.find(t => t.id === restRanked[2].teamId)!.sigla;
-      below.tiebreakNote = below.tiebreakNote
-        ?? `Fora do G7 — perde para ${sigLast}: ${decisiveBetween(restRanked[2], below, ctx, CONFERENCE_CRITERIA)}`;
-    }
-  }
 
-  return [...champsRanked, ...restRanked];
+  const all = [...champsRanked, ...restRanked];
+  applyGamesBehind(all); // GB em relação ao seed #1
+  return all;
 }
 
 /* ---------- chave dos playoffs (matchups do Wild Card) ---------- */
@@ -393,7 +374,7 @@ export const DIVISION_CRITERIA_LABELS = [
   'Saldo de pontos na liga',
   'Pontos marcados na liga',
   'Pontos sofridos na liga',
-  'Saldo de pontos (net)',
+  'Net points na liga',
   'Saldo de todos os adversários',
   'Sorteio (cara ou coroa)',
 ];
@@ -406,7 +387,7 @@ export const CONFERENCE_CRITERIA_LABELS = [
   'Saldo de pontos na conferência',
   'Pontos marcados na conferência',
   'Pontos sofridos na conferência',
-  'Saldo de pontos na liga',
+  'Net points na liga',
   'Sorteio (cara ou coroa)',
 ];
 
