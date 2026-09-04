@@ -586,7 +586,7 @@ function nextRound(s: GameState) {
   for (const j of round.jogos) {
     const w = (j.pc ?? 0) >= (j.pf ?? 0) ? { ...j, winner: j.casa } : { ...j, winner: j.fora };
     const info = seedOf.get(w.winner);
-    if (info) winnersByConf.get(info.conf)!.push({ casa: j.casa, fora: j.fora, pc: j.pc ?? 0, pf: j.pf ?? 0 });
+    if (info) winnersByConf.get(info.conf)!.push({ casa: j.casa, fora: j.fora, pc: j.pc ?? 0, pf: j.pf ?? 0, winner: w.winner });
   }
 
   const next: { casa: string; fora: string; pc: number | null; pf: number | null; jogada: boolean }[] = [];

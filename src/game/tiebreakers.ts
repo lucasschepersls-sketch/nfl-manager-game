@@ -60,6 +60,9 @@ const pct = (w: number, l: number, t: number) => {
   return g === 0 ? 0 : (w + t * 0.5) / g;
 };
 
+/** Formata uma fração (0..1) como porcentagem com 1 casa decimal. */
+export const fmtPct = (v: number) => `${(v * 100).toFixed(1).replace('.', ',')}%`;
+
 /** Jogos da temporada regular envolvendo um time. */
 function gamesOf(s: GameState, teamId: string): { m: Match; opp: string; pf: number; pa: number; win: boolean; loss: boolean; tie: boolean }[] {
   return s.matches
