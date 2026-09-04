@@ -416,6 +416,25 @@ export function generateNFLSchedule(teams: SchedTeam[], year: number, ranks: Ran
   return ms;
 }
 
+/**
+ * 🧹 Reset de Pré-temporada: ao virar para a temporada regular, zera tudo que os
+ * dois amistosos acumularam — estatísticas de jogadores, acumuladores de franquia,
+ * power rankings, narrativas e storylines. Estatísticas de carreira são preservadas.
+ */
+export function resetPreseasonStats(s: GameState): void {
+  // estatísticas da temporada (mantém carreira e jogos de carreira)
+  for (const p of s.players) {
+    p.stats = zeroStats();
+  }
+  // acumuladores por franquia
+  s.teamSeasonStats = s.teams.map(t => zeroTeamStats(t.id, s.settings.temporada));
+  // rankings e narrativas da pré-temporada
+  s.powerRankings = [];
+  s.seasonStorylines = [];
+  s.narrativas = [];
+  pushNews(s, 'RESET', 'Classificação e estatísticas zeradas após a Pré-temporada. A temporada regular começa limpa — todos os times 0-0.');
+}
+
 /* ================= classificação ================= */
 export interface TableRow {
   teamId: string; j: number; v: number; e: number; d: number;
@@ -425,6 +444,8 @@ export function standings(s: GameState): TableRow[] {
   const rows: TableRow[] = s.teams.map(t => ({ teamId: t.id, j: 0, v: 0, e: 0, d: 0, pf: 0, pc: 0, net: 0, seq: '' }));
   const byId = new Map(rows.map(r => [r.teamId, r]));
   for (const m of s.matches) {
+    // apenas partidas da temporada regular contam para a classificação
+    if (m.fase !== 'REG') continue;
     if (!m.jogada || m.placarCasa == null || m.placarFora == null) continue;
     const rc = byId.get(m.casa)!; const rf = byId.get(m.fora)!;
     rc.j++; rf.j++;
@@ -706,6 +727,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
 
   if (fase === 'PRE') {
     if (semana >= 2) {
+      resetPreseasonStats(s);   // 🧹 zera classificação e stats antes da temporada regular
       s.settings.fase = 'REG'; s.settings.semana = 1;
       pushNews(s, 'TEMPORADA REGULAR', 'A pré-temporada acabou! 18 semanas valem a vaga nos playoffs. Semana 18 é 100% divisão.');
     } else s.settings.semana++;
