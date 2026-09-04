@@ -13,6 +13,7 @@ import { restructureContract } from '../game/contracts';
 import { executeProposal } from '../game/trades';
 import { castFanVote } from '../game/probowl';
 import { investigate, studyOpponent, toggleBoard } from '../game/scouting';
+import { markRead, toggleStar, toggleArchive, removeMessage, markAllRead, applyToJob } from '../game/messaging';
 
 const SAVE_KEY = 'gridiron-nfl-save-v1';
 
@@ -145,7 +146,13 @@ export type Action =
   | { type: 'TOGGLE_BOARD'; playerId: string }
   | { type: 'HIRE_SCOUT' }
   | { type: 'PROBOWL_VOTE'; playerId: string }
-  | { type: 'TOAST_CLEAR' };
+  | { type: 'TOAST_CLEAR' }
+  | { type: 'MSG_READ'; id: number }
+  | { type: 'MSG_STAR'; id: number }
+  | { type: 'MSG_ARCHIVE'; id: number }
+  | { type: 'MSG_DELETE'; id: number }
+  | { type: 'MSG_READ_ALL'; category?: MessageCategory }
+  | { type: 'APPLY_JOB'; jobId: number };
 
 interface StoreState {
   game: GameState | null;
@@ -349,6 +356,42 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       const g = structuredClone(st.game);
       const r = renewStaff(g, a.staffId, a.offer);
       return { ...st, game: r.ok ? g : st.game, toast: r.msg };
+    }
+    case 'MSG_READ': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      markRead(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_STAR': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      toggleStar(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_ARCHIVE': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      toggleArchive(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_DELETE': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      removeMessage(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_READ_ALL': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      markAllRead(g, a.category);
+      return { ...st, game: g };
+    }
+    case 'APPLY_JOB': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = applyToJob(g, a.jobId, new Rng(newSeed()));
+      return { ...st, game: g, toast: r.msg, screen: r.ok ? 'home' : st.screen };
     }
     case 'TOAST_CLEAR':
       return { ...st, toast: null };
