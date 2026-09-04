@@ -98,8 +98,10 @@ function reducerCore(st: StoreState, a: Action): StoreState {
         return { ...st, game: state, screen: nextScreen };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error('[TAG] Erro ao simular rodada:', e);
-        return { ...st, toast: `Erro ao simular rodada: ${msg}` };
+        const fase = st.game?.settings.fase ?? '?';
+        const semana = st.game?.settings.semana ?? '?';
+        console.error(`[TAG] Erro ao simular (fase=${fase}, semana=${semana}):`, e);
+        return { ...st, toast: `Erro ao simular (${fase} sem. ${semana}): ${msg}` };
       }
     }
     case 'SIGN': {

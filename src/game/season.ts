@@ -487,15 +487,24 @@ function mergeStats(s: GameState, r: GameResult) {
   };
   const opp = (id: string) => id === r.casaId ? r.foraId : r.casaId;
   const oppPts = (id: string) => id === r.casaId ? r.placarFora : r.placarCasa;
-  updateTeam(r.casaId, r.placarCasa, r.rich.casa.yds, r.rich.casa.passYds, r.rich.casa.rushYds, r.rich.casa.tos);
-  updateTeam(r.foraId, r.placarFora, r.rich.fora.yds, r.rich.fora.passYds, r.rich.fora.rushYds, r.rich.fora.tos);
-  const stC = s.teamSeasonStats.find(x => x.teamId === r.casaId)!;
-  const stF = s.teamSeasonStats.find(x => x.teamId === r.foraId)!;
-  stC.pointsAllowed += r.placarFora; stF.pointsAllowed += r.placarCasa;
-  stC.sacks += r.rich.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.sacks ?? 0), 0);
-  stF.sacks += r.rich.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.sacks ?? 0), 0);
-  stC.interceptions += r.rich.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.intDef ?? 0), 0);
-  stF.interceptions += r.rich.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.intDef ?? 0), 0);
+  if (r.rich) {
+    updateTeam(r.casaId, r.placarCasa, r.rich.casa.yds, r.rich.casa.passYds, r.rich.casa.rushYds, r.rich.casa.tos);
+    updateTeam(r.foraId, r.placarFora, r.rich.fora.yds, r.rich.fora.passYds, r.rich.fora.rushYds, r.rich.fora.tos);
+    const stC = s.teamSeasonStats.find(x => x.teamId === r.casaId)!;
+    const stF = s.teamSeasonStats.find(x => x.teamId === r.foraId)!;
+    stC.pointsAllowed += r.placarFora; stF.pointsAllowed += r.placarCasa;
+    stC.sacks += r.rich.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.sacks ?? 0), 0);
+    stF.sacks += r.rich.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.sacks ?? 0), 0);
+    stC.interceptions += r.rich.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.intDef ?? 0), 0);
+    stF.interceptions += r.rich.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.intDef ?? 0), 0);
+  } else {
+    // box score rico indisponível — acumula apenas pontos e pontos sofridos
+    updateTeam(r.casaId, r.placarCasa, 0, 0, 0, 0);
+    updateTeam(r.foraId, r.placarFora, 0, 0, 0, 0);
+    const stC = s.teamSeasonStats.find(x => x.teamId === r.casaId)!;
+    const stF = s.teamSeasonStats.find(x => x.teamId === r.foraId)!;
+    stC.pointsAllowed += r.placarFora; stF.pointsAllowed += r.placarCasa;
+  }
   void opp; void oppPts;
 }
 
@@ -582,21 +591,27 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
       const t = teamById(s, s.userTeam);
       pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
     }
-    // sincroniza os placares da rodada no bracket e avança para a próxima fase
-    if (s.bracket && s.bracket.length) {
-      syncRoundResults(s, semana);
-      if (semana === s.bracket.length) {
-        if (semana < 4) nextRound(s);
-        else {
-          // Super Bowl (rodada 4) concluído → registra o campeão + mensagem
-          const sb = s.bracket[3].jogos[0];
-          if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
-            const champId = (sb.pc ?? 0) >= (sb.pf ?? 0) ? sb.casa : sb.fora;
-            s.campeoes.push({ temporada: s.settings.temporada, teamId: champId });
-            sendSuperBowlMessage(s, champId, superBowlResult ?? undefined);
+    // sincroniza os placares da rodada no bracket e avança para a próxima fase.
+    // Isolado em try/catch: uma falha na construção da próxima rodada NÃO pode
+    // derrubar a simulação — os jogos já simulados devem sempre aparecer.
+    try {
+      if (s.bracket && s.bracket.length) {
+        syncRoundResults(s, semana);
+        if (semana === s.bracket.length) {
+          if (semana < 4) nextRound(s);
+          else {
+            // Super Bowl (rodada 4) concluído → registra o campeão + mensagem
+            const sb = s.bracket[3]?.jogos[0];
+            if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
+              const champId = (sb.pc ?? 0) >= (sb.pf ?? 0) ? sb.casa : sb.fora;
+              s.campeoes.push({ temporada: s.settings.temporada, teamId: champId });
+              sendSuperBowlMessage(s, champId, superBowlResult ?? undefined);
+            }
           }
         }
       }
+    } catch (err) {
+      console.error('[TAG] Falha ao progredir rodada dos playoffs (semana ' + semana + '):', err);
     }
     s.settings.semana++;
     if (s.settings.semana > 4) endSeason(s, rng);
@@ -622,6 +637,12 @@ function startPlayoffs(s: GameState) {
     for (const m of generatePlayoffBracket(s, conf).matchups) {
       jogos.push({ casa: m.casaId, fora: m.foraId, pc: null, pf: null, jogada: false });
     }
+  }
+  if (!jogos.length) {
+    // segurança: sem matchups válidos, volta para a offseason sem quebrar
+    console.error('[TAG] startPlayoffs: nenhum matchup de Wild Card gerado.');
+    endSeason(s, new Rng(newSeed()));
+    return;
   }
   s.bracket = [{ nome: 'Wild Card', jogos }];
   for (const conf of ['AFC', 'NFC'] as Conf[]) {
@@ -687,8 +708,8 @@ function nextRound(s: GameState) {
         const jogo27 = confJogos.find(j => { const sd = seedsOf(j); return sd[0] === 2 && sd[1] === 7; });
         const jogo36 = confJogos.find(j => { const sd = seedsOf(j); return sd[0] === 3 && sd[1] === 6; });
         const jogo45 = confJogos.find(j => { const sd = seedsOf(j); return sd[0] === 4 && sd[1] === 5; });
-        const one = seeds.find(x => x.seed === 1)!.teamId;
-        if (jogo45) next.push({ casa: one, fora: winner(jogo45), pc: null, pf: null, jogada: false });
+        const seed1 = seeds.find(x => x.seed === 1);
+        if (seed1 && jogo45) next.push({ casa: seed1.teamId, fora: winner(jogo45), pc: null, pf: null, jogada: false });
         if (jogo27 && jogo36) next.push({ casa: winner(jogo27), fora: winner(jogo36), pc: null, pf: null, jogada: false });
       } else {
         // Divisional → Final de Conferência: os 2 vencedores da conferência se enfrentam
