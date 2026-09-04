@@ -1,8 +1,13 @@
 /* ============================================================
- * ⚖️ SISTEMA OFICIAL DE TIEBREAKERS DA NFL
- *  - Divisão: 15 critérios sequenciais (head-to-head → sorteio)
- *  - Conferência (wild cards): 10 critérios
- *  - Regra de ouro: campeões de divisão SEMPRE à frente de wild cards
+ * 🏆 Sistema oficial de classificação da NFL — DUAS CAMADAS.
+ *
+ * CAMADA 1 (SEMPRE): Win Percentage é o critério PRIMÁRIO.
+ *   Times com campanhas diferentes NUNCA precisam de desempate.
+ * CAMADA 2 (SÓ EM EMPATE): a cascata de critérios só é aplicada
+ *   entre times com EXATAMENTE o mesmo Win Percentage.
+ *
+ * Divisão: 15 critérios sequenciais · Conferência: 10 critérios.
+ * Regra de ouro: campeões de divisão SEMPRE à frente de wild cards.
  *  - Strength of Victory / Strength of Schedule recalculados a cada leitura
  *    (tudo é derivado dos resultados — atualização automática após cada jogo)
  * ============================================================ */
@@ -13,10 +18,11 @@ import type { Conf, GameState } from './types';
 export interface TeamStanding {
   teamId: string;
   wins: number; losses: number; ties: number; winPct: number;
+  gamesBehind: number;      // jogos atrás do líder (passos de 0.5)
   divWins: number; divLosses: number; divTies: number; divPct: number;
   confWins: number; confLosses: number; confTies: number; confPct: number;
-  sov: number;      // % de vitórias dos times vencidos
-  sos: number;      // % de vitórias dos times enfrentados
+  sov: 'Strength of Victory (campanha dos times que venceu)',
+  sos: 'Strength of Schedule (campanha dos times que enfrentou)',
   pf: number; pa: number; net: number;
   confPf: number; confPa: number; confNet: number;
   oppNet: number;   // soma do saldo de todos os adversários
@@ -25,11 +31,21 @@ export interface TeamStanding {
   playoffSeed: number | null;
   isDivisionChampion: boolean;
   isPlayoffTeam: boolean;
-  tiebreakNote: string | null;
+  tiebreakKey: string;      // chave do critério que quebrou o empate ('' = sem empate)
+  tiebreakNote: string;     // rótulo legível do critério
+  tiedAbove: boolean;       // mesma campanha do time imediatamente acima
 }
 
 interface GameRow { casa: string; fora: string; pc: number; pf: number; }
 interface OppRec { w: number; l: number; t: number; }
+
+/** Códigos curtos para os chips da interface. */
+export const CRITERIA_SHORT: Record<string, string> = {
+  h2h: 'H2H', div: 'DIV', common: 'COM', conf: 'CONF', sov: 'SOV', sos: 'SOS',
+  confPtsRank: 'PTS±C', confPtsFor: 'PTSC+', confPtsAgainst: 'PTSC−',
+  leaguePtsRank: 'PTS±', ptsFor: 'PTS+', ptsAgainst: 'PTS−', net: 'NET',
+  oppNet: 'NET·ADV', coin: 'SORTE',
+};
 
 const pctOf = (w: number, l: number, t: number) => {
   const g = w + l + t;
