@@ -349,3 +349,5 @@ export function TradesScreen() {
         </Panel>
       )}
     </div>
+  );
+}
