@@ -6,7 +6,7 @@
  * ============================================================ */
 
 import type {
-  CoachPerformance, GameState, JobOpening, Message, MessageAction,
+  CoachPerformance, GameResult, GameState, JobOpening, Message, MessageAction,
   MessageCategory, MessagePriority, Team,
 } from './types';
 import { Rng, clamp } from './rng';
@@ -213,19 +213,16 @@ export function sendEvaluationMessage(s: GameState, perf: CoachPerformance): voi
 /* ================= demissão do usuário ================= */
 export function checkUserFiring(s: GameState, rng: Rng): boolean {
   if (s.coachFired || s.settings.fase !== 'REG') return false;
-  if (s.settings.semana < 6) return false; // dá tempo de engrenar
+  if (s.settings.semana < 8) return false; // dá tempo de engrenar
   const last = s.coachHistory[s.coachHistory.length - 1];
   if (!last) return false;
-  const st = computeStandings(s);
-  const me = st.get(s.userTeam);
-  const winPct = me ? me.winPct : 0;
-  // demite se avaliação muito baixa E campanha ruim
-  if (last.overallRating >= 32 || winPct >= 0.3) return false;
-  if (!rng.chance(0.5)) return false;
-
+  void rng;
+  // demissão determinística: avaliação abaixo de 30 após a semana 8
+  if (last.overallRating >= 30) return false;
+  
   s.coachFired = true;
   last.isFired = true;
-  last.fireReason = 'Resultados abaixo do esperado e avaliação da diretoria em queda.';
+  last.fireReason = 'Avaliação da diretoria abaixo de 30/100 — confiança esgotada.';
   const team = teamOf(s, s.userTeam);
   notify(s, {
     category: 'job',
@@ -239,6 +236,45 @@ export function checkUserFiring(s: GameState, rng: Rng): boolean {
     availableActions: [{ id: 'goto_jobs', label: 'Ver vagas abertas', kind: 'goto', screen: 'jobs' }],
   });
   // garante vagas no mercado para recolocação
+  generateAiCoachFirings(s, rng, 3);
+  return true;
+}
+
+/* ---------- demissão de FIM DE TEMPORADA (avaliação do ano completo) ---------- */
+export function checkEndSeasonFiring(s: GameState, rng: Rng): boolean {
+  if (s.coachFired || s.settings.fase !== 'OFF') return false;
+  // média das avaliações da temporada
+  const seasonEvals = s.coachHistory.filter(c => c.season === s.settings.temporada);
+  if (!seasonEvals.length) return false;
+  const avg = seasonEvals.reduce((a, c) => a + c.overallRating, 0) / seasonEvals.length;
+
+  // campanha final
+  const st = computeStandings(s);
+  const me = st.get(s.userTeam);
+  const winPct = me ? me.winPct : 0;
+  const madePlayoffs = me ? me.playoffSeed != null : false;
+
+  // não demite se foi aos playoffs ou avaliação média decente
+  if (madePlayoffs || avg >= 40) return false;
+  // só demite com avaliação média baixa E campanha ruim (probabilístico)
+  if (avg >= 35 || winPct >= 0.3) return false;
+  if (!rng.chance(0.7)) return false;
+
+  s.coachFired = true;
+  const last = seasonEvals[seasonEvals.length - 1];
+  if (last) { last.isFired = true; last.fireReason = 'Temporada abaixo das expectativas — avaliação média ' + Math.round(avg) + '/100.'; }
+  const team = teamOf(s, s.userTeam);
+  notify(s, {
+    category: 'job',
+    sender: 'Diretoria',
+    priority: 'urgent',
+    subject: `Fim de temporada: você foi demitido do ${team.cidade} ${team.nome}`,
+    body: `A diretoria fez o balanço da temporada ${s.settings.temporada} e, com uma avaliação média de ` +
+      `${Math.round(avg)}/100 e aproveitamento de ${Math.round(winPct * 100)}%, decidiu encerrar seu ciclo. ` +
+      `Sua carreira continua: há vagas abertas na liga para a próxima temporada.`,
+    dataPayload: { perf: last ?? undefined },
+    availableActions: [{ id: 'goto_jobs', label: 'Ver vagas abertas', kind: 'goto', screen: 'jobs' }],
+  });
   generateAiCoachFirings(s, rng, 3);
   return true;
 }
@@ -404,23 +440,44 @@ export function sendProBowlResults(s: GameState): void {
   });
 }
 
-/* ================= Super Bowl ================= */
-export function sendSuperBowlMessage(s: GameState, champTeamId: string): void {
+/* ================= Super Bowl (com MVP e destaques) ================= */
+export function sendSuperBowlMessage(s: GameState, champTeamId: string, result?: GameResult): void {
   const champ = teamOf(s, champTeamId);
   const isUser = champTeamId === s.userTeam;
+  
+  // detalhes da partida: placar, MVP e jogada do jogo (quando disponíveis)
+  const mvp = result?.rich.story.mvp ?? null;
+  const jogada = result?.rich.story.jogada ?? null;
+  const placar = result ? `${result.placarCasa} × ${result.placarFora}` : '';
+  const siglaCasa = result ? teamOf(s, result.casaId).sigla : '';
+  const siglaFora = result ? teamOf(s, result.foraId).sigla : '';
+
+  const detalhes: string[] = [];
+  if (placar) detalhes.push(`Placar final: ${siglaCasa} ${result!.placarCasa} × ${result!.placarFora} ${siglaFora}.`);
+  if (mvp) detalhes.push(`🏅 MVP do Super Bowl: ${mvp.nome} (${mvp.pos}) — ${mvp.linha}.`);
+  if (jogada) detalhes.push(`⚡ Jogada do jogo: ${jogada.texto}`);
+
+  const corpo = isUser
+    ? `O ${champ.cidade} ${champ.nome} conquistou o título da temporada ${s.settings.temporada}! ` +
+      `A diretoria, a torcida e a cidade celebram o seu trabalho. Seu nome entra para a história da franquia.`
+    : `O ${champ.cidade} ${champ.nome} levantou o troféu da temporada ${s.settings.temporada}. ` +
+      `A liga parabeniza o campeão. A próxima temporada começa em breve — prepare seu elenco.`;
+  
   notify(s, {
     category: 'super_bowl',
     sender: 'Liga',
+    senderIcon: '🏆',
     subject: isUser
       ? `🏆 CAMPEÕES! ${champ.cidade} ${champ.nome} vence o Super Bowl!`
       : `Super Bowl: ${champ.cidade} ${champ.nome} é o campeão da temporada ${s.settings.temporada}`,
-    body: isUser
-      ? `O ${champ.cidade} ${champ.nome} conquistou o título da temporada ${s.settings.temporada}! ` +
-        `A diretoria, a torcida e a cidade celebram o seu trabalho. Seu nome entra para a história da franquia.`
-      : `O ${champ.cidade} ${champ.nome} levantou o troféu da temporada ${s.settings.temporada}. ` +
-        `A liga parabeniza o campeão. A próxima temporada começa em breve — prepare seu elenco.`,
+    body: corpo + (detalhes.length ? `\n\n${detalhes.join('\n')}` : ''),
     priority: 'urgent',
-    dataPayload: { champTeamId, temporada: s.settings.temporada, isUser },
+    dataPayload: {
+      champTeamId, temporada: s.settings.temporada, isUser,
+      mvp: mvp ? { nome: mvp.nome, pos: mvp.pos, linha: mvp.linha } : null,
+      jogada: jogada?.texto ?? null,
+      placar: placar || null,
+    },
     availableActions: isUser ? [{ id: 'goto_home', label: 'Celebrar com o time', kind: 'goto', screen: 'home' }] : undefined,
   });
 }
