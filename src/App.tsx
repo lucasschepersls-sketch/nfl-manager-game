@@ -151,24 +151,29 @@ function Sidebar() {
       {grupos.map(gr => (
         <div key={gr} className="mb-4">
           <div className="px-4 pb-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-faint">{gr}</div>
-          {NAV.filter(n => n.grupo === gr).map(n => (
+          {NAV.filter(n => n.grupo === gr).map(n => {
             const unread = n.s === 'inbox' && st.game
               ? st.game.messages.filter(m => !m.isRead && !m.isArchived).length
-            : 0;
-            <button key={n.s} className={`nav-item ${st.screen === n.s ? 'on' : ''}`} onClick={() => dispatch({ type: 'SCREEN', screen: n.s })}>
-              <span className="shrink-0 opacity-90">{Icons[n.icon]}</span>
-              <span className="truncate">{n.label}</span>
-              {n.s === 'draft' && g.settings.fase === 'OFF' && g.draftState && !g.draftState.done && (
-                <span className="tag ml-auto border-gold/60 text-gold blink">AO VIVO</span>
-              )}
-              {n.s === 'scouting' && g.settings.fase === 'OFF' && g.scoutBudget > 0 && (
-                <span className="tag ml-auto border-gold/50 text-gold">{g.scoutBudget} pts</span>
-              )}
-              {n.s === 'offseason' && g.settings.fase === 'OFF' && (
-                <span className="tag ml-auto border-blood/50 text-blood">{g.offPhase ?? 1}/4</span>
-              )}
-            </button>
-          ))}
+              : 0;
+            return (
+              <button
+                key={n.s}
+                className={`nav-item ${st.screen === n.s ? 'on' : ''}`}
+                onClick={() => dispatch({ type: 'SCREEN', screen: n.s })}
+              >
+                <span className="shrink-0 opacity-90">{Icons[n.icon]}</span>
+                <span className="truncate">{n.label}</span>
+                {unread > 0 && (
+                  <span
+                    className="ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blood px-1 font-mono text-[10px] font-bold leading-none text-white"
+                    title={`${unread} mensagem(ns) não lida(s)`}
+                  >
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       ))}
       <div className="mt-6 px-4 text-center font-mono text-[10px] uppercase tracking-widest text-faint">
