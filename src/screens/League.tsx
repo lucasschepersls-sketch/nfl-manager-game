@@ -2,8 +2,9 @@ import { useState, type ReactNode } from 'react';
 import { useGame } from '../state/store';
 import {
   teamById, standings, divisionTable, conferenceSeeds, capUsed, fmtM, teamStrength,
-  playersOf, UPGRADE_COST,
+  playersOf, UPGRADE_COST, conferenceOrder, generatePlayoffBracket,
 } from '../game/season';
+import { fmtPct, DIVISION_CRITERIA_LABELS, CONFERENCE_CRITERIA_LABELS } from '../game/tiebreakers';
 import { CONF_LABEL, DIV_NAMES } from '../game/data';
 import type { Conf, Player, PowerRankingEntry } from '../game/types';
 import { Panel, TeamCrest, SeqBadge, Bar, Ovr } from '../components/ui';
@@ -270,50 +271,175 @@ export function TeamComparatorScreen() {
 export function StandingsScreen() {
   const { st } = useGame();
   const g = st.game!;
+    const fase = g.settings.fase;
+  const temJogo = g.matches.some(m => m.fase === 'REG' && m.jogada);
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      {/* cabeçalho com explicação do sistema de desempate */}
+      <div className="border border-line bg-panel px-4 py-3">
+        <details className="group">
+          <summary className="cursor-pointer list-none">
+            <div className="flex items-center gap-3">
+              <span className="font-disp text-[18px] font-bold uppercase tracking-wide text-goldhi">⚖️ Sistema oficial de desempate da NFL</span>
+              <span className="font-mono text-[11px] text-faint group-open:hidden">clique para ver os critérios ▾</span>
+              <span className="font-mono text-[11px] text-faint hidden group-open:inline">clique para fechar ▴</span>
+            </div>
+          </summary>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            <div>
+              <div className="mb-1.5 font-disp text-[13px] font-bold uppercase tracking-wider text-grass">Divisão — 15 critérios (em ordem)</div>
+              <ol className="list-decimal space-y-0.5 pl-5 font-mono text-[10.5px] text-dim">
+                {DIVISION_CRITERIA_LABELS.map(c => <li key={c}>{c}</li>)}
+              </ol>
+            </div>
+            <div>
+              <div className="mb-1.5 font-disp text-[13px] font-bold uppercase tracking-wider text-ice">Conferência (wild cards) — 10 critérios</div>
+              <ol className="list-decimal space-y-0.5 pl-5 font-mono text-[10.5px] text-dim">
+                {CONFERENCE_CRITERIA_LABELS.map(c => <li key={c}>{c}</li>)}
+              </ol>
+              <p className="mt-2 border-l-2 border-gold pl-2 font-mono text-[10.5px] text-gold/90">
+                Regra de ouro: campeões de divisão (seeds 1–4) SEMPRE ficam à frente dos wild cards (5–7), independente do recorde.
+              </p>
+            </div>
+          </div>
+        </details>
+      </div>
+
       {(['AFC', 'NFC'] as Conf[]).map(conf => {
-        const seeds = conferenceSeeds(g, conf);
-        const seedOf = new Map(seeds.map(x => [x.teamId, x.seed]));
+        const confColor = conf === 'AFC' ? 'var(--color-blood)' : 'var(--color-ice)';
+        const order = conferenceOrder(g, conf);
+        const bracket = temJogo ? generatePlayoffBracket(g, conf) : null;
         return (
           <div key={conf}>
             <div className="mb-2 flex items-baseline gap-3">
+              <span className="inline-block h-5 w-1.5" style={{ background: confColor }} />
               <h2 className="font-disp text-[24px] font-bold uppercase tracking-wide">{CONF_LABEL[conf]}</h2>
-              <span className="font-mono text-[11.5px] text-faint">7 vagas: 4 campeões de divisão + 3 wild cards · #1 folga</span>
+              <span className="font-mono text-[11.5px] text-faint">7 vagas · 4 campeões de divisão + 3 wild cards · seed #1 folga no Wild Card</span>
             </div>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {[0, 1, 2, 3].map(div => (
-                <Panel key={div} title={`Divisão ${DIV_NAMES[div]}`} pad={false}>
-                  <table className="tbl">
-                    <thead><tr><th>Clube</th><th className="num">J</th><th className="num">V</th><th className="num">E</th><th className="num">D</th><th>Últ.5</th></tr></thead>
-                    <tbody>
-                      {divisionTable(g, conf, div).map(r => {
-                        const t = teamById(g, r.teamId);
-                        const sd = seedOf.get(r.teamId);
-                        const me = r.teamId === g.userTeam;
-                        return (
-                          <tr key={r.teamId} style={me ? { background: 'rgba(240,180,41,0.07)' } : undefined}>
-                            <td className="max-w-[130px]">
-                              <span className="mr-1.5 inline-flex align-middle"><TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={14} /></span>
-                              <b>{t.sigla}</b>
-                              {sd && <span className="ml-1.5 font-mono text-[10px] text-gold">#{sd}</span>}
-                            </td>
-                            <td className="num">{r.j}</td>
-                            <td className="num font-bold text-grass">{r.v}</td>
-                            <td className="num text-faint">{r.e}</td>
-                            <td className="num text-blood">{r.d}</td>
-                            <td><SeqBadge seq={r.seq} /></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </Panel>
-              ))}
+
+            <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+              {/* divisões */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {[0, 1, 2, 3].map(div => (
+                  <Panel key={div} title={`Divisão ${DIV_NAMES[div]}`} pad={false}>
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          <th>Clube</th>
+                          <th className="num" title="Vitórias-Empates-Derrotas">REC</th>
+                          <th className="num" title="% de vitórias (empate vale 0,5)">PCT</th>
+                          <th className="num" title="% de vitórias dentro da divisão">DIV</th>
+                          <th className="num" title="% de vitórias na conferência">CONF</th>
+                          <th className="num" title="Saldo de pontos">+/-</th>
+                          <th title="Critério que define a posição em caso de empate — passe o mouse">TB</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {divisionTable(g, conf, div).map(r => {
+                          const t = teamById(g, r.teamId);
+                          const standing = order.find(o => o.teamId === r.teamId);
+                          const me = r.teamId === g.userTeam;
+                          const champ = standing?.isDivisionChampion;
+                          return (
+                            <tr key={r.teamId} style={me ? { background: 'rgba(240,180,41,0.07)' } : undefined}>
+                              <td className="max-w-[150px]">
+                                <span className="mr-1.5 inline-flex align-middle"><TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={14} /></span>
+                                <b>{t.sigla}</b>
+                                {champ && <span className="ml-1.5 font-mono text-[9px] font-bold text-gold" title="Campeão da divisão">★</span>}
+                              </td>
+                              <td className="num font-mono text-[12px]">{r.v}-{r.e}-{r.d}</td>
+                              <td className="num font-mono text-[12px] font-bold text-grass">{fmtPct(r.winPct ?? 0)}</td>
+                              <td className="num font-mono text-[12px]">{fmtPct(r.divPct ?? 0)}</td>
+                              <td className="num font-mono text-[12px]">{fmtPct(r.confPct ?? 0)}</td>
+                              <td className="num font-mono text-[12px]">{r.net > 0 ? `+${r.net}` : r.net}</td>
+                              <td>
+                                {r.tiebreakNote ? (
+                                  <span className="tb-tip" title={r.tiebreakNote}>ⓘ</span>
+                                ) : (
+                                  <span className="text-faint">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </Panel>
+                ))}
+              </div>
+
+              {/* playoff picture */}
+              <Panel
+                title={<span>🏆 Playoff Picture — {conf}</span>}
+                pad={false}
+                right={<span className="font-mono text-[10px] text-faint">{temJogo ? 'atualizado a cada jogo' : 'aguardando jogos'}</span>}
+              >
+                <div className="divide-y divide-line2">
+                  {order.filter(o => o.playoffSeed != null).map(o => {
+                    const t = teamById(g, o.teamId);
+                    const me = o.teamId === g.userTeam;
+                    const isBye = o.playoffSeed === 1;
+                    const isChamp = o.playoffSeed! <= 4;
+                    return (
+                      <div key={o.teamId} className="flex items-center gap-2.5 px-3.5 py-2" style={me ? { background: 'rgba(240,180,41,0.07)' } : undefined}>
+                        <span className={`w-6 text-center font-disp text-[15px] font-extrabold ${isBye ? 'text-goldhi' : isChamp ? 'text-grass' : 'text-ice'}`}>{o.playoffSeed}</span>
+                        <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={16} />
+                        <span className="flex-1 truncate font-disp text-[15px] font-bold uppercase">{t.sigla}</span>
+                        {isBye && <span className="tag border-gold/60 text-gold" title="Folga na rodada de Wild Card">BYE</span>}
+                        {isChamp && !isBye && <span className="tag border-grass/50 text-grass">DIV</span>}
+                        {!isChamp && <span className="tag border-ice/50 text-ice">WC</span>}
+                        <span className="font-mono text-[12px] text-dim">{o.wins}-{o.losses}{o.ties ? `-${o.ties}` : ''}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* bolha */}
+                <div className="border-t border-dashed border-line px-3.5 py-2">
+                  <div className="mb-1 font-mono text-[9.5px] uppercase tracking-widest text-faint">Na bolha (fora do G7)</div>
+                  {order.filter(o => o.playoffSeed == null).slice(0, 2).map(o => {
+                    const t = teamById(g, o.teamId);
+                    return (
+                      <div key={o.teamId} className="flex items-center gap-2.5 py-0.5 opacity-50">
+                        <span className="w-6 text-center font-mono text-[11px] text-faint">{o.confRank}</span>
+                        <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
+                        <span className="flex-1 truncate font-disp text-[13px] font-bold uppercase">{t.sigla}</span>
+                        <span className="font-mono text-[11px] text-faint">{o.wins}-{o.losses}{o.ties ? `-${o.ties}` : ''}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* matchups do Wild Card */}
+                {bracket && (
+                  <div className="border-t border-line px-3.5 py-2.5">
+                    <div className="mb-1.5 font-mono text-[9.5px] uppercase tracking-widest text-faint">Rodada de Wild Card (projeção)</div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 font-mono text-[11px] text-gold/80">
+                        <span className="w-5 text-center font-bold text-goldhi">1</span>
+                        <span>{teamById(g, bracket.bye.teamId).sigla}</span>
+                        <span className="ml-auto tag border-gold/50 text-gold">folga</span>
+                      </div>
+                      {bracket.matchups.map(mu => (
+                        <div key={mu.seedCasa} className="flex items-center gap-2 font-mono text-[11px] text-dim">
+                          <span className="w-5 text-center font-bold text-ice">{mu.seedCasa}</span>
+                          <span className="font-bold text-ink">{teamById(g, mu.casaId).sigla}</span>
+                          <span className="text-faint">×</span>
+                          <span className="w-5 text-center font-bold text-ice">{mu.seedFora}</span>
+                          <span className="font-bold text-ink">{teamById(g, mu.foraId).sigla}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Panel>
             </div>
           </div>
         );
       })}
+
+      {fase === 'OFF' && (
+        <p className="font-mono text-[11.5px] text-faint">A classificação acima reflete o fim da temporada regular. Os playoffs já foram disputados.</p>
+      )}
     </div>
   );
 }
