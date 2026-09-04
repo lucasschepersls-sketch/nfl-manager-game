@@ -25,7 +25,7 @@ import {
 } from './contracts';
 import { staffExpectations, staffHappiness, staffAcceptanceRoll, staffMarketValue } from './negotiations';
 import { simulateTrainingWeek } from './training';
-import { computeFullStandings, rankDivisionTb, conferenceOrder, generatePlayoffBracket } from './tiebreakers';
+import { computeStandings, rankDivision, conferenceOrder, generatePlayoffBracket } from './tiebreakers';
 import type { TeamStanding } from './tiebreakers';
 
 /* ================= helpers ================= */
@@ -363,7 +363,7 @@ export interface TableRow {
   seed?: number | null;
 }
 export type { TeamStanding };
-export { computeFullStandings, rankDivisionTb, conferenceOrder, generatePlayoffBracket };
+export { computeStandings, rankDivision, conferenceOrder, generatePlayoffBracket };
 
 export function standings(s: GameState): TableRow[] {
   const rows: TableRow[] = s.teams.map(t => ({ teamId: t.id, j: 0, v: 0, e: 0, d: 0, pf: 0, pc: 0, net: 0, seq: '' }));
@@ -384,16 +384,16 @@ export function standings(s: GameState): TableRow[] {
 }
 
 export function divisionTable(s: GameState, conf: Conf, div: number): TableRow[] {
-  const full = computeFullStandings(s);
-  const ordered = rankDivisionTb(s, conf, div, full);
+  const st = computeStandings(s);
+  const ordered = rankDivision(s, conf, div, st);
   const base = new Map(standings(s).map(r => [r.teamId, r]));
-  return ordered.map(t => {
+  return ordered.map((t: TeamStanding) => {
     const b = base.get(t.teamId)!;
     return {
       ...b,
       winPct: t.winPct, divPct: t.divPct, confPct: t.confPct,
       sov: t.sov, sos: t.sos,
-      tiebreakNote: t.tiebreakNote, tiebreakKey: t.tiebreakKey,
+      tiebreakNote: t.tiebreakNote ?? undefined, tiebreakKey: t.tiebreakKey,
       gamesBehind: t.gamesBehind, tiedAbove: t.tiedAbove,
       divRec: `${t.divWins}-${t.divLosses}${t.divTies ? `-${t.divTies}` : ''}`,
       isChamp: t.isDivisionChampion,
@@ -403,15 +403,16 @@ export function divisionTable(s: GameState, conf: Conf, div: number): TableRow[]
 
 /** Conferência inteira ordenada (campeões 1–4 + wild cards 5–7 + bolha), com GB e desempates. */
 export function conferenceTable(s: GameState, conf: Conf): TableRow[] {
-  const ordered = conferenceOrder(s, conf);
+  const st = computeStandings(s);
+  const ordered = conferenceOrder(s, conf, st);
   const base = new Map(standings(s).map(r => [r.teamId, r]));
-  return ordered.map(t => {
+  return ordered.map((t: TeamStanding) => {
     const b = base.get(t.teamId)!;
     return {
       ...b,
       winPct: t.winPct, divPct: t.divPct, confPct: t.confPct,
       sov: t.sov, sos: t.sos,
-      tiebreakNote: t.tiebreakNote, tiebreakKey: t.tiebreakKey,
+      tiebreakNote: t.tiebreakNote ?? undefined, tiebreakKey: t.tiebreakKey,
       gamesBehind: t.gamesBehind, tiedAbove: t.tiedAbove,
       divRec: `${t.divWins}-${t.divLosses}${t.divTies ? `-${t.divTies}` : ''}`,
       isChamp: t.isDivisionChampion, seed: t.playoffSeed,
@@ -577,8 +578,8 @@ function startPlayoffs(s: GameState) {
   s.settings.fase = 'PO'; s.settings.semana = 1;
   const jogos: { casa: string; fora: string; pc: number | null; pf: number | null; jogada: boolean }[] = [];
   for (const conf of ['AFC', 'NFC'] as Conf[]) {
-    for (const m of generatePlayoffBracket(s, conf)) {
-      jogos.push({ casa: m.casa, fora: m.fora, pc: null, pf: null, jogada: false });
+    for (const m of generatePlayoffBracket(s, conf).matchups) {
+      jogos.push({ casa: m.casaId, fora: m.foraId, pc: null, pf: null, jogada: false });
     }
   }
   s.bracket = [{ nome: 'Wild Card', jogos }];

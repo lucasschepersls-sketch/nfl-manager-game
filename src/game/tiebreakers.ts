@@ -8,61 +8,36 @@
  *
  * Divisão: 15 critérios sequenciais · Conferência: 10 critérios.
  * Regra de ouro: campeões de divisão SEMPRE à frente de wild cards.
+ *  - Strength of Victory / Strength of Schedule recalculados a cada leitura
+ *    (tudo é derivado dos resultados — atualização automática após cada jogo)
  * ============================================================ */
 
-import type { Conf, GameState, Match } from './types';
+import type { Conf, GameState } from './types';
 
+/* ---------- modelo (espelha TeamStanding) ---------- */
 export interface TeamStanding {
   teamId: string;
-  conf: Conf; div: number;
-  wins: number; losses: number; ties: number;
-  winPct: number;
+  wins: number; losses: number; ties: number; winPct: number;
   gamesBehind: number;      // jogos atrás do líder (passos de 0.5)
   divWins: number; divLosses: number; divTies: number; divPct: number;
   confWins: number; confLosses: number; confTies: number; confPct: number;
-  sov: number; sos: number;
-  pointsFor: number; pointsAgainst: number; netPoints: number;
-  confPointsFor: number; confPointsAgainst: number;
-  divisionRank: number;
-  conferenceRank: number;
+  sov: number;
+  sos: number;
+  pf: number; pa: number; net: number;
+  confPf: number; confPa: number; confNet: number;
+  oppNet: number;   // soma do saldo de todos os adversários
+  divRank: number;
+  confRank: number;
   playoffSeed: number | null;
   isDivisionChampion: boolean;
   isPlayoffTeam: boolean;
-  tiebreakKey: string;      // chave do critério que quebrou o empate ('' = sem empate)
-  tiebreakNote: string;     // rótulo legível do critério
+  tiebreakKey: string;      // chave curta do critério ('' = sem desempate)
+  tiebreakNote: string | null;  // rótulo legível do critério
   tiedAbove: boolean;       // mesma campanha do time imediatamente acima
 }
 
-export const DIVISION_CRITERIA_LABELS: Record<string, string> = {
-  h2h: 'Head-to-head (confronto direto)',
-  div: 'Recorde dentro da divisão',
-  common: 'Recorde contra adversários comuns',
-  conf: 'Recorde dentro da conferência',
-  sov: 'Strength of Victory (campanha dos times que venceu)',
-  sos: 'Strength of Schedule (campanha dos times que enfrentou)',
-  confPtsRank: 'Ranking combinado de pontos na conferência',
-  confPtsFor: 'Pontos marcados na conferência',
-  confPtsAgainst: 'Pontos sofridos na conferência',
-  leaguePtsRank: 'Ranking combinado de pontos na liga',
-  ptsFor: 'Pontos marcados na liga',
-  ptsAgainst: 'Pontos sofridos na liga',
-  net: 'Net points na liga',
-  oppNet: 'Net points de todos os adversários',
-  coin: 'Sorteio (coin toss)',
-};
-
-export const CONFERENCE_CRITERIA_LABELS: Record<string, string> = {
-  h2h: 'Head-to-head (confronto direto)',
-  conf: 'Recorde dentro da conferência',
-  common: 'Recorde contra adversários comuns',
-  sov: 'Strength of Victory',
-  sos: 'Strength of Schedule',
-  confPtsRank: 'Ranking combinado de pontos na conferência',
-  confPtsFor: 'Pontos marcados na conferência',
-  confPtsAgainst: 'Pontos sofridos na conferência',
-  net: 'Net points na liga',
-  coin: 'Sorteio (coin toss)',
-};
+interface GameRow { casa: string; fora: string; pc: number; pf: number; }
+interface OppRec { w: number; l: number; t: number; }
 
 /** Códigos curtos para os chips da interface. */
 export const CRITERIA_SHORT: Record<string, string> = {
@@ -72,188 +47,257 @@ export const CRITERIA_SHORT: Record<string, string> = {
   oppNet: 'NET·ADV', coin: 'SORTE',
 };
 
-const pct = (w: number, l: number, t: number) => {
+const pctOf = (w: number, l: number, t: number) => {
   const g = w + l + t;
-  return g === 0 ? 0 : (w + t * 0.5) / g;
+  return g === 0 ? 0 : (w + 0.5 * t) / g;
 };
-
-/** Win % no formato NFL: ".647" (sem o zero à esquerda). */
-export const fmtWinPct = (p: number) => (p >= 1 ? '1.000' : p.toFixed(3).replace(/^0/, ''));
-
+/** formato NFL: .750 */
+export const fmtPct = (p: number) => (p >= 1 ? '1.000' : p.toFixed(3).replace(/^0/, ''));
 /** Games behind no formato NFL: "—" para o líder, senão "2.0" / "0.5". */
 export const fmtGB = (gb: number) => (gb <= 0 ? '—' : (Math.round(gb * 10) / 10).toFixed(1));
+/** Win % no formato NFL: ".647" (sem o zero à esquerda). Alias p/ compat. */
+export const fmtWinPct = fmtPct;
 
-/** Formata uma fração (0..1) como porcentagem com 1 casa decimal. */
-export const fmtPct = (v: number) => `${(v * 100).toFixed(1).replace('.', ',')}%`;
+const hashIds = (s: string) => { let h = 7; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 
-const hashStr = (s: string) => {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return h;
-};
-
-/** Jogos da temporada regular envolvendo um time. */
-function gamesOf(s: GameState, teamId: string): { m: Match; opp: string; pf: number; pa: number; win: boolean; loss: boolean; tie: boolean }[] {
+function regGames(s: GameState): GameRow[] {
   return s.matches
-    .filter(m => m.fase === 'REG' && m.jogada && (m.casa === teamId || m.fora === teamId) && m.placarCasa != null && m.placarFora != null)
-    .map(m => {
-      const isHome = m.casa === teamId;
-      const pf = isHome ? m.placarCasa! : m.placarFora!;
-      const pa = isHome ? m.placarFora! : m.placarCasa!;
-      return { m, opp: isHome ? m.fora : m.casa, pf, pa, win: pf > pa, loss: pf < pa, tie: pf === pa };
+    .filter(m => m.fase === 'REG' && m.jogada && m.placarCasa != null && m.placarFora != null)
+    .map(m => ({ casa: m.casa, fora: m.fora, pc: m.placarCasa!, pf: m.placarFora! }));
+}
+
+/* ---------- cálculo das métricas (update_standings + recalculate_strength) ---------- */
+export function computeStandings(s: GameState): Map<string, TeamStanding> {
+  const games = regGames(s);
+  const confOf = new Map<string, Conf>();
+  const divOf = new Map<string, number>();
+  for (const t of s.teams) { confOf.set(t.id, t.conf); divOf.set(t.id, t.div); }
+
+  const st = new Map<string, TeamStanding>();
+  for (const t of s.teams) {
+    st.set(t.id, {
+      teamId: t.id, wins: 0, losses: 0, ties: 0, winPct: 0, gamesBehind: 0,
+      divWins: 0, divLosses: 0, divTies: 0, divPct: 0,
+      confWins: 0, confLosses: 0, confTies: 0, confPct: 0,
+      sov: 0, sos: 0, pf: 0, pa: 0, net: 0, confPf: 0, confPa: 0, confNet: 0, oppNet: 0,
+      divRank: 0, confRank: 0, playoffSeed: null,
+      isDivisionChampion: false, isPlayoffTeam: false, tiebreakKey: '', tiebreakNote: null, tiedAbove: false,
     });
-}
+  }
 
-export function computeFullStandings(s: GameState): TeamStanding[] {
-  const teamConf = new Map(s.teams.map(t => [t.id, t.conf]));
-  const teamDiv = new Map(s.teams.map(t => [t.id, t.div]));
+  // recorde por adversário (para SoV / SoS / saldo dos adversários)
+  const perOpp = new Map<string, Map<string, OppRec>>();
+  const track = (team: string, opp: string, w: boolean, l: boolean, tie: boolean) => {
+    let m = perOpp.get(team);
+    if (!m) { m = new Map(); perOpp.set(team, m); }
+    const r = m.get(opp) ?? { w: 0, l: 0, t: 0 };
+    if (w) r.w++; else if (l) r.l++; else r.t++;
+    m.set(opp, r);
+  };
 
-  const standings: TeamStanding[] = s.teams.map(t => ({
-    teamId: t.id, conf: t.conf, div: t.div,
-    wins: 0, losses: 0, ties: 0, winPct: 0, gamesBehind: 0,
-    divWins: 0, divLosses: 0, divTies: 0, divPct: 0,
-    confWins: 0, confLosses: 0, confTies: 0, confPct: 0,
-    sov: 0, sos: 0,
-    pointsFor: 0, pointsAgainst: 0, netPoints: 0,
-    confPointsFor: 0, confPointsAgainst: 0,
-    divisionRank: 0, conferenceRank: 0, playoffSeed: null,
-    isDivisionChampion: false, isPlayoffTeam: false,
-    tiebreakKey: '', tiebreakNote: '', tiedAbove: false,
-  }));
-  const byId = new Map(standings.map(r => [r.teamId, r]));
-
-  // record básico + divisão + conferência + pontos
-  for (const t of s.teams) {
-    const r = byId.get(t.id)!;
-    for (const g of gamesOf(s, t.id)) {
-      const oppConf = teamConf.get(g.opp);
-      const oppDiv = teamDiv.get(g.opp);
-      if (g.win) r.wins++; else if (g.loss) r.losses++; else r.ties++;
-      r.pointsFor += g.pf; r.pointsAgainst += g.pa;
-      if (oppConf === t.conf) {
-        if (g.win) r.confWins++; else if (g.loss) r.confLosses++; else r.confTies++;
-        r.confPointsFor += g.pf; r.confPointsAgainst += g.pa;
-      }
-      if (oppConf === t.conf && oppDiv === t.div) {
-        if (g.win) r.divWins++; else if (g.loss) r.divLosses++; else r.divTies++;
-      }
+  for (const g of games) {
+    const A = st.get(g.casa)!; const B = st.get(g.fora)!;
+    const aWin = g.pc > g.pf; const bWin = g.pf > g.pc; const tie = !aWin && !bWin;
+    if (aWin) { A.wins++; B.losses++; } else if (bWin) { B.wins++; A.losses++; } else { A.ties++; B.ties++; }
+    A.pf += g.pc; A.pa += g.pf; B.pf += g.pf; B.pa += g.pc;
+    const sameConf = confOf.get(g.casa) === confOf.get(g.fora);
+    if (sameConf) {
+      if (aWin) { A.confWins++; B.confLosses++; } else if (bWin) { B.confWins++; A.confLosses++; } else { A.confTies++; B.confTies++; }
+      A.confPf += g.pc; A.confPa += g.pf; B.confPf += g.pf; B.confPa += g.pc;
     }
-    r.winPct = pct(r.wins, r.losses, r.ties);
-    r.divPct = pct(r.divWins, r.divLosses, r.divTies);
-    r.confPct = pct(r.confWins, r.confLosses, r.confTies);
-    r.netPoints = r.pointsFor - r.pointsAgainst;
+    if (sameConf && divOf.get(g.casa) === divOf.get(g.fora)) {
+      if (aWin) { A.divWins++; B.divLosses++; } else if (bWin) { B.divWins++; A.divLosses++; } else { A.divTies++; B.divTies++; }
+    }
+    track(g.casa, g.fora, aWin, bWin, tie);
+    track(g.fora, g.casa, bWin, aWin, tie);
   }
 
-  // SoV e SoS (média do winPct dos oponentes)
-  for (const t of s.teams) {
-    const r = byId.get(t.id)!;
-    const gs = gamesOf(s, t.id);
-    const wonOpps = gs.filter(g => g.win).map(g => byId.get(g.opp)!.winPct);
-    const allOpps = gs.map(g => byId.get(g.opp)!.winPct);
-    r.sov = wonOpps.length ? wonOpps.reduce((a, b) => a + b, 0) / wonOpps.length : 0;
-    r.sos = allOpps.length ? allOpps.reduce((a, b) => a + b, 0) / allOpps.length : 0;
+  for (const A of st.values()) {
+    A.winPct = pctOf(A.wins, A.losses, A.ties);
+    A.divPct = pctOf(A.divWins, A.divLosses, A.divTies);
+    A.confPct = pctOf(A.confWins, A.confLosses, A.confTies);
+    A.net = A.pf - A.pa;
+    A.confNet = A.confPf - A.confPa;
   }
 
-  return standings;
+  // Strength of Victory / Schedule / saldo dos adversários
+  for (const [id, A] of st) {
+    const m = perOpp.get(id);
+    if (!m) continue;
+    let sosSum = 0, sosG = 0, sovSum = 0, sovW = 0, oppNetSum = 0;
+    for (const [oid, r] of m) {
+      const O = st.get(oid)!;
+      const gms = r.w + r.l + r.t;
+      sosSum += O.winPct * gms; sosG += gms;
+      sovSum += O.winPct * r.w; sovW += r.w;
+      oppNetSum += O.net;
+    }
+    A.sos = sosG ? sosSum / sosG : 0;
+    A.sov = sovW ? sovSum / sovW : 0;
+    A.oppNet = oppNetSum;
+  }
+
+  return st;
 }
 
-/** Head-to-head: % de vitórias em jogos diretos contra os times do grupo. */
-function h2hPct(s: GameState, teamId: string, group: Set<string>): number {
-  let w = 0; let l = 0; let t = 0;
-  for (const g of gamesOf(s, teamId)) {
-    if (!group.has(g.opp)) continue;
-    if (g.win) w++; else if (g.loss) l++; else t++;
+/* ---------- critérios ---------- */
+type Crit =
+  | { kind: 'h2h' }
+  | { kind: 'common' }
+  | { kind: 'coin' }
+  | { kind: 'num'; key: string; label: string; get: (t: TeamStanding) => number; lower?: boolean };
+
+/** 15 tiebreakers oficiais de DIVISÃO. */
+export const DIVISION_CRITERIA: Crit[] = [
+  { kind: 'h2h' },
+  { kind: 'num', key: 'div', label: '% de vitórias na divisão', get: t => t.divPct },
+  { kind: 'common' },
+  { kind: 'num', key: 'conf', label: '% de vitórias na conferência', get: t => t.confPct },
+  { kind: 'num', key: 'sov', label: 'Strength of Victory', get: t => t.sov },
+  { kind: 'num', key: 'sos', label: 'Strength of Schedule', get: t => t.sos },
+  { kind: 'num', key: 'confPtsRank', label: 'saldo de pontos na conferência', get: t => t.confNet },
+  { kind: 'num', key: 'confPtsFor', label: 'pontos marcados na conferência', get: t => t.confPf },
+  { kind: 'num', key: 'confPtsAgainst', label: 'pontos sofridos na conferência', get: t => t.confPa, lower: true },
+  { kind: 'num', key: 'leaguePtsRank', label: 'saldo de pontos na liga', get: t => t.net },
+  { kind: 'num', key: 'ptsFor', label: 'pontos marcados na liga', get: t => t.pf },
+  { kind: 'num', key: 'ptsAgainst', label: 'pontos sofridos na liga', get: t => t.pa, lower: true },
+  { kind: 'num', key: 'net', label: 'net points na liga', get: t => t.net },
+  { kind: 'num', key: 'oppNet', label: 'saldo de todos os adversários', get: t => t.oppNet },
+  { kind: 'coin' },
+];
+
+/** 10 tiebreakers oficiais de CONFERÊNCIA (wild cards). */
+export const CONFERENCE_CRITERIA: Crit[] = [
+  { kind: 'h2h' },
+  { kind: 'num', key: 'conf', label: '% de vitórias na conferência', get: t => t.confPct },
+  { kind: 'common' },
+  { kind: 'num', key: 'sov', label: 'Strength of Victory', get: t => t.sov },
+  { kind: 'num', key: 'sos', label: 'Strength of Schedule', get: t => t.sos },
+  { kind: 'num', key: 'confPtsRank', label: 'saldo de pontos na conferência', get: t => t.confNet },
+  { kind: 'num', key: 'confPtsFor', label: 'pontos marcados na conferência', get: t => t.confPf },
+  { kind: 'num', key: 'confPtsAgainst', label: 'pontos sofridos na conferência', get: t => t.confPa, lower: true },
+  { kind: 'num', key: 'net', label: 'net points na liga', get: t => t.net },
+  { kind: 'coin' },
+];
+
+interface Ctx { games: GameRow[]; perOpp: (id: string) => Map<string, OppRec> | undefined; }
+
+/** head-to-head do grupo: % de vitórias nos jogos ENTRE os empatados. */
+function groupH2H(group: TeamStanding[], ctx: Ctx): Map<string, number> | null {
+  const ids = new Set(group.map(t => t.teamId));
+  const rec = new Map(group.map(t => [t.teamId, { w: 0, l: 0, t: 0, g: 0 }]));
+  for (const g of ctx.games) {
+    if (!ids.has(g.casa) || !ids.has(g.fora)) continue;
+    const a = rec.get(g.casa)!; const b = rec.get(g.fora)!;
+    a.g++; b.g++;
+    if (g.pc > g.pf) { a.w++; b.l++; } else if (g.pf > g.pc) { b.w++; a.l++; } else { a.t++; b.t++; }
   }
-  return pct(w, l, t);
+  if (group.some(t => rec.get(t.teamId)!.g === 0)) return null; // nem todos se enfrentaram
+  return new Map(group.map(t => {
+    const r = rec.get(t.teamId)!;
+    return [t.teamId, pctOf(r.w, r.l, r.t)] as const;
+  }));
 }
 
-/** Adversários comuns (mínimo 4): % de vitórias contra times que todos do grupo enfrentaram. */
-function commonPct(s: GameState, teamId: string, group: Set<string>): number {
-  const myOpps = new Set(gamesOf(s, teamId).map(g => g.opp));
-  let common = new Set<string>();
-  let first = true;
-  for (const id of group) {
-    if (id === teamId) continue;
-    const theirs = new Set(gamesOf(s, id).map(g => g.opp));
-    if (first) { common = theirs; first = false; }
-    else common = new Set([...common].filter(x => theirs.has(x)));
+/** adversários comuns: oponentes enfrentados por TODOS os empatados (mín. 4 jogos). */
+function groupCommon(group: TeamStanding[], ctx: Ctx): Map<string, number> | null {
+  const ids = new Set(group.map(t => t.teamId));
+  const faced = group.map(t => ctx.perOpp(t.teamId) ?? new Map<string, OppRec>());
+  const common = [...faced[0].keys()].filter(oid => !ids.has(oid) && faced.every(f => f.has(oid)));
+  if (common.length === 0) return null;
+  const out = new Map<string, number>();
+  let minGames = Infinity;
+  for (let i = 0; i < group.length; i++) {
+    let w = 0, l = 0, t = 0;
+    for (const oid of common) {
+      const r = faced[i].get(oid)!;
+      w += r.w; l += r.l; t += r.t;
+    }
+    minGames = Math.min(minGames, w + l + t);
+    out.set(group[i].teamId, pctOf(w, l, t));
   }
-  const valid = new Set([...common].filter(x => !group.has(x) && myOpps.has(x)));
-  if (valid.size < 4) return -1; // mínimo de 4 não atingido — critério ignorado
-  let w = 0; let l = 0; let t = 0;
-  for (const g of gamesOf(s, teamId)) {
-    if (!valid.has(g.opp)) continue;
-    if (g.win) w++; else if (g.loss) l++; else t++;
-  }
-  return pct(w, l, t);
+  return minGames >= 4 ? out : null;
+}
+
+const coinOrder = (group: TeamStanding[]) =>
+  [...group].sort((a, b) => hashIds(a.teamId) - hashIds(b.teamId));
+
+/** Resolve o critério p/ anotar no time (chave curta + nota legível). */
+function critVals(c: Crit, remaining: TeamStanding[], ctx: Ctx): Map<string, number> | null {
+  if (c.kind === 'h2h') return groupH2H(remaining, ctx);
+  if (c.kind === 'common') return groupCommon(remaining, ctx);
+  if (c.kind === 'coin') return null;
+  return new Map(remaining.map(t => [t.teamId, c.get(t)]));
+}
+function critKey(c: Crit): string {
+  if (c.kind === 'h2h') return 'h2h';
+  if (c.kind === 'common') return 'common';
+  if (c.kind === 'coin') return 'coin';
+  return c.key;
+}
+function critLabel(c: Crit): string {
+  if (c.kind === 'h2h') return 'confronto direto (head-to-head)';
+  if (c.kind === 'common') return 'adversários comuns (mín. 4 jogos)';
+  if (c.kind === 'coin') return 'sorteio (cara ou coroa)';
+  return c.label;
 }
 
 /**
- * Ordena um grupo pelas regras oficiais — COMPARAÇÃO LEXICOGRÁFICA.
- * winPct é SEMPRE a chave primária; a cascata só distingue times com
- * campanha idêntica. (Correção do bug antigo, que re-ordenava o grupo
- * inteiro a cada critério e podia inverter a ordem da campanha.)
+ * Ordena um grupo aplicando os critérios EM CASCATA (regra NFL): a cada
+ * critério, quem é o melhor isolado avança; quem é o pior isolado cai para o
+ * fim; e os critérios RECOMEÇAM do 1º para o subgrupo restante.
+ * A campanha (winPct) é a chave primária — só times empatados chegam aqui.
  */
-function rankGroup(s: GameState, group: TeamStanding[], labels: Record<string, string>): TeamStanding[] {
-  if (!group.length) return [];
-  const groupIds = new Set(group.map(g => g.teamId));
-  const sorters: { key: string; val: (r: TeamStanding) => number }[] = [
-    { key: 'h2h', val: r => h2hPct(s, r.teamId, groupIds) },
-    { key: 'div', val: r => r.divPct },
-    { key: 'common', val: r => commonPct(s, r.teamId, groupIds) },
-    { key: 'conf', val: r => r.confPct },
-    { key: 'sov', val: r => r.sov },
-    { key: 'sos', val: r => r.sos },
-    { key: 'confPtsRank', val: r => r.confPointsFor - r.confPointsAgainst },
-    { key: 'confPtsFor', val: r => r.confPointsFor },
-    { key: 'confPtsAgainst', val: r => -r.confPointsAgainst },
-    { key: 'leaguePtsRank', val: r => r.pointsFor - r.pointsAgainst },
-    { key: 'ptsFor', val: r => r.pointsFor },
-    { key: 'ptsAgainst', val: r => -r.pointsAgainst },
-    { key: 'net', val: r => r.netPoints },
-    { key: 'oppNet', val: r => r.sos },
-  ];
+function rankGroup(group: TeamStanding[], crits: Crit[], ctx: Ctx): TeamStanding[] {
+  if (group.length <= 1) return [...group];
+  const front: TeamStanding[] = [];
+  const back: TeamStanding[] = [];
+  let remaining = [...group];
+  let lastSplitCrit: Crit | null = null;
 
-  // matriz pré-computada (evita recálculo e mantém o "sorteio" determinístico)
-  const vals = new Map<string, number[]>();
-  for (const r of group) vals.set(r.teamId, sorters.map(st => st.val(r)));
-  const coin = new Map<string, number>();
-  for (const r of group) coin.set(r.teamId, (hashStr(r.teamId) % 1000) / 1000);
-
-  const ordered = [...group].sort((a, b) => {
-    // CAMADA 1 — campanha é sempre o critério primário
-    const dw = b.winPct - a.winPct;
-    if (Math.abs(dw) > 1e-9) return dw;
-    // CAMADA 2 — cascata somente entre campanhas iguais
-    const va = vals.get(a.teamId)!; const vb = vals.get(b.teamId)!;
-    for (let i = 0; i < sorters.length; i++) {
-      const d = vb[i] - va[i];
-      if (Math.abs(d) > 1e-9) return d;
-    }
-    return coin.get(a.teamId)! - coin.get(b.teamId)!; // sorteio determinístico
-  });
-
-  // anota, para cada time empatado, o critério que o separou do time de cima
-  for (let i = 0; i < ordered.length; i++) {
-    const r = ordered[i];
-    r.tiebreakKey = ''; r.tiebreakNote = ''; r.tiedAbove = false;
-    if (i === 0) continue;
-    const above = ordered[i - 1];
-    if (Math.abs(r.winPct - above.winPct) <= 1e-9) {
-      r.tiedAbove = true;
-      const va = vals.get(above.teamId)!; const vr = vals.get(r.teamId)!;
-      let found = 'coin';
-      for (let k = 0; k < sorters.length; k++) {
-        if (Math.abs(va[k] - vr[k]) > 1e-9) { found = sorters[k].key; break; }
+  while (remaining.length > 1) {
+    let split = false;
+    for (const c of crits) {
+      if (c.kind === 'coin') break;
+      const vals = critVals(c, remaining, ctx);
+      if (!vals) continue;
+      let bestV = -Infinity, worstV = Infinity;
+      for (const t of remaining) {
+        const v = vals.get(t.teamId)!;
+        bestV = Math.max(bestV, v); worstV = Math.min(worstV, v);
       }
-      r.tiebreakKey = found;
-      r.tiebreakNote = labels[found] ?? found;
+      if (bestV === worstV) continue; // não separa
+      const best = remaining.filter(t => vals.get(t.teamId) === bestV);
+      const worst = remaining.filter(t => vals.get(t.teamId) === worstV);
+      if (best.length === 1) {
+        best[0].tiedAbove = remaining.length > 1;
+        best[0].tiebreakKey = critKey(c); best[0].tiebreakNote = critLabel(c);
+        front.push(best[0]); remaining = remaining.filter(t => t !== best[0]);
+        lastSplitCrit = c; split = true; break;
+      }
+      if (worst.length === 1) {
+        worst[0].tiedAbove = true;
+        worst[0].tiebreakKey = critKey(c); worst[0].tiebreakNote = critLabel(c);
+        back.unshift(worst[0]); remaining = remaining.filter(t => t !== worst[0]);
+        lastSplitCrit = c; split = true; break;
+      }
+    }
+    if (!split) {
+      const order = coinOrder(remaining);
+      order.forEach((t, i) => {
+        if (i > 0) { t.tiedAbove = true; t.tiebreakKey = 'coin'; t.tiebreakNote = 'sorteio (cara ou coroa)'; }
+      });
+      return [...front, ...order, ...back];
     }
   }
-  return ordered;
+  if (remaining.length === 1) {
+    remaining[0].tiedAbove = front.length > 0 || back.length > 0 || lastSplitCrit != null;
+    front.push(remaining[0]);
+  }
+  return [...front, ...back];
 }
 
-/** Games behind em relação ao líder do grupo ordenado. */
+/* ---------- Games Behind em relação ao líder do grupo ---------- */
 function applyGamesBehind(ordered: TeamStanding[]): void {
   const leader = ordered[0];
   if (!leader) return;
@@ -262,50 +306,117 @@ function applyGamesBehind(ordered: TeamStanding[]): void {
   }
 }
 
-/** Ranqueia uma divisão (4 times) — 15 tiebreakers oficiais. */
-export function rankDivisionTb(s: GameState, conf: Conf, div: number, full: TeamStanding[]): TeamStanding[] {
-  const group = full.filter(r => r.conf === conf && r.div === div);
-  const ordered = rankGroup(s, group, DIVISION_CRITERIA_LABELS);
-  ordered.forEach((r, i) => { r.divisionRank = i + 1; });
-  if (ordered[0]) ordered[0].isDivisionChampion = true;
+/* ---------- ranking de DIVISÃO (1º ao 4º) ---------- */
+export function rankDivision(s: GameState, conf: Conf, div: number, stMap?: Map<string, TeamStanding>): TeamStanding[] {
+  const st = stMap ?? computeStandings(s);
+  const ctx: Ctx = { games: regGames(s), perOpp: id => perOppOf(s, id) };
+  const group = s.teams.filter(t => t.conf === conf && t.div === div).map(t => st.get(t.id)!);
+  const ordered = rankGroup(group, DIVISION_CRITERIA, ctx);
+  ordered.forEach((t, i) => {
+    t.divRank = i + 1;
+    t.isDivisionChampion = i === 0;
+  });
   applyGamesBehind(ordered);
   return ordered;
 }
 
-/** Ordena TODA a conferência e atribui seeds 1–7 (campeões sempre à frente). */
-export function conferenceOrder(s: GameState, conf: Conf): TeamStanding[] {
-  const full = computeFullStandings(s);
+/* ---------- ranking de CONFERÊNCIA (seeds + wild cards) ---------- */
+export function conferenceOrder(s: GameState, conf: Conf, stMap?: Map<string, TeamStanding>): TeamStanding[] {
+  const st = stMap ?? computeStandings(s);
+  const ctx: Ctx = { games: regGames(s), perOpp: id => perOppOf(s, id) };
 
-  // 1) campeões de divisão (4), ordenados entre si pelos critérios de conferência
+  // 1) campeões de divisão decididos pelos tiebreakers de DIVISÃO
   const champs: TeamStanding[] = [];
   for (let d = 0; d < 4; d++) {
-    const divOrdered = rankDivisionTb(s, conf, d, full);
-    if (divOrdered[0]) champs.push(divOrdered[0]);
+    const ordered = rankDivision(s, conf, d, st);
+    champs.push(ordered[0]);
   }
-  const champIds = new Set(champs.map(c => c.teamId));
-  const orderedChamps = rankGroup(s, champs, CONFERENCE_CRITERIA_LABELS);
-  orderedChamps.forEach((r, i) => { r.playoffSeed = i + 1; r.conferenceRank = i + 1; r.isPlayoffTeam = true; });
-
-  // 2) wild cards (próximos 3) — regra de ouro: jamais passam um campeão
-  const nonChamps = full.filter(r => r.conf === conf && !champIds.has(r.teamId));
-  const wcGroup = rankGroup(s, nonChamps, CONFERENCE_CRITERIA_LABELS);
-  wcGroup.forEach((r, i) => {
-    r.conferenceRank = champs.length + i + 1;
-    if (i < 3) { r.playoffSeed = champs.length + i + 1; r.isPlayoffTeam = true; }
+  // 2) seeds 1–4 entre os campeões (critérios de conferência)
+  const champsRanked = rankGroup(champs, CONFERENCE_CRITERIA, ctx);
+  champsRanked.forEach((t, i) => {
+    t.playoffSeed = i + 1;
+    t.confRank = i + 1;
+    t.isPlayoffTeam = true;
   });
 
-  const all = [...orderedChamps, ...wcGroup];
+  // 3) os 12 restantes → wild cards 5–7 (critérios de conferência)
+  const champIds = new Set(champs.map(c => c.teamId));
+  const rest = s.teams.filter(t => t.conf === conf && !champIds.has(t.id)).map(t => st.get(t.id)!);
+  const restRanked = rankGroup(rest, CONFERENCE_CRITERIA, ctx);
+  restRanked.forEach((t, i) => {
+    t.confRank = 5 + i;
+    if (i < 3) { t.playoffSeed = 5 + i; t.isPlayoffTeam = true; }
+  });
+
+  const all = [...champsRanked, ...restRanked];
   applyGamesBehind(all); // GB em relação ao seed #1
   return all;
 }
 
-/** Matchups do Wild Card: 2v7, 3v6, 4v5 (seed 1 folga). */
-export function generatePlayoffBracket(s: GameState, conf: Conf): { casa: string; fora: string }[] {
-  const seeds = conferenceOrder(s, conf).filter(r => r.playoffSeed != null);
-  const bySeed = new Map(seeds.map(r => [r.playoffSeed!, r.teamId]));
-  return [
-    { casa: bySeed.get(2)!, fora: bySeed.get(7)! },
-    { casa: bySeed.get(3)!, fora: bySeed.get(6)! },
-    { casa: bySeed.get(4)!, fora: bySeed.get(5)! },
+/* ---------- chave dos playoffs (matchups do Wild Card) ---------- */
+export interface PlayoffMatchup { seedCasa: number; seedFora: number; casaId: string; foraId: string; }
+export function generatePlayoffBracket(s: GameState, conf: Conf): { bye: TeamStanding; matchups: PlayoffMatchup[] } {
+  const order = conferenceOrder(s, conf).filter(t => t.playoffSeed != null);
+  const bySeed = new Map(order.map(t => [t.playoffSeed!, t]));
+  const bye = bySeed.get(1)!;
+  const matchups: PlayoffMatchup[] = [
+    { seedCasa: 2, seedFora: 7, casaId: bySeed.get(2)!.teamId, foraId: bySeed.get(7)!.teamId },
+    { seedCasa: 3, seedFora: 6, casaId: bySeed.get(3)!.teamId, foraId: bySeed.get(6)!.teamId },
+    { seedCasa: 4, seedFora: 5, casaId: bySeed.get(4)!.teamId, foraId: bySeed.get(5)!.teamId },
   ];
+  return { bye, matchups };
+}
+
+/* ---------- descritivos para a UI ---------- */
+export const DIVISION_CRITERIA_LABELS = [
+  'Confronto direto (head-to-head)',
+  '% de vitórias na divisão',
+  'Adversários comuns (mín. 4 jogos)',
+  '% de vitórias na conferência',
+  'Strength of Victory (% de vitórias dos vencidos)',
+  'Strength of Schedule (% de vitórias dos enfrentados)',
+  'Saldo de pontos na conferência',
+  'Pontos marcados na conferência',
+  'Pontos sofridos na conferência',
+  'Saldo de pontos na liga',
+  'Pontos marcados na liga',
+  'Pontos sofridos na liga',
+  'Net points na liga',
+  'Saldo de todos os adversários',
+  'Sorteio (cara ou coroa)',
+];
+export const CONFERENCE_CRITERIA_LABELS = [
+  'Confronto direto (se aplicável)',
+  '% de vitórias na conferência',
+  'Adversários comuns (mín. 4 jogos)',
+  'Strength of Victory',
+  'Strength of Schedule',
+  'Saldo de pontos na conferência',
+  'Pontos marcados na conferência',
+  'Pontos sofridos na conferência',
+  'Net points na liga',
+  'Sorteio (cara ou coroa)',
+];
+
+/* ---------- cache simples do recorde por adversário ---------- */
+const perOppCache = new WeakMap<GameState, Map<string, Map<string, OppRec>>>();
+function perOppOf(s: GameState, id: string): Map<string, OppRec> | undefined {
+  let cache = perOppCache.get(s);
+  if (!cache) {
+    cache = new Map();
+    for (const g of regGames(s)) {
+      const put = (team: string, opp: string, w: boolean, l: boolean, tie: boolean) => {
+        let m = cache!.get(team);
+        if (!m) { m = new Map(); cache!.set(team, m); }
+        const r = m.get(opp) ?? { w: 0, l: 0, t: 0 };
+        if (w) r.w++; else if (l) r.l++; else r.t++;
+        m.set(opp, r);
+      };
+      const aWin = g.pc > g.pf; const bWin = g.pf > g.pc; const tie = !aWin && !bWin;
+      put(g.casa, g.fora, aWin, bWin, tie);
+      put(g.fora, g.casa, bWin, aWin, tie);
+    }
+    perOppCache.set(s, cache);
+  }
+  return cache.get(id);
 }
