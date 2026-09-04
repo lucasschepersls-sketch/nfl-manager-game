@@ -9,7 +9,7 @@ import MatchScreen from './screens/Match';
 import StatsScreen from './screens/Stats';
 import { ClubHomeScreen } from './screens/Club';
 import { RosterScreen, TacticsScreen, MedicalScreen, LeagueRostersScreen } from './screens/Team';
-import { ScheduleScreen, StandingsScreen, FinanceScreen, RivalriesScreen, TeamComparatorScreen, PowerRankingsScreen, StorylinesScreen } from './screens/League';
+import { ScheduleScreen, FinanceScreen, RivalriesScreen, TeamComparatorScreen, PowerRankingsScreen, StorylinesScreen } from './screens/League';
 import { MarketScreen } from './screens/Market';
 import { DraftScreen } from './screens/Draft';
 import { OffseasonScreen } from './screens/Offseason';
