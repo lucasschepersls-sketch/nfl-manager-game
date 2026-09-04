@@ -21,6 +21,10 @@ import {
 } from './contracts';
 import { staffExpectations, staffHappiness } from './negotiations';
 import { simulateTrainingWeek, type TrainingCenterState } from './training';
+import {
+  computeStandings as computeFullStandings, rankDivision as rankDivisionTb,
+  conferenceOrder, generatePlayoffBracket, type TeamStanding,
+} from './tiebreakers';
 
 /* ================= helpers ================= */
 export const teamById = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -439,7 +443,13 @@ export function resetPreseasonStats(s: GameState): void {
 export interface TableRow {
   teamId: string; j: number; v: number; e: number; d: number;
   pf: number; pc: number; net: number; seq: string;
+  /* métricas oficiais de desempate (NFL) — preenchidas via tiebreakers */
+  winPct?: number; divPct?: number; confPct?: number;
+  sov?: number; sos?: number;
+  tiebreakNote?: string | null;
 }
+export type { TeamStanding };
+export { computeFullStandings, rankDivisionTb, conferenceOrder, generatePlayoffBracket };
 export function standings(s: GameState): TableRow[] {
   const rows: TableRow[] = s.teams.map(t => ({ teamId: t.id, j: 0, v: 0, e: 0, d: 0, pf: 0, pc: 0, net: 0, seq: '' }));
   const byId = new Map(rows.map(r => [r.teamId, r]));
@@ -458,22 +468,29 @@ export function standings(s: GameState): TableRow[] {
   for (const r of rows) { r.net = r.pf - r.pc; r.seq = r.seq.trim().split(' ').slice(-5).join(' '); }
   return rows;
 }
+/** Tabela da divisão ordenada pelos 15 tiebreakers oficiais da NFL. */
 export function divisionTable(s: GameState, conf: Conf, div: number): TableRow[] {
-  return standings(s)
-    .filter(r => { const t = teamById(s, r.teamId); return t.conf === conf && t.div === div; })
-    .sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net);
+  const full = computeFullStandings(s);
+  const ordered = rankDivisionTb(s, conf, div, full);
+  const base = new Map(standings(s).map(r => [r.teamId, r]));
+  return ordered.map(t => {
+    const b = base.get(t.teamId)!;
+    return {
+      ...b,
+      winPct: t.winPct, divPct: t.divPct, confPct: t.confPct,
+      sov: t.sov, sos: t.sos, tiebreakNote: t.tiebreakNote,
+    };
+  });
 }
+/**
+ * Seeds 1–7 da conferência pelos tiebreakers oficiais.
+ * Regra de ouro: campeões de divisão (1–4) SEMPRE à frente dos wild cards (5–7).
+ */
 export function conferenceSeeds(s: GameState, conf: Conf): { teamId: string; seed: number }[] {
-  const champs: TableRow[] = [];
-  const rest: TableRow[] = [];
-  for (let d = 0; d < 4; d++) {
-    const tbl = divisionTable(s, conf, d);
-    champs.push(tbl[0]);
-    rest.push(...tbl.slice(1));
-  }
-  champs.sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net);
-  rest.sort((a, b) => (b.v + b.e * 0.5) - (a.v + a.e * 0.5) || b.net - a.net);
-  return [...champs, ...rest.slice(0, 3)].map((r, i) => ({ teamId: r.teamId, seed: i + 1 }));
+  return conferenceOrder(s, conf)
+    .filter(t => t.playoffSeed != null)
+    .sort((a, b) => a.playoffSeed! - b.playoffSeed!)
+    .map(t => ({ teamId: t.teamId, seed: t.playoffSeed! }));
 }
 export function playoffZone(s: GameState, conf: Conf): Set<string> {
   return new Set(conferenceSeeds(s, conf).map(x => x.teamId));
