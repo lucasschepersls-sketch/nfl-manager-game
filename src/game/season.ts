@@ -338,7 +338,7 @@ export function generateNFLSchedule(teams: SchedTeam[], year: number, ranks: Ran
   week18.forEach((g, i) => ms.push({
     id: `reg-18-${g.casa}-${i}-${year}`, fase: 'REG', rodada: 18,
     casa: g.casa, fora: g.fora, placarCasa: null, placarFora: null, jogada: false,
-  })));
+  }));
   return ms;
 }
 
@@ -445,10 +445,10 @@ function mergeStats(s: GameState, r: GameResult) {
   const stC = s.teamSeasonStats.find(x => x.teamId === r.casaId)!;
   const stF = s.teamSeasonStats.find(x => x.teamId === r.foraId)!;
   stC.pointsAllowed += r.placarFora; stF.pointsAllowed += r.placarCasa;
-  stC.sacks += r.rich.fora.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.sacks ?? 0), 0);
-  stF.sacks += r.rich.casa.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.sacks ?? 0), 0);
-  stC.interceptions += r.rich.casa.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.intDef ?? 0), 0);
-  stF.interceptions += r.rich.fora.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.intDef ?? 0), 0);
+  stC.sacks += r.rich.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.sacks ?? 0), 0);
+  stF.sacks += r.rich.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.sacks ?? 0), 0);
+  stC.interceptions += r.rich.lines.filter(l => l.teamId === r.casaId).reduce((a, l) => a + (l.intDef ?? 0), 0);
+  stF.interceptions += r.rich.lines.filter(l => l.teamId === r.foraId).reduce((a, l) => a + (l.intDef ?? 0), 0);
   void opp; void oppPts;
 }
 
@@ -575,7 +575,7 @@ function nextRound(s: GameState) {
   const nomes = ['Wild Card', 'Divisional', 'Final de Conferência', 'Super Bowl'];
   const idx = s.bracket!.length - 1;
   const round = s.bracket![idx];
-  const winnersByConf = new Map<Conf, { casa: string; fora: string; pc: number; pf: number }[]>();
+  const winnersByConf = new Map<Conf, { casa: string; fora: string; pc: number; pf: number; winner: string }[]>();
   for (const conf of ['AFC', 'NFC'] as Conf[]) winnersByConf.set(conf, []);
 
   const seedOf = new Map<string, { conf: Conf; seed: number }>();
