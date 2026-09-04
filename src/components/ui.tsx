@@ -74,10 +74,13 @@ export function Ovr({ v, pot }: { v: number; pot?: number }) {
 }
 
 /* ---------- barra de progresso ---------- */
-export function Bar({ pct, color = 'var(--color-grass)' }: { pct: number; color?: string }) {
+export function Bar({ pct, color = 'var(--color-grass)', h }: { pct: number; color?: string; h?: number }) {
   const w = Math.max(0, Math.min(100, pct));
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-pitcho">
+    <div
+      className="w-full overflow-hidden rounded-full bg-pitcho"
+      style={{ height: h ? `${h}px` : '8px' }}
+    >
       <div className="h-full rounded-full transition-all duration-300" style={{ width: `${w}%`, background: color }} />
     </div>
   );
