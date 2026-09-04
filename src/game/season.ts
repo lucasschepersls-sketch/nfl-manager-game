@@ -17,6 +17,10 @@ import type { Side } from './engine';
 import { NFLMatchEngine } from './engine';
 import { resetScouting, aiScoutingWave, applyDraftSurprise } from './scouting';
 import { emptyProBowl, runWeeklyProBowlVoting, selectProBowlRoster, type WeekBox } from './probowl';
+import {
+  recordCoachEvaluation, sendEvaluationMessage, checkUserFiring, generateAiCoachFirings,
+  sendProBowlResults, sendSuperBowlMessage, sendInjuryMessage, notify,
+} from './messaging';
 import { addChurn, recalcChemistry } from './franchise';
 import {
   acceptanceRoll, calcExpectations, franchiseTagValue, happinessVerdict,
@@ -459,7 +463,13 @@ function mergeStats(s: GameState, r: GameResult) {
   }
   for (const inj of r.lesoes) {
     const p = s.players.find(x => x.id === inj.playerId);
-    if (p && p.lesao === 0) { p.lesao = inj.semanas; p.lesaoTotal = inj.semanas; p.lesaoTipo = inj.tipo; }
+    if (p && p.lesao === 0) {
+      p.lesao = inj.semanas; p.lesaoTotal = inj.semanas; p.lesaoTipo = inj.tipo;
+      // mensagem para o usuário quando uma estrela do seu time se lesiona
+      if (p.teamId === s.userTeam && p.ovr >= 78) {
+        sendInjuryMessage(s, p.nome, p.pos, inj.semanas, inj.tipo);
+      }
+    }
   }
   const winner = r.placarCasa > r.placarFora ? r.casaId : r.placarFora > r.placarCasa ? r.foraId : null;
   for (const id of [r.casaId, r.foraId]) {
@@ -546,8 +556,17 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
       pushNews(s, 'TEMPORADA REGULAR', 'A pré-temporada acabou! 18 semanas valem a vaga nos playoffs. Semana 18 é 100% divisão.');
     } else s.settings.semana++;
   } else if (fase === 'REG') {
+    // 📧 avaliação semanal da diretoria + mensagens a cada 4 semanas
+    const perf = recordCoachEvaluation(s);
+    if (semana % 4 === 0) sendEvaluationMessage(s, perf);
+    // 📧 demissões de técnicos da IA abrem vagas no mercado
+    generateAiCoachFirings(s, rng);
+    // 📧 segurança do cargo do usuário (pode ser demitido)
+    checkUserFiring(s, rng);
+
     if (semana >= 18) {
       selectProBowlRoster(s);
+      sendProBowlResults(s);
       startPlayoffs(s);
     } else s.settings.semana++;
   } else if (fase === 'PO') {
@@ -557,8 +576,24 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
       const t = teamById(s, s.userTeam);
       pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
     }
+    // sincroniza os placares da rodada no bracket e avança para a próxima fase
+    if (s.bracket && s.bracket.length) {
+      syncRoundResults(s, semana);
+      if (semana === s.bracket.length) {
+        if (semana < 4) nextRound(s);
+        else {
+          // Super Bowl (rodada 4) concluído → registra o campeão + mensagem
+          const sb = s.bracket[3].jogos[0];
+          if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
+            const champId = (sb.pc ?? 0) >= (sb.pf ?? 0) ? sb.casa : sb.fora;
+            s.campeoes.push({ temporada: s.settings.temporada, teamId: champId });
+            sendSuperBowlMessage(s, champId);
+          }
+        }
+      }
+    }
     s.settings.semana++;
-    if (s.settings.semana > (s.bracket?.length ?? 4)) endSeason(s, rng);
+    if (s.settings.semana > 4) endSeason(s, rng);
   }
   return { state: s, out };
 }
@@ -666,6 +701,19 @@ function nextRound(s: GameState) {
 
 function endSeason(s: GameState, rng: Rng) {
   s.settings.fase = 'OFF'; s.settings.semana = 0;
+
+  // vagas não preenchidas expiram; técnico ainda demitido segue desempregado
+  s.jobOpenings = s.jobOpenings.filter(j => j.isFilled);
+  if (s.coachFired) {
+    notify(s, {
+      category: 'job', sender: 'Agente', senderIcon: '🤝',
+      subject: 'Temporada encerrada — você segue sem clube',
+      body: 'A temporada acabou e você não assumiu um novo comando. Seu agente segue negociando: ' +
+        'novas vagas devem abrir durante a próxima temporada conforme técnicos forem demitidos.',
+      priority: 'urgent',
+      availableActions: [{ id: 'goto_jobs', label: 'Ver vagas abertas', kind: 'goto', screen: 'jobs' }],
+    });
+  }
 
   // envelhecimento + desenvolvimento
   const aposentados: string[] = [];

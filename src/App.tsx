@@ -5,11 +5,15 @@ import { TEAMS_DEF, DIV_NAMES, CONF_LABEL } from './game/data';
 import { Panel, TeamCrest, Bar } from './components/ui';
 import { ClubHomeScreen } from './screens/Club';
 import { TradesScreen } from './screens/Trades';
+import { InboxScreen, JobsScreen } from './screens/Inbox';
 import { StandingsScreen } from './screens/Standings';
+import { unreadCount } from './game/messaging';
 
 /* ============ navegação lateral ============ */
 const NAV: { s: Screen; label: string; glyph: string; grupo: string }[] = [
   { s: 'home', label: 'Visão Geral', glyph: '🏈', grupo: 'CLUBE' },
+  { s: 'inbox', label: 'Mensagens', glyph: '📧', grupo: 'CLUBE' },
+  { s: 'jobs', label: 'Carreira', glyph: '💼', grupo: 'CLUBE' },
   { s: 'elenco', label: 'Elenco', glyph: '👥', grupo: 'CLUBE' },
   { s: 'taticas', label: 'Táticas & Treino', glyph: '📋', grupo: 'CLUBE' },
   { s: 'dm', label: 'Depto. Médico', glyph: '⚕️', grupo: 'CLUBE' },
@@ -185,6 +189,8 @@ function Shell() {
       case 'home': return <ClubHomeScreen />;
       case 'trades': return <TradesScreen />;
       case 'classificacao': return <StandingsScreen />;
+      case 'inbox': return <InboxScreen />;
+      case 'jobs': return <JobsScreen />;
       default: return <MissingScreen screen={st.screen} />;
     }
   };

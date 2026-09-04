@@ -10,6 +10,9 @@ import {
 import { executeProposal } from '../game/trades';
 import { castFanVote } from '../game/probowl';
 import { studyOpponent } from '../game/scouting';
+import {
+  markRead, toggleStar, toggleArchive, removeMessage, markAllRead, applyToJob,
+} from '../game/messaging';
 
 const SAVE_KEY = 'tag-manager-save-v1';
 
@@ -17,7 +20,13 @@ export function loadSave(): GameState | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as GameState;
+    const g = JSON.parse(raw) as GameState;
+    // migração para saves antigos (antes do sistema de mensagens)
+    if (!Array.isArray(g.messages)) g.messages = [];
+    if (!Array.isArray(g.coachHistory)) g.coachHistory = [];
+    if (!Array.isArray(g.jobOpenings)) g.jobOpenings = [];
+    if (typeof g.coachFired !== 'boolean') g.coachFired = false;
+    return g;
   } catch {
     return null;
   }
@@ -53,6 +62,12 @@ export type Action =
   | { type: 'PROBOWL_VOTE'; playerId: string }
   | { type: 'TRADE_PROPOSE'; proposal: TradeProposal }
   | { type: 'STUDY_OPPONENT'; teamId: string }
+  | { type: 'MSG_READ'; id: number }
+  | { type: 'MSG_STAR'; id: number }
+  | { type: 'MSG_ARCHIVE'; id: number }
+  | { type: 'MSG_DELETE'; id: number }
+  | { type: 'MSG_READ_ALL'; category?: import('../game/types').MessageCategory }
+  | { type: 'APPLY_JOB'; jobId: number }
   | { type: 'TOAST_CLEAR' };
 
 function reducerCore(st: StoreState, a: Action): StoreState {
@@ -176,6 +191,42 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       const g = structuredClone(st.game);
       const r = studyOpponent(g, a.teamId);
       return { ...st, game: g, toast: r.msg };
+    }
+    case 'MSG_READ': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      markRead(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_STAR': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      toggleStar(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_ARCHIVE': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      toggleArchive(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_DELETE': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      removeMessage(g, a.id);
+      return { ...st, game: g };
+    }
+    case 'MSG_READ_ALL': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      markAllRead(g, a.category);
+      return { ...st, game: g };
+    }
+    case 'APPLY_JOB': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = applyToJob(g, a.jobId, new Rng(newSeed()));
+      return { ...st, game: g, toast: r.msg, screen: r.ok ? 'home' : st.screen };
     }
     default:
       return st;

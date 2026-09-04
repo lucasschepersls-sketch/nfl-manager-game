@@ -8,6 +8,7 @@ import {
 import { generateNFLSchedule, initialRanks } from './season';
 import { initialPickOwners } from './trades';
 import { emptyProBowl } from './probowl';
+import { createWelcomeMessage } from './messaging';
 
 const ATTR_KEYS: AttrKey[] = ['passe', 'corrida', 'recepcao', 'bloqueio', 'tackle', 'chute', 'velocidade', 'resistencia'];
 
@@ -126,5 +127,9 @@ export function newGame(userTeamId: string, seed: number): GameState {
     powerRankings: [],
     probowl: emptyProBowl(2026),
     trainingState: { focus: 'resistencia', intensity: 'NORMAL', playersTraining: [] },
+    messages: [createWelcomeMessage(userTeamId, teams.find(t => t.id === userTeamId)!)],
+    coachHistory: [],
+    jobOpenings: [],
+    coachFired: false,
   };
 }
