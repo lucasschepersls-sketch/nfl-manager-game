@@ -14,6 +14,7 @@ import {
   generateNFLSchedule, initialRanks, type RankMap, type SchedTeam,
 } from './season';
 import { emptyProBowl } from './probowl';
+import { createWelcomeMessage } from './messaging';
 import { initialPickOwners } from './trades';
 import { balanceElite } from './scouting';
 
@@ -231,6 +232,10 @@ export function newGame(userTeamId: string, seed: number): GameState {
     campeoes: [],
     focus: 'FISICO',
     trainingState: { focus: 'FISICO', intensity: 'NORMAL', playersTraining: [] },
+    messages: [createWelcomeMessage(userTeamId, teams.find(t => t.id === userTeamId)!)],
+    coachHistory: [],
+    jobOpenings: [],
+    coachFired: false,
     lastResult: null,
     weekResults: [],
     scoutBudget: 10,
