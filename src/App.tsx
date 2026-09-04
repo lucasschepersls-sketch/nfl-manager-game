@@ -5,6 +5,7 @@ import { TEAMS_DEF, DIV_NAMES, CONF_LABEL } from './game/data';
 import { Panel, TeamCrest, Bar } from './components/ui';
 import { ClubHomeScreen } from './screens/Club';
 import { TradesScreen } from './screens/Trades';
+import { StandingsScreen } from './screens/Standings';
 
 /* ============ navegação lateral ============ */
 const NAV: { s: Screen; label: string; glyph: string; grupo: string }[] = [

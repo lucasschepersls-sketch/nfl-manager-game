@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import { useGame } from '../state/store';
-import { teamById, divisionTable, conferenceTable, fmtM } from '../game/season';
+import { teamById, divisionTable, conferenceTable, fmtM, fmtRecord } from '../game/season';
 import { fmtWinPct, fmtGB, CRITERIA_SHORT, DIVISION_CRITERIA_LABELS } from '../game/tiebreakers';
 import type { Conf } from '../game/types';
 import { TeamCrest, Panel } from '../components/ui';
@@ -23,6 +23,7 @@ function RecordCell({ v, e, d }: { v: number; e: number; d: number }) {
   return (
     <span className="font-disp text-[15px] font-bold tracking-wide text-ink">
       {v}-{d}{e > 0 ? <span className="text-faint">-{e}</span> : null}
+      <span className="sr-only">{fmtRecord(v, d, e)}</span>
     </span>
   );
 }

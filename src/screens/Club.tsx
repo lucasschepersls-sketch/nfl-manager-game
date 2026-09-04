@@ -1,7 +1,7 @@
 import { useGame } from '../state/store';
 import {
   teamById, playersOf, capUsed, teamStrength, standings, validateRoster, fmtM,
-  conferenceSeeds, playoffZone,
+  conferenceSeeds, playoffZone, fmtRecord,
 } from '../game/season';
 import { teamStage, teamChemistry, STAGE_ZONES, chemistryLabel, stageLabel } from '../game/franchise';
 import { TeamCrest, Bar, Panel, SeqBadge } from '../components/ui';
@@ -80,7 +80,7 @@ export function ClubHomeScreen() {
 
       {/* chips */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <StatChip label="Campanha" value={linha ? `${linha.v}V ${linha.e}E ${linha.d}D` : '—'} />
+        <StatChip label="Campanha (W-L-T)" value={linha ? fmtRecord(linha.v, linha.d, linha.e) : '—'} />
         <StatChip label="Caixa" value={`$${t.dinheiro}M`} tone="var(--color-goldhi)" />
         <StatChip label="Elenco" value={`${ativos.length}/53`} tone={ativos.length === 53 ? 'var(--color-grass)' : 'var(--color-blood)'} />
         <StatChip label="Lesionados" value={String(lesionados.length)} tone={lesionados.length ? 'var(--color-blood)' : undefined} />
@@ -228,7 +228,7 @@ function MiniStandings({ g }: { g: GameState }) {
     <Panel title={`Classificação ${t.conf}`} pad={false}
       right={<span className={`tag ${inZone ? 'border-grass/50 text-grass' : 'border-line text-faint'}`}>{inZone ? 'Na zona' : 'Fora da zona'}</span>}>
       <table className="tbl">
-        <thead><tr><th /> <th>Clube</th><th className="num">V</th><th className="num">D</th><th className="num">+/−</th><th>Últ.5</th></tr></thead>
+        <thead><tr><th /> <th>Clube</th><th className="num">W-L-T</th><th className="num">+/−</th><th>Últ.5</th></tr></thead>
         <tbody>
           {rows.map(r => {
             const rt = teamById(g, r.teamId);
@@ -238,8 +238,7 @@ function MiniStandings({ g }: { g: GameState }) {
               <tr key={r.teamId} style={me ? { background: 'rgba(240,180,41,0.07)' } : undefined}>
                 <td className="w-8 font-mono text-[11px] text-gold">{sd ? `#${sd}` : ''}</td>
                 <td><span className="mr-2 inline-block h-[9px] w-[9px]" style={{ background: rt.cor }} />{rt.cidade} <b>{rt.nome}</b></td>
-                <td className="num">{r.v}</td>
-                <td className="num">{r.d}</td>
+                <td className="num font-disp font-bold tracking-wide">{fmtRecord(r.v, r.d, r.e)}</td>
                 <td className="num">{r.net > 0 ? `+${r.net}` : r.net}</td>
                 <td><SeqBadge seq={r.seq} /></td>
               </tr>
