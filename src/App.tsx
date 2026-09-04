@@ -152,9 +152,11 @@ function Sidebar() {
         <div key={gr} className="mb-4">
           <div className="px-4 pb-1.5 font-mono text-[10px] uppercase tracking-[0.28em] text-faint">{gr}</div>
           {NAV.filter(n => n.grupo === gr).map(n => {
-            const unread = n.s === 'inbox' && st.game
-              ? st.game.messages.filter(m => !m.isRead && !m.isArchived).length
-              : 0;
+            const unreadMsgs = n.s === 'inbox' && st.game
+              ? st.game.messages.filter(m => !m.isRead && !m.isArchived)
+              : [];
+            const unread = unreadMsgs.length;
+            const urgentUnread = unreadMsgs.filter(m => m.priority === 'urgent').length;
             return (
               <button
                 key={n.s}
@@ -165,8 +167,13 @@ function Sidebar() {
                 <span className="truncate">{n.label}</span>
                 {unread > 0 && (
                   <span
-                    className="ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-blood px-1 font-mono text-[10px] font-bold leading-none text-white"
-                    title={`${unread} mensagem(ns) não lida(s)`}
+                    className={[
+                      'ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-mono text-[10px] font-bold',
+                      urgentUnread > 0 ? 'animate-pulse bg-blood text-white' : 'bg-gold text-pitcho',
+                    ].join(' ')}
+                    title={urgentUnread > 0
+                      ? `${urgentUnread} URGENTE(S) · ${unread} não lida(s)`
+                      : `${unread} mensagem(ns) não lida(s)`}
                   >
                     {unread > 99 ? '99+' : unread}
                   </span>
