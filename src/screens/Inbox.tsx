@@ -101,6 +101,35 @@ function TrainingPayload({ msg }: { msg: Message }) {
   );
 }
 
+/* ---------- payload: Super Bowl (MVP, placar, jogada do jogo) ---------- */
+function SuperBowlPayload({ msg }: { msg: Message }) {
+  const mvp = msg.dataPayload?.mvp as { nome: string; pos: string; linha: string } | null;
+  const jogada = (msg.dataPayload?.jogada ?? null) as string | null;
+  const placar = (msg.dataPayload?.placar ?? null) as string | null;
+  if (!mvp && !jogada && !placar) return null;
+  return (
+    <div className="mt-3 border border-gold/40 bg-gold/[0.06] p-3">
+      <div className="mb-1.5 font-disp text-[12.5px] font-bold uppercase tracking-wider text-goldhi">Resumo do Super Bowl</div>
+      {placar && (
+        <div className="py-[3px] font-mono text-[12px]">
+          <span className="text-dim">Placar final: </span><b className="text-ink">{placar}</b>
+        </div>
+      )}
+      {mvp && (
+        <div className="py-[3px] font-mono text-[12px]">
+          <span className="text-goldhi">🏅 MVP: </span><b className="text-ink">{mvp.nome}</b>
+          <span className="text-dim"> ({mvp.pos}) — {mvp.linha}</span>
+        </div>
+      )}
+      {jogada && (
+        <div className="py-[3px] font-mono text-[12px]">
+          <span className="text-ice">⚡ Jogada do jogo: </span><span className="text-ink">{jogada}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function InboxScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
@@ -277,6 +306,7 @@ export function InboxScreen() {
               ) : null}
               {selected.category === 'pro_bowl' && <ProBowlPayload msg={selected} />}
               {selected.category === 'training' && <TrainingPayload msg={selected} />}
+              {selected.category === 'super_bowl' && <SuperBowlPayload msg={selected} />}
 
               {selected.availableActions && selected.availableActions.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
