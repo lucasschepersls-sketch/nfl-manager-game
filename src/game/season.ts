@@ -867,20 +867,27 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
       }
     }
 
-    if (s.bracket && s.bracket.length) {
-      syncRoundResults(s, semana);
-      if (semana === s.bracket.length) {
-        if (semana < 4) nextRound(s);
-        else {
-          // Super Bowl (rodada 4) concluído → registra o campeão + mensagem
-          const sb = s.bracket[3].jogos[0];
-          if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
-            const champId = (sb.pc ?? 0) >= (sb.pf ?? 0) ? sb.casa : sb.fora;
-            s.campeoes.push({ temporada: s.settings.temporada, teamId: champId });
-            sendSuperBowlMessage(s, champId, superBowlResult ?? undefined);
+    // sincroniza os placares da rodada no bracket e avança para a próxima fase.
+    // Isolado em try/catch: uma falha na construção da próxima rodada NÃO pode
+    // derrubar a simulação — os jogos já simulados devem sempre aparecer.
+    try {
+      if (s.bracket && s.bracket.length) {
+        syncRoundResults(s, semana);
+        if (semana === s.bracket.length) {
+          if (semana < 4) nextRound(s);
+          else {
+            // Super Bowl (rodada 4) concluído → registra o campeão + mensagem
+            const sb = s.bracket[3]?.jogos[0];
+            if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
+              const champId = (sb.pc ?? 0) >= (sb.pf ?? 0) ? sb.casa : sb.fora;
+              s.campeoes.push({ temporada: s.settings.temporada, teamId: champId });
+              sendSuperBowlMessage(s, champId, superBowlResult ?? undefined);
+            }
           }
         }
       }
+    } catch (err) {
+      console.error('[TAG] Falha ao progredir rodada dos playoffs (semana ' + semana + '):', err);
     }
 
     s.settings.semana++;
@@ -904,6 +911,12 @@ function startPlayoffs(s: GameState) {
     }
     return out;
   };
+  if (!jogos.length) {
+    // segurança: sem matchups válidos, volta para a offseason sem quebrar
+    console.error('[TAG] startPlayoffs: nenhum matchup de Wild Card gerado.');
+    endSeason(s, new Rng(newSeed()));
+    return;
+  }
   s.bracket = [{ nome: 'Wild Card', jogos: jogos() }];
   for (const conf of ['AFC', 'NFC'] as Conf[]) {
     const seeds = conferenceSeeds(s, conf);
