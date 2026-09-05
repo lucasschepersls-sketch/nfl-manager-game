@@ -401,15 +401,17 @@ export function conferenceOrder(s: GameState, conf: Conf, stMap?: Map<string, Te
 
 /* ---------- chave dos playoffs (matchups do Wild Card) ---------- */
 export interface PlayoffMatchup { seedCasa: number; seedFora: number; casaId: string; foraId: string; }
-export function generatePlayoffBracket(s: GameState, conf: Conf): { bye: TeamStanding; matchups: PlayoffMatchup[] } {
+export function generatePlayoffBracket(s: GameState, conf: Conf): { bye: TeamStanding | null; matchups: PlayoffMatchup[] } {
   const order = conferenceOrder(s, conf).filter(t => t.playoffSeed != null);
   const bySeed = new Map(order.map(t => [t.playoffSeed!, t]));
-  const bye = bySeed.get(1)!;
-  const matchups: PlayoffMatchup[] = [
-    { seedCasa: 2, seedFora: 7, casaId: bySeed.get(2)!.teamId, foraId: bySeed.get(7)!.teamId },
-    { seedCasa: 3, seedFora: 6, casaId: bySeed.get(3)!.teamId, foraId: bySeed.get(6)!.teamId },
-    { seedCasa: 4, seedFora: 5, casaId: bySeed.get(4)!.teamId, foraId: bySeed.get(5)!.teamId },
-  ];
+  const bye = bySeed.get(1) ?? null;
+  const pair = (a: number, b: number): PlayoffMatchup | null => {
+    const ta = bySeed.get(a); const tb = bySeed.get(b);
+    if (!ta || !tb) return null;
+    return { seedCasa: a, seedFora: b, casaId: ta.teamId, foraId: tb.teamId };
+  };
+  const matchups: PlayoffMatchup[] = [];
+  for (const m of [pair(2, 7), pair(3, 6), pair(4, 5)]) if (m) matchups.push(m);
   return { bye, matchups };
 }
 
