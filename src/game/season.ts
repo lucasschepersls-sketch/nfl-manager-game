@@ -586,6 +586,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
     } else s.settings.semana++;
   } else if (fase === 'PO') {
     const stillIn = userStillAlive(s);
+    console.log('[TAG] PO semana', semana, 'stillIn:', stillIn, 'bracket:', s.bracket?.length, 'weekMatches:', weekMatches.length);
     if (prev.bracket && !stillIn && bracketHadUser(prev, s.userTeam)) {
       out.eliminado = true;
       const t = teamById(s, s.userTeam);
@@ -596,10 +597,14 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
     // derrubar a simulação — os jogos já simulados devem sempre aparecer.
     try {
       if (s.bracket && s.bracket.length) {
+        console.log('[TAG] syncRoundResults semana', semana);
         syncRoundResults(s, semana);
         if (semana === s.bracket.length) {
-          if (semana < 4) nextRound(s);
-          else {
+          console.log('[TAG] semana === bracket.length, semana:', semana);
+          if (semana < 4) {
+            console.log('[TAG] nextRound');
+            nextRound(s);
+          } else {
             // Super Bowl (rodada 4) concluído → registra o campeão + mensagem
             const sb = s.bracket[3]?.jogos[0];
             if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
@@ -614,6 +619,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome 
       console.error('[TAG] Falha ao progredir rodada dos playoffs (semana ' + semana + '):', err);
     }
     s.settings.semana++;
+    console.log('[TAG] PO avançou para semana', s.settings.semana);
     if (s.settings.semana > 4) endSeason(s, rng);
   }
   return { state: s, out };
@@ -631,13 +637,17 @@ const bracketHadUser = (s: GameState, uid: string) => {
 
 /* ================= playoffs ================= */
 function startPlayoffs(s: GameState) {
+  console.log('[TAG] startPlayoffs iniciado, userTeam:', s.userTeam);
   s.settings.fase = 'PO'; s.settings.semana = 1;
   const jogos: { casa: string; fora: string; pc: number | null; pf: number | null; jogada: boolean }[] = [];
   for (const conf of ['AFC', 'NFC'] as Conf[]) {
-    for (const m of generatePlayoffBracket(s, conf).matchups) {
+    const bracket = generatePlayoffBracket(s, conf);
+    console.log('[TAG] bracket', conf, 'matchups:', bracket.matchups.length, 'bye:', bracket.bye?.teamId);
+    for (const m of bracket.matchups) {
       jogos.push({ casa: m.casaId, fora: m.foraId, pc: null, pf: null, jogada: false });
     }
   }
+  console.log('[TAG] total de jogos Wild Card:', jogos.length);
   if (!jogos.length) {
     // segurança: sem matchups válidos, volta para a offseason sem quebrar
     console.error('[TAG] startPlayoffs: nenhum matchup de Wild Card gerado.');
@@ -654,6 +664,8 @@ function startPlayoffs(s: GameState) {
   for (const j of jogos) {
     s.matches.push({ id: `po-1-${j.casa}-${j.fora}`, fase: 'PO', rodada: 1, casa: j.casa, fora: j.fora, placarCasa: null, placarFora: null, jogada: false });
   }
+  console.log('[TAG] startPlayoffs concluído, total de matches PO:', s.matches.filter(m => m.fase === 'PO').length);
+  console.log('[TAG] userTeam está nos playoffs?', jogos.some(j => j.casa === s.userTeam || j.fora === s.userTeam));
 }
 
 function syncRoundResults(s: GameState, rodada: number) {
