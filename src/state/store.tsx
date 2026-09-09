@@ -5,7 +5,7 @@ import { newSeed, Rng } from '../game/rng';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser,
   negotiateContract, releasePlayer, renewStaff, setTactics, setStatus,
-  signFA, upgrade, userDraftPick,
+  signFA, upgrade, userDraftPick, generateNFLSchedule,
 } from '../game/season';
 import { executeProposal } from '../game/trades';
 import { castFanVote } from '../game/probowl';
@@ -26,6 +26,46 @@ export function loadSave(): GameState | null {
     if (!Array.isArray(g.coachHistory)) g.coachHistory = [];
     if (!Array.isArray(g.jobOpenings)) g.jobOpenings = [];
     if (typeof g.coachFired !== 'boolean') g.coachFired = false;
+    
+    // migração: detecta calendários quebrados e regenera
+    if (g.settings.fase === 'REG' && g.matches) {
+      const regMatches = g.matches.filter(m => m.fase === 'REG');
+      const teamGames = new Map<string, number>();
+      const interConfGames = regMatches.filter(m => {
+        const casa = g.teams.find(t => t.id === m.casa);
+        const fora = g.teams.find(t => t.id === m.fora);
+        return casa && fora && casa.conf !== fora.conf;
+      });
+      
+      for (const m of regMatches) {
+        teamGames.set(m.casa, (teamGames.get(m.casa) ?? 0) + 1);
+        teamGames.set(m.fora, (teamGames.get(m.fora) ?? 0) + 1);
+      }
+      
+      // se algum time tem menos de 17 jogos ou não há jogos interconferência, regenera
+      const hasIncomplete = [...teamGames.values()].some(n => n !== 17);
+      const hasNoInterConf = interConfGames.length === 0;
+      
+      if (hasIncomplete || hasNoInterConf) {
+        console.warn('[TAG] Calendário quebrado detectado, regenerando...');
+        const ranks = new Map<string, number>();
+        for (const conf of ['AFC', 'NFC'] as const) {
+          for (let d = 0; d < 4; d++) {
+            const div = g.teams.filter(t => t.conf === conf && t.div === d)
+              .sort((a, b) => (b.histCampanha?.[0] ?? 0.5) - (a.histCampanha?.[0] ?? 0.5));
+            div.forEach((t, i) => ranks.set(t.id, i + 1));
+          }
+        }
+        const newReg = generateNFLSchedule(
+          g.teams.map(t => ({ id: t.id, conf: t.conf, div: t.div })),
+          g.settings.temporada,
+          ranks,
+          new Rng(newSeed())
+        );
+        g.matches = [...g.matches.filter(m => m.fase !== 'REG'), ...newReg];
+      }
+    }
+    
     return g;
   } catch {
     return null;

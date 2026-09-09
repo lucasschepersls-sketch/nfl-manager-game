@@ -135,13 +135,13 @@ function buildMatchups(teams: SchedTeam[], year: number, ranks: RankMap): Game[]
   for (const t of teams) {
     const otherConf: Conf = t.conf === 'AFC' ? 'NFC' : 'AFC';
     const oppDiv = (t.div + year) % 4;
-    const opp = divByRank(otherConf, oppDiv)[rankOf(t.id) - 1];
-    if (!opp) continue;
+    const myRank = rankOf(t.id);
     for (let i = 0; i < 4; i++) {
       const partner = divByRank(otherConf, oppDiv)[i];
-      const myRank = rankOf(t.id);
+      if (!partner) continue;
       if (i === myRank - 1) continue; // já é o jogo extra (abaixo)
-      void partner;
+      const aHosts = (myRank + parity) % 2 === 0;
+      games.push(aHosts ? { casa: t.id, fora: partner.id, isDiv: false } : { casa: partner.id, fora: t.id, isDiv: false });
     }
   }
   // jogo interconferência "mesma posição outra conferência" (1 por time)
