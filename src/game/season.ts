@@ -290,10 +290,11 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   }
 
   const weeks = bestWeeks ?? Array.from({ length: 17 }, () => []);
+  
   // Varredura final CORRETIVA: encaixa jogos restantes em semanas onde AMBOS os
   // times estão livres (usa && — nunca coloca um time duas vezes na mesma semana).
-  let left = bestLeft;
-  for (const g of [...left]) {
+  let left = [...bestLeft];
+  for (const g of left) {
     for (let w = 0; w < 17; w++) {
       const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
       if (!busy.has(g.casa) && !busy.has(g.fora) && bye.get(g.casa) !== w && bye.get(g.fora) !== w) {
@@ -303,7 +304,8 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
       }
     }
   }
-  // Último recurso: ignora bye (mas NUNCA duplica time na semana).
+  
+  // Segundo recurso: ignora bye (mas NUNCA duplica time na semana).
   if (left.length > 0) {
     console.warn(`Calendário: ${left.length} jogo(s) realocados ignorando bye.`);
     for (const g of [...left]) {
@@ -317,6 +319,36 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
       }
     }
   }
+  
+  // ÚLTIMO RECURSO: permite duplicação de time na semana (mas nunca na semana de bye).
+  // Isso garante que TODOS os jogos sejam alocados, mesmo que um time jogue 2x na mesma semana.
+  if (left.length > 0) {
+    console.error(`Calendário CRÍTICO: ${left.length} jogo(s) ainda não alocados. Forçando alocação.`);
+    for (const g of [...left]) {
+      // Encontra a semana com menos jogos onde nenhum dos times está de bye
+      let bestWeek = -1;
+      let minGames = Infinity;
+      for (let w = 0; w < 17; w++) {
+        if (bye.get(g.casa) === w || bye.get(g.fora) === w) continue;
+        if (weeks[w].length < minGames) {
+          minGames = weeks[w].length;
+          bestWeek = w;
+        }
+      }
+      if (bestWeek >= 0) {
+        weeks[bestWeek].push(g);
+        left = left.filter(x => x !== g);
+      }
+    }
+  }
+  
+  // Validação final: garante que todas as 17 semanas têm pelo menos 1 jogo
+  for (let w = 0; w < 17; w++) {
+    if (weeks[w].length === 0) {
+      console.error(`Calendário: Semana ${w + 1} está vazia!`);
+    }
+  }
+  
   return { weeks, week18 };
 }
 
