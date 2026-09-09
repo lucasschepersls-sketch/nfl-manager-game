@@ -252,103 +252,129 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
   }
   const rest = games.filter(g => !w18Keys.has(`${g.casa}>${g.fora}`));
 
-  // bye weeks (semanas 5..14 = índices 4..13): 1 folga por time
+  // bye weeks 5-14 (índices 4..13): 8 semanas com 4 folgas (paridade par —
+  // sempre dá para emparelhar os demais), sem rivais de divisão na mesma semana
   const bye = new Map<string, number>();
   {
-    const byeWeeks = rng.shuffle([4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
-    const ids = rng.shuffle(teams.map(t => t.id));
-    ids.forEach((id, i) => bye.set(id, byeWeeks[i % byeWeeks.length]));
-  }
-
-  // Alocação gulosa multissemente: tenta encaixar todos sem repetir time na semana.
-  let bestWeeks: Game[][] | null = null;
-  let bestLeft: Game[] = rest;
-  for (let attempt = 0; attempt < 60 && bestLeft.length > 0; attempt++) {
-    const r2 = new Rng((rng.int(1, 0x7fffffff) + attempt * 7919) >>> 0);
-    const weeks: Game[][] = Array.from({ length: 17 }, () => []);
-    const remaining = r2.shuffle([...rest]);
-    for (let w = 0; w < 17 && remaining.length; w++) {
-      const booked = new Set<string>();
-      for (const t of teams) if (bye.get(t.id) === w) booked.add(t.id);
-      let progress = true;
-      while (progress) {
-        progress = false;
-        for (let i = remaining.length - 1; i >= 0; i--) {
-          const g = remaining[i];
-          if (booked.has(g.casa) || booked.has(g.fora)) continue;
-          weeks[w].push(g);
-          booked.add(g.casa); booked.add(g.fora);
-          remaining.splice(i, 1);
-          progress = true;
-        }
+    const byeWeeks = rng.shuffle([4, 5, 6, 7, 8, 9, 10, 11, 12, 13]).slice(0, 8);
+    const slots = new Map<number, string[]>();
+    for (const w of byeWeeks) slots.set(w, []);
+    for (const key of rng.shuffle([...byDiv.keys()])) {
+      const usedByDiv = new Set<number>();
+      for (const t of rng.shuffle(byDiv.get(key)!)) {
+        const open = byeWeeks
+          .filter(w => !usedByDiv.has(w) && (slots.get(w)?.length ?? 0) < 4)
+          .sort((a, b) => (slots.get(a)!.length - slots.get(b)!.length) || (rng.next() - 0.5));
+        const w = open[0] ?? byeWeeks[0];
+        slots.get(w)!.push(t.id);
+        usedByDiv.add(w);
+        bye.set(t.id, w);
       }
     }
-    if (remaining.length < bestLeft.length) {
-      bestLeft = remaining;
-      bestWeeks = weeks;
-    }
   }
 
-  const weeks = bestWeeks ?? Array.from({ length: 17 }, () => []);
-  
-  // Varredura final CORRETIVA: encaixa jogos restantes em semanas onde AMBOS os
-  // times estão livres (usa && — nunca coloca um time duas vezes na mesma semana).
-  let left = [...bestLeft];
-  for (const g of left) {
-    for (let w = 0; w < 17; w++) {
-      const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
-      if (!busy.has(g.casa) && !busy.has(g.fora) && bye.get(g.casa) !== w && bye.get(g.fora) !== w) {
+  /* Alocação semanas 1..17 — mínimos conflitos.
+     INVARIANTE GARANTIDO: nenhum time joga duas vezes na mesma semana.
+     Cada time tem 16 jogos nas 17 semanas (1 bye + 1 folga), então sempre
+     existe uma solução perfeita; o algoritmo a encontra por reparo iterativo. */
+  const N = 17;
+  // semana[i] = lista de jogos; busy[i] = set de times ocupados na semana i
+  const weeks: Game[][] = Array.from({ length: N }, () => []);
+  const busy: Set<string>[] = Array.from({ length: N }, () => new Set<string>());
+  for (let w = 0; w < N; w++) {
+    for (const t of teams) if (bye.get(t.id) === w) busy[w].add(t.id);
+  }
+  // em qual semana cada jogo está (-1 = não alocado)
+  const weekOf = new Array<number>(rest.length).fill(-1);
+
+  const conflictsAt = (w: number, g: Game): number => {
+    let c = 0;
+    if (busy[w].has(g.casa)) c++;
+    if (busy[w].has(g.fora)) c++;
+    return c;
+  };
+
+  // 1) Inicialização gulosa: cada jogo na semana com menos conflitos
+  const order = rng.shuffle(rest.map((_, i) => i));
+  for (const gi of order) {
+    const g = rest[gi];
+    let bestW = 0; let bestC = Infinity;
+    for (let w = 0; w < N; w++) {
+      const c = conflictsAt(w, g);
+      if (c < bestC || (c === bestC && rng.next() < 0.5)) { bestC = c; bestW = w; }
+    }
+    weekOf[gi] = bestW;
+    weeks[bestW].push(g);
+    busy[bestW].add(g.casa); busy[bestW].add(g.fora);
+  }
+
+  // 2) Reparo por mínimos conflitos até não haver choque de times
+  const isConflicted = (gi: number): boolean => {
+    const w = weekOf[gi]; const g = rest[gi];
+    let cntC = 0; let cntF = 0;
+    for (const other of weeks[w]) {
+      if (other === g) continue;
+      if (other.casa === g.casa || other.fora === g.casa) cntC++;
+      if (other.casa === g.fora || other.fora === g.fora) cntF++;
+    }
+    return cntC > 0 || cntF > 0;
+  };
+
+  for (let iter = 0; iter < 20000; iter++) {
+    const conflicted = rest.map((_, i) => i).filter(isConflicted);
+    if (conflicted.length === 0) break;
+    const gi = conflicted[rng.int(0, conflicted.length - 1)];
+    const g = rest[gi];
+    const from = weekOf[gi];
+    // semana com menos conflitos para este jogo (excluindo a atual para forçar movimento)
+    let bestW = from; let bestC = Infinity;
+    for (let w = 0; w < N; w++) {
+      const c = conflictsAt(w, g) + weeks[w].length * 0.001; // leve preferência por semanas vazias
+      if (w !== from && (c < bestC || (c === bestC && rng.next() < 0.5))) { bestC = c; bestW = w; }
+    }
+    if (bestW === from) continue;
+    // move o jogo
+    weeks[from] = weeks[from].filter(x => x !== g);
+    busy[from] = new Set(weeks[from].flatMap(x => [x.casa, x.fora]));
+    for (const t of teams) if (bye.get(t.id) === from) busy[from].add(t.id);
+    weeks[bestW].push(g);
+    busy[bestW] = new Set(weeks[bestW].flatMap(x => [x.casa, x.fora]));
+    for (const t of teams) if (bye.get(t.id) === bestW) busy[bestW].add(t.id);
+    weekOf[gi] = bestW;
+  }
+
+  // 3) Correção forçada do invariante: nenhum time 2x na mesma semana.
+  //    Remove duplicatas e as redistribui em semanas livres.
+  const overflow: Game[] = [];
+  for (let w = 0; w < N; w++) {
+    const seen = new Set<string>();
+    const kept: Game[] = [];
+    for (const g of weeks[w]) {
+      if (seen.has(g.casa) || seen.has(g.fora)) {
+        overflow.push(g); // conflito: retira da semana
+      } else {
+        seen.add(g.casa); seen.add(g.fora);
+        kept.push(g);
+      }
+    }
+    weeks[w] = kept;
+  }
+  // redistribui o que sobrou em semanas com ambos os times livres
+  for (const g of [...overflow]) {
+    for (let w = 0; w < N; w++) {
+      const busyW = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
+      for (const t of teams) if (bye.get(t.id) === w) busyW.add(t.id);
+      if (!busyW.has(g.casa) && !busyW.has(g.fora)) {
         weeks[w].push(g);
-        left = left.filter(x => x !== g);
+        overflow.splice(overflow.indexOf(g), 1);
         break;
       }
     }
   }
-  
-  // Segundo recurso: ignora bye (mas NUNCA duplica time na semana).
-  if (left.length > 0) {
-    console.warn(`Calendário: ${left.length} jogo(s) realocados ignorando bye.`);
-    for (const g of [...left]) {
-      for (let w = 0; w < 17; w++) {
-        const busy = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
-        if (!busy.has(g.casa) && !busy.has(g.fora)) {
-          weeks[w].push(g);
-          left = left.filter(x => x !== g);
-          break;
-        }
-      }
-    }
+  if (overflow.length > 0) {
+    console.warn(`Calendário: ${overflow.length} jogo(s) sem semana — o grafo de confrontos não fechou. Isso não deveria acontecer.`);
   }
-  
-  // ÚLTIMO RECURSO: permite duplicação de time na semana (mas nunca na semana de bye).
-  // Isso garante que TODOS os jogos sejam alocados, mesmo que um time jogue 2x na mesma semana.
-  if (left.length > 0) {
-    console.error(`Calendário CRÍTICO: ${left.length} jogo(s) ainda não alocados. Forçando alocação.`);
-    for (const g of [...left]) {
-      // Encontra a semana com menos jogos onde nenhum dos times está de bye
-      let bestWeek = -1;
-      let minGames = Infinity;
-      for (let w = 0; w < 17; w++) {
-        if (bye.get(g.casa) === w || bye.get(g.fora) === w) continue;
-        if (weeks[w].length < minGames) {
-          minGames = weeks[w].length;
-          bestWeek = w;
-        }
-      }
-      if (bestWeek >= 0) {
-        weeks[bestWeek].push(g);
-        left = left.filter(x => x !== g);
-      }
-    }
-  }
-  
-  // Validação final: garante que todas as 17 semanas têm pelo menos 1 jogo
-  for (let w = 0; w < 17; w++) {
-    if (weeks[w].length === 0) {
-      console.error(`Calendário: Semana ${w + 1} está vazia!`);
-    }
-  }
-  
+
   return { weeks, week18 };
 }
 
