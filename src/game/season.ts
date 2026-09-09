@@ -423,8 +423,7 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
     }
   }
   if (overflow.length > 0) {
-    console.warn(`Calendário: ${overflow.length} jogo(s) sem semana — o grafo de confrontos não fechou. Isso não deveria acontecer.`);
-  }
+    console.warn(`Calendário: ${overflow.length} jogo(s) sem semana — o grafo de confrontos não fechou. Isso não deveria acontecer.`);  }
 
   return { weeks, week18 };
 }
