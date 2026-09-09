@@ -867,6 +867,32 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
       }
     }
 
+    // Se não há jogos do usuário nesta semana, simula os jogos dos outros times
+    if (weekMatches.length === 0 && s.bracket && semana <= s.bracket.length) {
+      const round = s.bracket[semana - 1];
+      if (round) {
+        // Simula jogos não jogados desta rodada
+        for (const j of round.jogos) {
+          if (j.jogada) continue;
+          // Encontra ou cria o match correspondente
+          const match = s.matches.find(m =>
+            m.fase === 'PO' && m.rodada === semana &&
+            ((m.casa === j.casa && m.fora === j.fora) || (m.casa === j.fora && m.fora === j.casa))
+          );
+          if (match && !match.jogada) {
+            const engine = new NFLMatchEngine(sideOf(s, match.casa), sideOf(s, match.fora), rng, {});
+            const r = engine.simulate(match.id, `Playoffs — ${round.nome}`);
+            match.placarCasa = r.placarCasa;
+            match.placarFora = r.placarFora;
+            match.jogada = true;
+            match.publico = r.publico;
+            mergeStats(s, r);
+            if (semana === 4) superBowlResult = r;
+          }
+        }
+      }
+    }
+
     // sincroniza os placares da rodada no bracket e avança para a próxima fase.
     // Isolado em try/catch: uma falha na construção da próxima rodada NÃO pode
     // derrubar a simulação — os jogos já simulados devem sempre aparecer.
