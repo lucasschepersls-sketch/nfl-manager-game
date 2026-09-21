@@ -1,0 +1,10 @@
+
+> dev
+> vite --host 0.0.0.0
+
+
+  VITE v6.4.3  ready in 529 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://21.0.7.5:3000/
+  ➜  press h + enter to show help
