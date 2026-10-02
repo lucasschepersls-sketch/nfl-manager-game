@@ -37,6 +37,7 @@ import { unreadCount } from './game/messaging';
 import { WeekLeagueScreen } from './screens/WeekLeague';
 import { ProBowlScreen } from './screens/ProBowl';
 import { HallOfFameScreen } from './screens/HallOfFame';
+import HistoryScreen from './screens/History';
 
 /* ---------- navegação ---------- */
 const NAV: { s: Screen; label: string; glyph: ReactNode; grupo: string }[] = [
@@ -55,6 +56,7 @@ const NAV: { s: Screen; label: string; glyph: ReactNode; grupo: string }[] = [
   { s: 'classificacao', label: 'Classificação', glyph: Icons.standings, grupo: 'LIGA' },
   { s: 'probowl', label: 'Pro Bowl', glyph: Icons.trophy, grupo: 'LIGA' },
   { s: 'hall-of-fame', label: 'Hall of Fame', glyph: Icons.trophy, grupo: 'LIGA' },
+  { s: 'history', label: 'Histórico da Franquia', glyph: Icons.standings, grupo: 'LIGA' },
   { s: 'rivalidades', label: 'Rivalidades', glyph: Icons.trophy, grupo: 'LIGA' },
   { s: 'elencos-liga', label: 'Elencos da Liga', glyph: Icons.roster, grupo: 'LIGA' },
   { s: 'comparador', label: 'Comparador H2H', glyph: Icons.standings, grupo: 'LIGA' },
@@ -206,6 +208,7 @@ function Content() {
     case 'calendario-liga': return <WeekLeagueScreen />;
     case 'probowl': return <ProBowlScreen />;
     case 'hall-of-fame': return <HallOfFameScreen />;
+    case 'history': return <HistoryScreen />;
     case 'rivalidades': return <RivalriesScreen />;
     case 'elencos-liga': return <LeagueRostersScreen />;
     case 'comparador': return <TeamComparatorScreen />;

@@ -58,8 +58,9 @@ export const qbRows = (s: GameState) => seasonRows(s).filter(r => r.p.stats.att 
 export const rbRows = (s: GameState) => seasonRows(s).filter(r => r.p.stats.car > 0);
 export const recRows = (s: GameState) => seasonRows(s).filter(r => r.p.stats.rec > 0);
 export const defRows = (s: GameState) =>
-  seasonRows(s).filter(r => r.p.stats.tackles > 0 || r.p.stats.sacks > 0 || r.p.stats.intDef > 0);
-export const kRows = (s: GameState) => seasonRows(s).filter(r => r.p.stats.fgT > 0);
+  seasonRows(s).filter(r => r.p.stats.tackles > 0 || r.p.stats.sacks > 0 || r.p.stats.intDef > 0
+    || r.p.stats.ff > 0 || r.p.stats.fumbleRec > 0 || r.p.stats.passesDefended > 0 || r.p.stats.safeties > 0);
+export const kRows = (s: GameState) => seasonRows(s).filter(r => r.p.stats.fgT > 0 || r.p.stats.extraPointsAttempted > 0);
 export const pRows = (s: GameState) => seasonRows(s).filter(r => r.p.stats.punts > 0);
 
 /* ---------- estatísticas de times ---------- */

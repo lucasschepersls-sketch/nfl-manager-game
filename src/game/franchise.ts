@@ -96,6 +96,15 @@ export function recalcChemistry(s: GameState, teamId: string): void {
   if (t) t.quimica = teamChemistry(s, teamId).score;
 }
 
+/** Ajusta a reputação da franquia e retorna a variação efetivamente aplicada. */
+export function adjustReputation(s: GameState, teamId: string, delta: number): { before: number; after: number } {
+  const t = s.teams.find(x => x.id === teamId);
+  if (!t) return { before: 50, after: 50 };
+  const before = t.reputacao ?? 50;
+  t.reputacao = clamp(Math.round(before + delta), 20, 95);
+  return { before, after: t.reputacao };
+}
+
 /** Rotatividade de elenco (troca, corte, contratação) derruba a química. */
 export function addChurn(s: GameState, teamId: string, amount: number): void {
   const t = s.teams.find(x => x.id === teamId);

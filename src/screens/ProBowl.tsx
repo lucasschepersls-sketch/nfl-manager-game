@@ -13,19 +13,23 @@ export function ProBowlScreen() {
     g.probowl.votes
       .map(v => ({ v, p: votePlayer(g, v), t: voteTeam(g, v) }))
       .filter(x => x.p && x.p.pos === pos)
-      .sort((a, b) => b.v.totalWeighted - a.v.totalWeighted),
+      .sort((a, b) => b.v.totalWeighted - a.v.totalWeighted || b.v.fanVotes - a.v.fanVotes),
     [g, pos]);
 
   const roster = useMemo(() => g.probowl.announced ? proBowlRoster(g) : null, [g]);
   const canVote = !g.probowl.announced && g.settings.fase === 'REG';
-  const alreadyVoted = g.probowl.userFanVote?.week === g.settings.semana;
+  const humanCoach = g.staff.find(member => member.isHuman && member.funcao === 'Técnico Principal');
+  const coachTeam = humanCoach ? g.teams.find(team => team.id === humanCoach.teamId) : undefined;
+  const alreadyVoted = humanCoach
+    ? g.probowl.userCoachVote?.week === g.settings.semana
+    : g.probowl.userFanVote?.week === g.settings.semana;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-disp text-[26px] font-extrabold uppercase tracking-wide">🏆 Votação Pro Bowl {g.settings.temporada}</h2>
-          <p className="font-mono text-[11.5px] text-faint">Fãs 75% · Jogadores 25% · Técnicos 25% {canVote ? `· Semana ${g.settings.semana}` : ''}</p>
+          <p className="font-mono text-[11.5px] text-faint">Fãs 33⅓% · Jogadores 33⅓% · Técnicos 33⅓% (100% no total){canVote ? ` · Semana ${g.settings.semana}` : ''}</p>
         </div>
         {g.probowl.announced && <span className="tag border-gold/60 text-gold">ROSTER ANUNCIADO</span>}
       </div>
@@ -41,7 +45,7 @@ export function ProBowlScreen() {
           {([['AFC', roster.afc], ['NFC', roster.nfc]] as const).map(([conf, list]) => (
             <Panel key={conf} title={`Seleção ${conf}`} pad={false}>
               <table className="tbl">
-                <thead><tr><th>POS</th><th>Jogador</th><th>Time</th><th className="num">Votos</th><th>Tipo</th></tr></thead>
+                <thead><tr><th>POS</th><th>Jogador</th><th>Time</th><th className="num">Consenso</th><th>Tipo</th></tr></thead>
                 <tbody>
                   {list.map(x => {
                     const p = votePlayer(g, x)!; const t = voteTeam(g, x);
@@ -50,7 +54,7 @@ export function ProBowlScreen() {
                         <td><PosBadge pos={p.pos} /></td>
                         <td>{p.nome}</td>
                         <td>{t && <span className="inline-flex items-center gap-1.5"><TeamDot cor={t.cor} />{t.sigla}</span>}</td>
-                        <td className="num text-goldhi">{fmtVotes(x.totalWeighted)}</td>
+                        <td className="num text-goldhi">{x.totalWeighted.toFixed(1)}%</td>
                         <td>{x.isStarter ? <span className="tag border-gold/60 text-gold">TITULAR</span> : <span className="tag border-line text-dim">RESERVA</span>}</td>
                       </tr>
                     );
@@ -74,13 +78,18 @@ export function ProBowlScreen() {
                   <td className="num">{fmtVotes(x.v.fanVotes)}</td>
                   <td className="num">{fmtVotes(x.v.playerVotes)}</td>
                   <td className="num">{fmtVotes(x.v.coachVotes)}</td>
-                  <td className="num highlight-num">{fmtVotes(x.v.totalWeighted)}</td>
+                  <td className="num highlight-num">{x.v.totalWeighted.toFixed(1)}%</td>
                   <td>
                     {canVote && (
-                      <button className="btn btn-sm btn-gold" disabled={alreadyVoted}
-                        title={alreadyVoted ? 'Você já votou nesta semana' : 'Seu voto de fã (+2.500)'}
+                      <button className="btn btn-sm btn-gold"
+                        disabled={alreadyVoted || (!!humanCoach && (!coachTeam || x.t?.id === coachTeam.id || x.t?.conf !== coachTeam.conf))}
+                        title={alreadyVoted ? 'Você já votou nesta semana' : humanCoach
+                          ? x.t?.id === coachTeam?.id ? 'Técnicos não votam em jogadores do próprio time'
+                            : x.t?.conf !== coachTeam?.conf ? 'Técnicos votam apenas na própria conferência'
+                              : 'Seu voto de técnico (+2.500)'
+                          : 'Seu voto de fã (+2.500)'}
                         onClick={() => dispatch({ type: 'PROBOWL_VOTE', playerId: x.v.playerId })}>
-                        {alreadyVoted ? 'Votou ✓' : '🗳️ Votar'}
+                        {alreadyVoted ? 'Votou ✓' : humanCoach ? '🗳️ Voto técnico' : '🗳️ Votar'}
                       </button>
                     )}
                   </td>

@@ -1,6 +1,6 @@
 import { useGame } from '../state/store';
 import { teamById, playersOf } from '../game/season';
-import { Panel, TeamCrest, Stars } from '../components/ui';
+import { Panel, TeamCrest } from '../components/ui';
 import type { FranchiseHistory, SeasonRecord } from '../game/types';
 
 export default function HistoryScreen() {
@@ -15,7 +15,7 @@ export default function HistoryScreen() {
         <div className="px-5 py-10 text-center">
           <div className="font-disp text-[26px] font-bold uppercase text-dim">Nenhuma temporada registrada ainda</div>
           <p className="mt-2 font-mono text-[12.5px] text-faint">
-            O histórico começa a ser construído após o primeiro Super Bowl. Conquistas, records e líderes de todos os tempos aparecerão aqui.
+            A retrospectiva começa ao fim da primeira temporada. Campanhas, playoffs e líderes da franquia serão registrados automaticamente.
           </p>
         </div>
       </Panel>
@@ -30,6 +30,7 @@ export default function HistoryScreen() {
       </td>
     </tr>
   );
+  const recentSeasons = [...h.seasons].sort((a, b) => b.temporada - a.temporada).slice(0, 8).reverse();
 
   return (
     <div className="space-y-5">
@@ -71,6 +72,23 @@ export default function HistoryScreen() {
           </div>
         ))}
       </div>
+
+      <Panel title="Trajetória recente" right={<span className="font-mono text-[10px] text-faint">Últimas {recentSeasons.length} temporadas</span>}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+          {recentSeasons.map(season => {
+            const played = season.vitorias + season.derrotas + season.empates;
+            const winPct = played ? (season.vitorias + season.empates * 0.5) / played : 0;
+            const diff = season.pf - season.pc;
+            return <div key={season.temporada} className="border border-line2 bg-panel2 px-2.5 py-2">
+              <div className="flex items-center justify-between font-mono text-[10px] text-faint"><span>{season.temporada}</span><span>{season.playoffFinish ?? (season.superBowl ? 'Campeão' : season.playoffs ? 'Playoffs' : '—')}</span></div>
+              <div className="mt-1 font-disp text-[17px] font-bold text-ink">{season.vitorias}-{season.derrotas}{season.empates ? `-${season.empates}` : ''}</div>
+              <div className="mt-1 h-1.5 bg-pitcho"><div className="h-full bg-grass" style={{ width: `${Math.round(winPct * 100)}%` }} /></div>
+              <div className={`mt-1 font-mono text-[10px] ${diff > 0 ? 'text-grass' : diff < 0 ? 'text-blood' : 'text-faint'}`}>Saldo {diff > 0 ? '+' : ''}{diff}</div>
+            </div>;
+          })}
+          {!recentSeasons.length && <p className="col-span-full py-3 font-mono text-[12px] text-faint">Os resultados aparecerão após a primeira temporada.</p>}
+        </div>
+      </Panel>
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* records */}
@@ -118,7 +136,7 @@ export default function HistoryScreen() {
             <thead>
               <tr>
                 <th>Temp.</th><th className="num">V</th><th className="num">D</th><th className="num">E</th>
-                <th className="num">PF</th><th className="num">PC</th><th>Playoffs</th><th>Título Div.</th><th>Super Bowl</th>
+                <th className="num">PF</th><th className="num">PC</th><th>Pós-temporada</th><th>Seed</th><th>Título Div.</th><th>Técnico</th>
               </tr>
             </thead>
             <tbody>
@@ -130,9 +148,10 @@ export default function HistoryScreen() {
                   <td className="num text-faint">{s.empates}</td>
                   <td className="num">{s.pf}</td>
                   <td className="num">{s.pc}</td>
-                  <td>{s.playoffs ? <span className="tag border-grass/60 text-grass">SIM</span> : <span className="text-faint">—</span>}</td>
+                  <td>{s.playoffs ? <span className={`tag ${s.superBowl ? 'border-goldhi text-goldhi' : 'border-grass/60 text-grass'}`}>{s.playoffFinish ?? (s.superBowl ? 'Campeão' : 'Playoffs')}</span> : <span className="text-faint">—</span>}</td>
+                  <td className="font-mono text-gold">{s.seed ? `#${s.seed}` : '—'}</td>
                   <td>{s.divisionTitle ? <span className="tag border-gold/60 text-gold">SIM</span> : <span className="text-faint">—</span>}</td>
-                  <td>{s.superBowl ? <span className="tag border-goldhi text-goldhi">CAMPEÃO</span> : <span className="text-faint">—</span>}</td>
+                  <td className="text-dim">{s.coach ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

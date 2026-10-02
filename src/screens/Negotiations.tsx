@@ -6,6 +6,7 @@ import {
   STRUCT_DESC, STRUCT_LABEL,
 } from '../game/contracts';
 import type { ContractStructure, Player } from '../game/types';
+import type { Pos } from '../game/types';
 import { Panel, PosBadge, Ovr, TeamCrest } from '../components/ui';
 
 type RowKind = 'holdout' | 'ultimo' | 'extensao';
@@ -39,7 +40,9 @@ export function NegotiationsScreen() {
   }, [roster]);
 
   const [selId, setSelId] = useState<string | null>(null);
-  const sel = rows.find(r => r.p.id === selId)?.p ?? rows[0]?.p ?? null;
+  const [position, setPosition] = useState<Pos | 'ALL'>('ALL');
+  const visibleRows = rows.filter(r => position === 'ALL' || r.p.pos === position);
+  const sel = visibleRows.find(r => r.p.id === selId)?.p ?? visibleRows[0]?.p ?? null;
 
   const [years, setYears] = useState(3);
   const [base, setBase] = useState(5);
@@ -72,7 +75,7 @@ export function NegotiationsScreen() {
   const canRestructure = !!sel?.contract && sel.contract.capHits.length >= 2 && !sel.contract.restructured;
   const restructureSaving = canRestructure && sel?.contract ? Math.max(0, Math.round((sel.contract.capHits[0] - (sel.salario * 0.4 + sel.salario * 0.6 / sel.contract.capHits.length)) * 10) / 10) : 0;
 
-  const holdoutCount = rows.filter(r => r.kind === 'holdout').length;
+  const holdoutCount = visibleRows.filter(r => r.kind === 'holdout').length;
 
   return (
     <div className="space-y-5">
@@ -83,15 +86,21 @@ export function NegotiationsScreen() {
       )}
 
       <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-        <Panel title={`Negociáveis (${rows.length})`} pad={false}
-          right={<span className="font-mono text-[11px] text-faint">inflação ×{infl.toFixed(2).replace('.', ',')}</span>}>
+        <Panel title={`Negociáveis (${visibleRows.length})`} pad={false}
+          right={<div className="flex items-center gap-2">
+            <label className="font-mono text-[11px] text-faint">Posição <select className="sel ml-1" value={position} onChange={e => setPosition(e.target.value as Pos | 'ALL')}>
+              <option value="ALL">Todas</option>
+              {(['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S', 'K', 'P'] as Pos[]).map(pos => <option key={pos} value={pos}>{pos}</option>)}
+            </select></label>
+            <span className="font-mono text-[11px] text-faint">inflação ×{infl.toFixed(2).replace('.', ',')}</span>
+          </div>}>
           <div className="max-h-[640px] overflow-y-auto">
-            {rows.length === 0 && (
+            {visibleRows.length === 0 && (
               <p className="px-4 py-6 font-mono text-[12.5px] leading-relaxed text-faint">
                 Ninguém para negociar agora.<br />Renovações abrem quando um contrato entra nos 2 últimos anos (ou em holdout).
               </p>
             )}
-            {rows.map(({ p, kind }) => {
+            {visibleRows.map(({ p, kind }) => {
               const isSel = sel?.id === p.id;
               return (
                 <button key={p.id}

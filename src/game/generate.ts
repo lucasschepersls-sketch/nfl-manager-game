@@ -87,7 +87,7 @@ function buildRoster(team: Team, forca: number, rng: Rng): Player[] {
   return out;
 }
 
-const STAFF_FUNCS: StaffRole[] = ['Coordenador Ofensivo', 'Coordenador Defensivo', 'Médico', 'Preparador Físico', 'Olheiro'];
+const STAFF_FUNCS: StaffRole[] = ['Técnico Principal', 'Coordenador Ofensivo', 'Coordenador Defensivo', 'Médico', 'Preparador Físico', 'Olheiro'];
 function buildStaff(team: Team, rng: Rng): Staff[] {
   return STAFF_FUNCS.map(f => ({
     id: nid('st'), teamId: team.id,
@@ -107,8 +107,8 @@ export const COLLEGES = [
 
 export function buildDraftClass(rng: Rng): Player[] {
   const dist: [Pos, number][] = [
-    ['QB', 14], ['RB', 18], ['WR', 30], ['TE', 12], ['OL', 40],
-    ['DL', 34], ['LB', 20], ['CB', 22], ['S', 16], ['K', 7], ['P', 7],
+    ['QB', 14], ['RB', 18], ['WR', 30], ['TE', 12], ['OL', 42],
+    ['DL', 35], ['LB', 20], ['CB', 23], ['S', 16], ['K', 7], ['P', 7],
   ];
   const out: Player[] = [];
   for (const [pos, n] of dist) {
@@ -181,6 +181,7 @@ export function newGame(userTeamId: string, seed: number): GameState {
     tactics: { corrida: d.sigla.toLowerCase() === userTeamId ? 44 : rng.int(38, 50), agressividade: rng.int(35, 70), playbook: 'balanced' },
     quimica: clamp(58 + d.forca * 3 + rng.int(-4, 8), 40, 92),  // elencos estáveis largam entrosados
     teamChurn: 0,
+    reputacao: clamp(48 + d.forca * 4 + rng.int(-5, 6), 30, 88),
   }));
 
   const players: Player[] = [];
@@ -189,6 +190,12 @@ export function newGame(userTeamId: string, seed: number): GameState {
     players.push(...buildRoster(teams[i], d.forca, rng));
     staff.push(...buildStaff(teams[i], rng));
   });
+  const humanCoach = staff.find(member => member.teamId === userTeamId && member.funcao === 'Técnico Principal');
+  if (humanCoach) {
+    humanCoach.nome = 'Você';
+    humanCoach.nivel = 4;
+    humanCoach.isHuman = true;
+  }
 
   // salários compatíveis com o teto (~90% do cap) — sem cortes no início
   const TARGET = 0.9;

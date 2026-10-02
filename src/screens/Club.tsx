@@ -1,10 +1,11 @@
+import { useMemo, useState } from 'react';
 import { useGame } from '../state/store';
 import {
   teamById, playersOf, capUsed, teamStrength, standings, validateRoster, fmtM,
   conferenceSeeds, playoffZone, fmtRecord,
 } from '../game/season';
 import { teamStage, teamChemistry, STAGE_ZONES, chemistryLabel, stageLabel } from '../game/franchise';
-import { TeamCrest, Bar, Panel, SeqBadge } from '../components/ui';
+import { TeamCrest, Bar, Panel, SeqBadge, PosBadge } from '../components/ui';
 import type { GameState, Team } from '../game/types';
 
 function StatChip({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -19,6 +20,9 @@ function StatChip({ label, value, tone }: { label: string; value: string; tone?:
 export function ClubHomeScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
+  const [newsQuery, setNewsQuery] = useState('');
+  const [newsCategory, setNewsCategory] = useState('Todas');
+  const [newsOnlyMine, setNewsOnlyMine] = useState(false);
   const t = teamById(g, g.userTeam);
   const { fase, semana, temporada } = g.settings;
 
@@ -29,6 +33,16 @@ export function ClubHomeScreen() {
   const linha = standings(g).find(r => r.teamId === g.userTeam);
   const lesionados = roster.filter(p => p.lesao > 0);
   const chk = validateRoster(g);
+  const newsCategories = useMemo(() => ['Todas', ...new Set(g.news.map(item => item.rotulo))], [g.news]);
+  const visibleNews = useMemo(() => {
+    const query = newsQuery.trim().toLocaleLowerCase('pt-BR');
+    return g.news.filter(item => {
+      const matchesCategory = newsCategory === 'Todas' || item.rotulo === newsCategory;
+      const matchesQuery = !query || `${item.rotulo} ${item.texto}`.toLocaleLowerCase('pt-BR').includes(query);
+      const matchesClub = !newsOnlyMine || item.teamIds?.includes(g.userTeam) || item.teamIds == null;
+      return matchesCategory && matchesQuery && matchesClub;
+    }).slice(0, 50);
+  }, [g.news, g.userTeam, newsCategory, newsOnlyMine, newsQuery]);
 
   const proximo = g.matches.find(m =>
     !m.jogada && m.fase === fase && m.rodada === semana &&
@@ -45,6 +59,16 @@ export function ClubHomeScreen() {
   const temJogoFuturo = g.bracket?.some(round => round.jogos.some(j =>
     !j.jogada && (j.casa === g.userTeam || j.fora === g.userTeam))) ?? false;
   const eliminado = fase === 'PO' && !temJogoFuturo;
+  const mensagensPendentes = g.messages.filter(m => !m.isRead && !m.isArchived);
+  const urgentes = mensagensPendentes.filter(m => m.priority === 'urgent').length;
+
+  const timeline = [
+    { label: 'Pré-temporada', detail: '2 semanas', week: 2 },
+    { label: 'Temporada regular', detail: '18 semanas · 17 jogos', week: 18 },
+    { label: 'Playoffs', detail: 'Wild Card ao Super Bowl', week: 4 },
+    { label: 'Offseason', detail: 'Renovações · Free Agency · Draft', week: 4 },
+  ];
+  const timelineIndex = fase === 'PRE' ? 0 : fase === 'REG' ? 1 : fase === 'PO' ? 2 : 3;
 
   return (
     <div className="space-y-5">
@@ -78,14 +102,53 @@ export function ClubHomeScreen() {
         </div>
       </div>
 
+      <Panel title="Ações prioritárias" pad={false} right={<span className="font-mono text-[10px] text-faint">Atalhos para o que pede atenção agora</span>}>
+        <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
+          {!chk.ok && <ActionShortcut tone="blood" title="Ajustar o elenco" detail={chk.erros[0]} action="Resolver pendências" onClick={() => dispatch({ type: 'SCREEN', screen: fase === 'OFF' ? 'offseason' : 'elenco' })} />}
+          {mensagensPendentes.length > 0 && <ActionShortcut tone={urgentes ? 'blood' : 'gold'} title={`${mensagensPendentes.length} mensagem${mensagensPendentes.length === 1 ? '' : 'ns'} não lida${mensagensPendentes.length === 1 ? '' : 's'}`} detail={urgentes ? `${urgentes} precisa${urgentes === 1 ? '' : 'm'} de atenção urgente` : 'Confira atualizações da liga e do clube'} action="Abrir mensagens" onClick={() => dispatch({ type: 'SCREEN', screen: 'inbox' })} />}
+          {fase === 'OFF' && <ActionShortcut tone="gold" title={`Offseason · Fase ${g.offPhase ?? 1}/4`} detail="Renovações, mercado, Draft e validação do elenco" action="Continuar offseason" onClick={() => dispatch({ type: 'SCREEN', screen: 'offseason' })} />}
+          {fase !== 'OFF' && <ActionShortcut tone="grass" title={proximo ? `Próximo jogo · Semana ${semana}` : 'Acompanhar a liga'} detail={proximo ? `${opp ? `${opp.sigla} ${emCasa ? 'em casa' : 'fora'}` : 'Confronto agendado'} · veja os jogos e resultados` : 'Consulte a rodada atual e os placares'} action="Abrir semana da liga" onClick={() => dispatch({ type: 'SCREEN', screen: 'calendario-liga' })} />}
+        </div>
+      </Panel>
+
       {/* chips */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatChip label="Campanha (W-L-T)" value={linha ? fmtRecord(linha.v, linha.d, linha.e) : '—'} />
         <StatChip label="Caixa" value={`$${t.dinheiro}M`} tone="var(--color-goldhi)" />
         <StatChip label="Elenco" value={`${ativos.length}/53`} tone={ativos.length === 53 ? 'var(--color-grass)' : 'var(--color-blood)'} />
         <StatChip label="Lesionados" value={String(lesionados.length)} tone={lesionados.length ? 'var(--color-blood)' : undefined} />
+        <StatChip label="Reputação" value={`${t.reputacao}/100`} tone={t.reputacao >= 70 ? 'var(--color-grass)' : t.reputacao < 40 ? 'var(--color-blood)' : 'var(--color-goldhi)'} />
         <StatChip label="Temporada" value={String(temporada)} />
       </div>
+
+      {fase === 'OFF' && <SeasonRecap g={g} />}
+
+      <Panel title={`Temporada ${temporada} · Linha do tempo`} pad={false} right={
+        <button className="btn btn-sm btn-ghost" onClick={() => dispatch({ type: 'SCREEN', screen: 'calendario-liga' })}>Abrir calendário »</button>
+      }>
+        <div className="grid gap-0 p-3 sm:grid-cols-4">
+          {timeline.map((step, i) => {
+            const current = i === timelineIndex;
+            const done = i < timelineIndex;
+            const progress = current
+              ? fase === 'PRE' ? semana / 2 : fase === 'REG' ? semana / 18 : fase === 'PO' ? semana / 4 : (g.offPhase ?? 1) / 4
+              : done ? 1 : 0;
+            return <div key={step.label} className="relative border-l border-line2 py-2 pl-4 sm:border-l-0 sm:pl-0 sm:pr-3">
+              {i > 0 && <div className={`absolute left-0 top-[17px] hidden h-px w-3 sm:block ${done ? 'bg-grass' : 'bg-line2'}`} />}
+              <div className="flex items-center gap-2">
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-mono text-[11px] font-bold ${done ? 'border-grass bg-grass/15 text-grass' : current ? 'border-gold bg-gold/15 text-goldhi' : 'border-line2 text-faint'}`}>{done ? '✓' : i + 1}</span>
+                <div className="min-w-0">
+                  <div className={`font-disp text-[14px] font-bold uppercase ${current ? 'text-goldhi' : done ? 'text-grass' : 'text-dim'}`}>{step.label}</div>
+                  <div className="font-mono text-[10px] text-faint">{current ? (fase === 'OFF' ? `Fase ${g.offPhase ?? 1}/4` : `Semana ${semana}/${step.week}`) : step.detail}</div>
+                </div>
+              </div>
+              <div className="mt-2 h-1 overflow-hidden bg-panel2"><div className={`h-full ${done ? 'bg-grass' : current ? 'bg-gold' : 'bg-transparent'}`} style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }} /></div>
+            </div>;
+          })}
+        </div>
+      </Panel>
+
+      {(fase === 'PO' || fase === 'OFF') && <HomePlayoffBracket g={g} />}
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* próximo jogo / reta final dos playoffs */}
@@ -155,20 +218,144 @@ export function ClubHomeScreen() {
         <FranchiseMomentPanel g={g} teamId={g.userTeam} />
       </div>
 
+      <ContractOutlook g={g} cap={cap} />
+
       <div className="grid gap-5 lg:grid-cols-2">
         <MiniStandings g={g} />
-        <Panel title="Manchetes da semana" pad={false}>
-          <div className="max-h-[340px] overflow-y-auto">
-            {g.news.slice(0, 20).map(n => (
-              <div key={n.id} className="flex gap-3 border-b border-line2 px-4 py-2.5">
-                <span className="tag mt-[2px] h-fit shrink-0 border-gold/40 text-gold">{n.rotulo}</span>
-                <span className="font-mono text-[12px] leading-relaxed text-ink">{n.texto}</span>
-              </div>
+        <Panel title="Notícias da liga" pad={false} right={<span className="font-mono text-[11px] text-faint">{visibleNews.length} manchetes</span>}>
+          <div className="grid gap-2 border-b border-line2 bg-panel2 p-3 sm:grid-cols-[1fr_auto_auto]">
+            <input aria-label="Buscar notícias" className="min-w-0 border border-line bg-panel px-2 py-1 font-mono text-[12px] text-ink placeholder:text-faint focus:border-gold focus:outline-none" placeholder="Buscar notícia, time ou jogador..." value={newsQuery} onChange={e => setNewsQuery(e.target.value)} />
+            <select aria-label="Filtrar notícias por categoria" className="sel" value={newsCategory} onChange={e => setNewsCategory(e.target.value)}>
+              {newsCategories.map(category => <option key={category} value={category}>{category}</option>)}
+            </select>
+            <button className={`btn btn-sm ${newsOnlyMine ? 'btn-gold' : 'btn-ghost'}`} onClick={() => setNewsOnlyMine(v => !v)} aria-pressed={newsOnlyMine}>
+              {newsOnlyMine ? 'Meu clube ✓' : 'Meu clube'}
+            </button>
+          </div>
+          <div className="max-h-[380px] overflow-y-auto">
+            {visibleNews.length === 0 && <div className="p-6 text-center font-mono text-[12px] text-faint">Nenhuma notícia encontrada.</div>}
+            {visibleNews.map(n => (
+              <article key={n.id} className="flex gap-3 border-b border-line2 px-4 py-3">
+                <span className={`tag mt-[2px] h-fit shrink-0 ${n.priority === 'high' ? 'border-blood/50 text-blood' : 'border-gold/40 text-gold'}`}>{n.rotulo}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-[12px] leading-relaxed text-ink">{n.texto}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-[10px] text-faint">
+                    <span>T{n.season ?? temporada}</span><span>·</span><span>{n.week ? `Semana ${n.week}` : 'Offseason'}</span>
+                    {n.teamIds?.includes(g.userTeam) && <span className="text-goldhi">· Envolve seu clube</span>}
+                    {n.priority === 'high' && <span className="text-blood">· Destaque</span>}
+                  </div>
+                </div>
+              </article>
             ))}
           </div>
         </Panel>
       </div>
     </div>
+  );
+}
+
+function ContractOutlook({ g, cap }: { g: GameState; cap: number }) {
+  const { dispatch } = useGame();
+  const roster = playersOf(g, g.userTeam).filter(p => p.status !== 'PS');
+  const ending = roster.filter(p => p.contrato <= 1).sort((a, b) => b.salario - a.salario);
+  const space = g.settings.cap - cap;
+  const usedPct = Math.min(100, Math.max(0, cap / g.settings.cap * 100));
+  return (
+    <Panel title="Teto salarial & contratos" pad={false} right={
+      <button className="btn btn-sm btn-ghost" onClick={() => dispatch({ type: 'SCREEN', screen: 'negociacoes' })}>Central de contratos »</button>
+    }>
+      <div className="grid gap-4 p-4 md:grid-cols-[1fr_1.2fr]">
+        <div>
+          <div className="flex items-end justify-between gap-3">
+            <div><div className="font-mono text-[10px] uppercase tracking-wider text-faint">Folha comprometida</div><div className="font-disp text-[24px] font-extrabold text-ink">{fmtM(cap)} <span className="font-mono text-[12px] font-normal text-faint">/ {fmtM(g.settings.cap)}</span></div></div>
+            <div className={`font-mono text-[12px] font-bold ${space < 0 ? 'text-blood' : 'text-grass'}`}>{space < 0 ? `Excedente ${fmtM(Math.abs(space))}` : `${fmtM(space)} livres`}</div>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden bg-panel2"><div className={`h-full ${usedPct >= 95 ? 'bg-blood' : usedPct >= 85 ? 'bg-gold' : 'bg-grass'}`} style={{ width: `${usedPct}%` }} /></div>
+          <div className="mt-1 flex justify-between font-mono text-[10px] text-faint"><span>{usedPct.toFixed(0)}% utilizado</span><span>{roster.length} contratos ativos</span></div>
+        </div>
+        <div className="border-t border-line2 pt-3 md:border-l md:border-t-0 md:pl-4 md:pt-0">
+          <div className="mb-2 flex items-center justify-between"><span className="font-mono text-[10px] uppercase tracking-wider text-faint">Vencem ao fim da temporada</span><span className={`tag ${ending.length ? 'border-gold/50 text-goldhi' : 'border-grass/50 text-grass'}`}>{ending.length} jogador{ending.length === 1 ? '' : 'es'}</span></div>
+          {ending.length === 0 ? <p className="font-mono text-[11.5px] text-faint">Nenhum contrato ativo termina nesta temporada.</p> : <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+            {ending.slice(0, 4).map(p => <div key={p.id} className="flex min-w-0 items-center gap-2 border-b border-line2 py-1 font-mono text-[11px]"><PosBadge pos={p.pos} /><span className="truncate text-ink">{p.nome}</span><span className="ml-auto whitespace-nowrap text-goldhi">{fmtM(p.salario)}</span></div>)}
+          </div>}
+          {ending.length > 4 && <p className="mt-1 font-mono text-[10px] text-faint">e mais {ending.length - 4} com contrato no último ano</p>}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function ActionShortcut({ tone, title, detail, action, onClick }: {
+  tone: 'blood' | 'gold' | 'grass'; title: string; detail: string; action: string; onClick: () => void;
+}) {
+  const tones = {
+    blood: 'border-blood/35 bg-blood/5',
+    gold: 'border-gold/35 bg-gold/5',
+    grass: 'border-grass/30 bg-grass/5',
+  };
+  const textTones = { blood: 'text-blood', gold: 'text-goldhi', grass: 'text-grass' };
+  return <div className={`flex min-w-0 flex-col border p-3 ${tones[tone]}`}>
+    <div className={`font-disp text-[14px] font-bold uppercase ${textTones[tone]}`}>{title}</div>
+    <div className="mt-1 min-h-8 flex-1 font-mono text-[10.5px] leading-relaxed text-dim">{detail}</div>
+    <button className="btn btn-sm btn-ghost mt-2 self-start" onClick={onClick}>{action} »</button>
+  </div>;
+}
+
+function SeasonRecap({ g }: { g: GameState }) {
+  const row = standings(g).find(r => r.teamId === g.userTeam);
+  const title = g.campeoes.find(c => c.temporada === g.settings.temporada);
+  const champ = title ? teamById(g, title.teamId) : null;
+  const sb = g.matches.find(m => m.fase === 'PO' && m.rodada === 4 && m.jogada);
+  const playoffGames = g.matches.filter(m => m.fase === 'PO' && m.jogada && (m.casa === g.userTeam || m.fora === g.userTeam)).length;
+  const madePlayoffs = playoffGames > 0;
+  return (
+    <Panel title={`Resumo da temporada ${g.settings.temporada}`} className="border-gold/40">
+      <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+        <div>
+          <div className="font-disp text-[24px] font-extrabold uppercase text-goldhi">{champ ? `${champ.cidade} ${champ.nome} é campeão` : 'Temporada encerrada'}</div>
+          <p className="mt-1 font-mono text-[12px] text-dim">
+            {row ? `Sua campanha: ${fmtRecord(row.v, row.d, row.e)} · ${row.pf} pontos feitos · ${row.pc} cedidos.` : 'Não foi possível recuperar a campanha desta temporada.'}
+            {' '}{madePlayoffs ? `Playoffs: ${playoffGames} jogo${playoffGames === 1 ? '' : 's'} disputado${playoffGames === 1 ? '' : 's'}.` : 'O time não chegou aos playoffs.'}
+          </p>
+        </div>
+        {sb && <div className="border border-line2 bg-panel2 px-4 py-2 text-center">
+          <div className="font-mono text-[10px] uppercase tracking-wider text-faint">Super Bowl</div>
+          <div className="mt-1 font-disp text-[20px] font-bold">{teamById(g, sb.casa).sigla} <span className="text-goldhi">{sb.placarCasa}–{sb.placarFora}</span> {teamById(g, sb.fora).sigla}</div>
+        </div>}
+      </div>
+    </Panel>
+  );
+}
+
+function HomePlayoffBracket({ g }: { g: GameState }) {
+  const rounds = [
+    { week: 1, label: 'Wild Card' }, { week: 2, label: 'Divisional' },
+    { week: 3, label: 'Finais de conferência' }, { week: 4, label: 'Super Bowl' },
+  ];
+  return (
+    <Panel title="Chaveamento dos playoffs" pad={false} right={<span className="font-mono text-[10px] text-faint">Resultados e próximos confrontos</span>}>
+      <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">
+        {rounds.map(round => {
+          const games = g.matches.filter(m => m.fase === 'PO' && m.rodada === round.week);
+          const done = games.filter(m => m.jogada).length;
+          return <section key={round.week} className="min-h-24 border border-line2 bg-panel2 p-2.5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="font-disp text-[13px] font-bold uppercase text-ink">{round.label}</h3>
+              <span className="font-mono text-[10px] text-faint">{games.length ? `${done}/${games.length}` : 'a definir'}</span>
+            </div>
+            {games.length === 0 ? <p className="font-mono text-[10.5px] text-faint">Confrontos ainda não definidos</p> : games.map((m, index) => {
+              const home = teamById(g, m.casa); const away = teamById(g, m.fora);
+              const hw = m.jogada && (m.placarCasa ?? 0) > (m.placarFora ?? 0);
+              const aw = m.jogada && (m.placarFora ?? 0) > (m.placarCasa ?? 0);
+              return <div key={m.id ?? `${round.week}-${index}`} className="mb-2 border-t border-line/70 pt-1.5 font-mono text-[11px]">
+                <div className={`flex justify-between ${hw ? 'font-bold text-grass' : m.jogada ? 'text-faint' : 'text-ink'}`}><span>{home.sigla}</span><span>{m.jogada ? m.placarCasa : '—'}</span></div>
+                <div className={`flex justify-between ${aw ? 'font-bold text-grass' : m.jogada ? 'text-faint' : 'text-ink'}`}><span>{away.sigla}</span><span>{m.jogada ? m.placarFora : '—'}</span></div>
+              </div>;
+            })}
+          </section>;
+        })}
+      </div>
+    </Panel>
   );
 }
 

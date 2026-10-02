@@ -70,7 +70,7 @@ export function staffExpectations(st: Staff): Expectations {
 /* ---------- felicidade (0..100) ---------- */
 export interface Happiness {
   value: number;
-  partes: { salario: number; duracao: number; situacao: number; moral: number };
+  partes: { salario: number; duracao: number; situacao: number; moral: number; reputacao?: number };
 }
 
 function salaryScore(oferta: number, pedido: number): number {
@@ -87,7 +87,7 @@ function yearsScore(oferta: number, pedido: number): number {
 }
 
 /** Negociação com JOGADOR. */
-export function playerHappiness(p: Player, o: ContractOffer, inflacao = 1): Happiness {
+export function playerHappiness(p: Player, o: ContractOffer, inflacao = 1, franchiseRep = 50): Happiness {
   const exp = playerExpectations(p, inflacao);
   const salario = salaryScore(o.base, exp.aav);
   const duracao = yearsScore(o.years, exp.anos);
@@ -95,8 +95,9 @@ export function playerHappiness(p: Player, o: ContractOffer, inflacao = 1): Happ
   const situacao = p.contrato <= 1 ? 90 : p.ovr >= 85 ? 60 : 75;
   // moral + bônus de assinatura ajuda
   const moral = clamp(p.moral + (o.bonus > 0 ? 8 : 0), 0, 100);
-  const value = Math.round(clamp(salario * 0.40 + duracao * 0.20 + situacao * 0.25 + moral * 0.15, 0, 100));
-  return { value, partes: { salario: Math.round(salario), duracao: Math.round(duracao), situacao: Math.round(situacao), moral: Math.round(moral) } };
+  const reputacao = clamp(Math.round((franchiseRep - 50) / 10), -3, 5);
+  const value = Math.round(clamp(salario * 0.40 + duracao * 0.20 + situacao * 0.25 + moral * 0.15 + reputacao, 0, 100));
+  return { value, partes: { salario: Math.round(salario), duracao: Math.round(duracao), situacao: Math.round(situacao), moral: Math.round(moral), reputacao } };
 }
 
 /** Negociação com TÉCNICO. */

@@ -318,7 +318,7 @@ export function TradesScreen() {
             </div>
             <button
               className="btn btn-gold w-full text-[16px]"
-              onClick={() => { dispatch({ type: 'TRADE_PROPOSE', proposal }); reset(); }}
+              onClick={() => { dispatch({ type: 'TRADE_PROPOSE', to: proposal.to, give: proposal.give, get: proposal.get }); reset(); }}
             >
               Propor troca a {them.sigla} »
             </button>

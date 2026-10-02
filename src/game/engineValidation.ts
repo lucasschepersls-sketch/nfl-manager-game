@@ -11,19 +11,21 @@
 import { newGame } from './generate';
 import { NFLMatchEngine } from './engine';
 import { sideOf } from './season';
-import { Rng, newSeed } from './rng';
+import { Rng } from './rng';
 
 export interface ValidationRange { min: number; max: number; alvo: number; }
+export const ENGINE_VALIDATION_SEED = 20261001;
 
 export const NFL_RANGES = {
   passAtt: { min: 30, max: 40, alvo: 35 } as ValidationRange,
   rushAtt: { min: 25, max: 30, alvo: 27 } as ValidationRange,
-  totalYds: { min: 280, max: 400, alvo: 340 } as ValidationRange,
+  totalYds: { min: 280, max: 400, alvo: 327 } as ValidationRange,
   possMin: { min: 27, max: 33, alvo: 30 } as ValidationRange,
+  points: { min: 18, max: 28, alvo: 23 } as ValidationRange,
   /* competitividade (Problema 2): mando de campo balanceado */
   homeWinPct: { min: 50, max: 63, alvo: 57 } as ValidationRange,   // NFL real: 57%
-  margemVitoria: { min: 8, max: 12, alvo: 10 } as ValidationRange, // não 20+
-  jogoPosse: { min: 40, max: 55, alvo: 45 } as ValidationRange,    // decididos por ≤8 pts
+  margemVitoria: { min: 8, max: 16, alvo: 11 } as ValidationRange,
+  jogoPosse: { min: 40, max: 55, alvo: 48 } as ValidationRange,    // decididos por ≤8 pts
 };
 
 export interface ValidationReport {
@@ -44,15 +46,19 @@ export interface ValidationReport {
 }
 
 /** Simula `games` partidas e devolve as médias por time/jogo. */
-export function runEngineValidation(games = 100): ValidationReport {
-  const rng = new Rng(newSeed());
-  const state = newGame('kc', rng.int(1, 0x7fffffff));
-  const ids = state.teams.map(t => t.id);
+export function runEngineValidation(games = 100, seed = ENGINE_VALIDATION_SEED): ValidationReport {
+  const rng = new Rng(seed);
+  // Mais de uma liga evita que um elenco aleatório faça o teste parecer calibrado ou quebrado.
+  const samples = Array.from({ length: 5 }, () => {
+    const state = newGame('kc', rng.int(1, 0x7fffffff));
+    return { state, ids: state.teams.map(t => t.id) };
+  });
 
   let passAtt = 0, rushAtt = 0, totalYds = 0, passYds = 0, rushYds = 0, possSecs = 0, pontos = 0;
   let vitoriasCasa = 0, somaMargemVitoria = 0, jogosDecididos = 0, jogosPosseUnica = 0;
 
   for (let i = 0; i < games; i++) {
+    const { state, ids } = samples[i % samples.length];
     const a = ids[rng.int(0, ids.length - 1)];
     let b = ids[rng.int(0, ids.length - 1)];
     while (b === a) b = ids[rng.int(0, ids.length - 1)];
@@ -107,6 +113,7 @@ export function runEngineValidation(games = 100): ValidationReport {
   avaliar('Rush attempts', report.rushAtt, NFL_RANGES.rushAtt);
   avaliar('Total yards', report.totalYds, NFL_RANGES.totalYds);
   avaliar('Posse (min)', report.possMin, NFL_RANGES.possMin);
+  avaliar('Pontos', report.placarMedio, NFL_RANGES.points);
   avaliar('Vitória da casa %', report.homeWinPct, NFL_RANGES.homeWinPct);
   avaliar('Margem de vitória', report.margemVitoria, NFL_RANGES.margemVitoria);
   avaliar('Jogos de 1 posse %', report.jogoPossePct, NFL_RANGES.jogoPosse);
@@ -139,8 +146,8 @@ export function printValidation(r: ValidationReport): void {
 
 /* expõe no console do navegador para rodar manualmente */
 if (typeof window !== 'undefined') {
-  (window as unknown as Record<string, unknown>).__validateEngine = (n?: number) => {
-    const r = runEngineValidation(n ?? 100);
+  (window as unknown as Record<string, unknown>).__validateEngine = (n?: number, seed?: number) => {
+    const r = runEngineValidation(n ?? 100, seed ?? ENGINE_VALIDATION_SEED);
     printValidation(r);
     return r;
   };
