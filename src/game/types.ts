@@ -33,11 +33,15 @@ export interface PlayerStats {
   cmp: number; att: number; car: number;
   intDef: number; ff: number; fumbleRec: number; passesDefended: number; safeties: number;
   punts: number; puntYds: number;
+  puntReturns: number; puntReturnYds: number; kickReturns: number; kickReturnYds: number;
+  extraPointsMade: number; extraPointsAttempted: number;
 }
 export const zeroStats = (): PlayerStats => ({
   jogos: 0, py: 0, ptd: 0, int: 0, ry: 0, rtd: 0, rec: 0, recYds: 0,
   recTD: 0, sacks: 0, tackles: 0, fgM: 0, fgT: 0,
   cmp: 0, att: 0, car: 0, intDef: 0, ff: 0, fumbleRec: 0, passesDefended: 0, safeties: 0, punts: 0, puntYds: 0,
+  puntReturns: 0, puntReturnYds: 0, kickReturns: 0, kickReturnYds: 0,
+  extraPointsMade: 0, extraPointsAttempted: 0,
 });
 
 export type GradeLetter = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D' | 'F';
@@ -194,7 +198,9 @@ export interface PlayerLine {
   sacks?: number; sackYds?: number; tackles?: number; intDef?: number; fumbleRec?: number;
   passesDefended?: number; safeties?: number;
   fgM?: number; fgT?: number;
-  ff?: number; punts?: number; puntYds?: number;
+  ff?: number; punts?: number; puntYds?: number; puntReturns?: number; puntReturnYds?: number;
+  kickReturns?: number; kickReturnYds?: number;
+  extraPointsMade?: number; extraPointsAttempted?: number;
   snaps?: number;
 }
 

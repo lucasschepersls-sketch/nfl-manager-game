@@ -41,7 +41,7 @@ export default function StatsScreen({ tab }: { tab: StatsTab }) {
   const [n, setN] = useState(20);
   const [position, setPosition] = useState<Pos | 'ALL'>('ALL');
   const positionOptions: Pos[] = tab === 'off' ? ['QB', 'RB', 'WR', 'TE']
-    : tab === 'def' ? ['DL', 'LB', 'CB', 'S'] : tab === 'st' ? ['K', 'P'] : [];
+    : tab === 'def' ? ['DL', 'LB', 'CB', 'S'] : tab === 'st' ? ['K', 'P', 'WR', 'RB'] : [];
   const selectedPosition: Pos | 'ALL' = position === 'ALL' || positionOptions.includes(position) ? position : 'ALL';
 
   const minG = minGamesToRank(g);
@@ -54,6 +54,8 @@ export default function StatsScreen({ tab }: { tab: StatsTab }) {
   const defs = useMemo(() => topBy(applyTeamFilter(defRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.tackles + r.p.stats.sacks * 4 + r.p.stats.intDef * 5 + r.p.stats.safeties * 8, n), [g, conf, div, n, selectedPosition]);
   const kicks = useMemo(() => topBy(applyTeamFilter(kRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.fgM, n), [g, conf, div, n, selectedPosition]);
   const punts = useMemo(() => topBy(applyTeamFilter(pRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.puntYds, n), [g, conf, div, n, selectedPosition]);
+  const returners = useMemo(() => topBy(applyTeamFilter(g.players.filter(p => p.teamId && (p.stats.puntReturns > 0 || p.stats.kickReturns > 0)).map(p => ({ p, t: teamById(g, p.teamId!) })), conf, div)
+    .filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.puntReturnYds + r.p.stats.kickReturnYds, n), [g, conf, div, n, selectedPosition]);
 
   const playerRow = (r: { p: typeof qbs[number]['p']; t: typeof qbs[number]['t'] }, i: number, cells: React.ReactNode) => (
     <tr key={r.p.id}>
@@ -177,14 +179,27 @@ export default function StatsScreen({ tab }: { tab: StatsTab }) {
         <>
           <Panel title="Kickers — field goals" pad={false}>
             <table className="tbl">
-              <thead><tr><th>#</th><th>Jogador</th><th>Time</th><th className="num">J</th><th className="num">FG</th><th className="num">%</th><th className="num">Méd/jogo</th></tr></thead>
+            <thead><tr><th>#</th><th>Jogador</th><th>Time</th><th className="num">J</th><th className="num">FG</th><th className="num">%</th><th className="num">PAT</th><th className="num">Méd/jogo</th></tr></thead>
               <tbody>
                 {kicks.map((r, i) => playerRow(r, i, <>
                   <Num v={`${r.p.stats.fgM}/${r.p.stats.fgT}`} hl />
                   <Num v={`${fgPct(r.p.stats.fgM, r.p.stats.fgT)}%`} />
+                  <Num v={`${r.p.stats.extraPointsMade}/${r.p.stats.extraPointsAttempted}`} />
                   <Num v={perGame(r.p.stats.fgM, r.p.stats.jogos)} />
                 </>))}
               </tbody>
+            </table>
+          </Panel>
+          <Panel title="Retornos" pad={false}>
+            <table className="tbl">
+              <thead><tr><th>#</th><th>Jogador</th><th>Time</th><th className="num">J</th><th className="num">KR</th><th className="num">KR JD</th><th className="num">PR</th><th className="num">PR JD</th><th className="num">Média</th></tr></thead>
+              <tbody>{returners.map((r, i) => playerRow(r, i, <>
+                <Num v={r.p.stats.kickReturns} />
+                <Num v={r.p.stats.kickReturnYds} />
+                <Num v={r.p.stats.puntReturns} />
+                <Num v={r.p.stats.puntReturnYds} hl />
+                <Num v={puntAvg(r.p.stats.puntReturnYds + r.p.stats.kickReturnYds, r.p.stats.kickReturns + r.p.stats.puntReturns)} />
+              </>))}</tbody>
             </table>
           </Panel>
           <Panel title="Punters — média" pad={false}>

@@ -1618,6 +1618,17 @@ export function autoFixRoster(s: GameState): { msg: string } {
   };
   alvo('QB', 2); alvo('K', 1); alvo('P', 1);
 
+  // Um especialista em cada função de special teams precisa começar a temporada titular.
+  for (const pos of ['K', 'P'] as const) {
+    const especialistas = playersOf(s, s.userTeam).filter(p => p.pos === pos && p.status !== 'PS')
+      .sort((a, b) => b.ovr - a.ovr);
+    const titular = especialistas[0];
+    if (titular) {
+      for (const jogador of especialistas) jogador.status = jogador === titular ? 'TIT' : 'RES';
+      feitas.push(`${pos} titular definido (${titular.nome})`);
+    }
+  }
+
   // 2) completa até 53 com os mais baratos disponíveis
   let ativos = playersOf(s, s.userTeam).filter(p => p.status !== 'PS').length;
   let guard = 0;
