@@ -115,19 +115,34 @@ export function RivalriesScreen() {
         {rivalries.length === 0 ? (
           <div className="px-5 py-10 text-center font-mono text-[12.5px] text-faint">Nenhuma rivalidade registrada.</div>
         ) : (
+          <div className="overflow-x-auto" role="region" aria-label="Tabela de rivalidades" tabIndex={0}>
           <table className="tbl">
-            <thead><tr><th>Confronto</th><th>Histórico</th><th className="num">Intensidade</th><th className="num">Jogos</th><th className="num">Campanha</th></tr></thead>
+            <thead><tr><th>Confronto</th><th>Histórico</th><th className="num" title="0–3 Moderada · 4–6 Forte · 7–8 Intensa · 9–10 Histórica">Intensidade</th><th className="num">Jogos</th><th className="num">Campanha</th></tr></thead>
             <tbody>{rivalries.map(r => {
               const one = teamById(g, r.team1Id); const two = teamById(g, r.team2Id);
+              const intensity = Math.max(0, Math.min(10, r.intensity));
+              const intensityTier = intensity >= 9 ? 'Histórica' : intensity >= 7 ? 'Intensa' : intensity >= 4 ? 'Forte' : 'Moderada';
+              const intensityColor = intensity >= 9 ? 'bg-blood' : intensity >= 7 ? 'bg-gold' : intensity >= 4 ? 'bg-ice' : 'bg-grass';
               return <tr key={`${r.team1Id}-${r.team2Id}`}>
                 <td><b>{one.sigla}</b> <span className="text-gold">×</span> <b>{two.sigla}</b><span className="ml-2 text-dim">{one.nome} · {two.nome}</span></td>
                 <td className="text-dim">{r.history}</td>
-                <td className="num"><span className="text-blood">{'★'.repeat(Math.min(10, r.intensity))}</span><span className="text-faint">{'★'.repeat(Math.max(0, 10 - r.intensity))}</span></td>
+                <td className="num">
+                  <div className="inline-flex min-w-[132px] flex-col items-end gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-disp text-[12px] font-bold uppercase tracking-wide text-ink">{intensityTier}</span>
+                      <span className="font-mono text-[11px] tabular-nums text-dim">{r.intensity}/10</span>
+                    </div>
+                    <div className="flex w-full gap-0.5" role="meter" aria-label="Intensidade da rivalidade" aria-valuemin={0} aria-valuemax={10} aria-valuenow={intensity} aria-valuetext={`Intensidade: ${r.intensity} de 10, ${intensityTier}`}>
+                      {Array.from({ length: 10 }, (_, index) => <span key={index} className={`h-1.5 flex-1 border border-line2 ${index < intensity ? intensityColor : 'bg-panel2'}`} />)}
+                    </div>
+                  </div>
+                </td>
                 <td className="num">{r.gamesPlayed}</td>
                 <td className="num font-mono text-ink">{r.team1Wins}–{r.team2Wins}{r.draws ? `–${r.draws}` : ''}</td>
               </tr>;
             })}</tbody>
           </table>
+          </div>
         )}
       </Panel>
       <p className="font-mono text-[11.5px] text-faint">Rivalidades divisionais elevam a intensidade, o público e a atenção da mídia. Veteranos respondem melhor à pressão; jogadores jovens podem sentir o peso do clássico.</p>
