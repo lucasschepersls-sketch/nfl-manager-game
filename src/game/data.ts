@@ -137,5 +137,5 @@ export const ROSTER_COUNTS: [Pos, number][] = [
   ['DL', 8], ['LB', 7], ['CB', 6], ['S', 5], ['K', 1], ['P', 1],
 ];
 export const STARTER_SLOTS: Partial<Record<Pos, number>> = {
-  QB: 1, RB: 2, WR: 3, TE: 1, OL: 5, DL: 4, LB: 3, CB: 3, S: 2, K: 1, P: 1,
+  QB: 1, RB: 1, WR: 3, TE: 1, OL: 5, DL: 4, LB: 3, CB: 2, S: 2, K: 1, P: 1,
 };

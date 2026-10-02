@@ -168,8 +168,16 @@ export default function MatchScreen() {
 
   const cur = useMemo(() => derive(live, idx), [live, idx]);
   const momentum = useMemo(() => {
-    const latest = [...live.slice(0, idx)].reverse().find(event => event.momentumCasa != null);
-    return { casa: latest?.momentumCasa ?? 50, fora: latest?.momentumFora ?? 50, result: latest?.momentumResult ?? 'kickoff' };
+    const latest = [...live.slice(0, idx)].reverse().find(event => event.momentumCasa != null)
+      ?? live.find(event => event.momentumCasa != null);
+    const casa = latest?.momentumCasa ?? 50;
+    return { casa, fora: 100 - casa, result: latest?.momentumResult ?? 'kickoff' };
+  }, [live, idx]);
+  const winProbability = useMemo(() => {
+    const latest = [...live.slice(0, idx)].reverse().find(event => event.winProbCasa != null)
+      ?? live.find(event => event.winProbCasa != null);
+    const casa = latest?.winProbCasa ?? 50;
+    return { casa, fora: 100 - casa };
   }, [live, idx]);
   useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [idx, tab]);
 
@@ -278,7 +286,7 @@ export default function MatchScreen() {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-line px-5 py-2 font-mono text-[11.5px] text-dim">
           {resultado && <span className="font-disp text-[16px] font-bold uppercase tracking-wider" style={{ color: resColor }}>{resultado}</span>}
           {done && [...Array(Math.max(r.box.quartos.casa.length, r.box.quartos.fora.length))].map((_, i) => (
-            <span key={i} className="tabular-nums">{i < 4 ? `${i + 1}ºQ` : 'OT'}: <b className="text-ink">{r.box.quartos.casa[i] ?? 0}</b>–<b className="text-ink">{r.box.quartos.fora[i] ?? 0}</b></span>
+            <span key={i} className="tabular-nums">{i < 4 ? `${i + 1}ºQ` : `OT${i - 3}`}: <b className="text-ink">{r.box.quartos.casa[i] ?? 0}</b>–<b className="text-ink">{r.box.quartos.fora[i] ?? 0}</b></span>
           ))}
           <div className="ml-auto flex gap-2">
             {!done && (
@@ -296,8 +304,7 @@ export default function MatchScreen() {
 
       <Field st={cur} casa={casa} fora={fora} />
       <MomentumPanel casa={casa} fora={fora} values={momentum} />
-
-      <MomentumPanel casa={casa} fora={fora} values={momentum} />
+      <WinProbabilityPanel casa={casa} fora={fora} values={winProbability} />
 
       <div className="panel">
         <div className="flex border-b border-line">
@@ -327,11 +334,35 @@ export default function MatchScreen() {
 
 function MomentumPanel({ casa, fora, values }: { casa: Team; fora: Team; values: { casa: number; fora: number; result: string } }) {
   const tone = (value: number) => value >= 80 ? 'var(--color-grass)' : value <= 20 ? 'var(--color-blood)' : 'var(--color-gold)';
-  const resultLabel: Record<string, string> = { td: 'Touchdown', interception: 'Interceptação', sack: 'Sack', sack_suffered: 'Sack sofrido', turnover: 'Turnover', penalty: 'Penalidade', third_down_conversion: '3ª descida convertida', three_and_out: '3-and-out', kickoff: 'Kickoff' };
+  const resultLabel: Record<string, string> = { td: 'Touchdown', interception: 'Interceptação', sack: 'Sack', sack_suffered: 'Sack sofrido', turnover: 'Turnover', penalty: 'Penalidade', third_down_conversion: '3ª descida convertida', first_down: '1ª descida', explosive_play: 'Jogada explosiva', positive_play: 'Avanço', play_stopped: 'Jogada parada', three_and_out: '3-and-out', kickoff: 'Kickoff' };
   return (
     <div className="panel px-4 py-3">
       <div className="mb-2 flex items-center justify-between"><span className="font-disp text-[14px] font-bold uppercase tracking-wider text-dim">Momentum</span><span className="font-mono text-[11px] text-faint">{resultLabel[values.result] ?? values.result}</span></div>
       <div className="grid grid-cols-[1fr_38px_1fr] items-center gap-3 font-mono text-[12px]"><div><div className="mb-1 flex justify-between"><span>{casa.sigla}</span><b style={{ color: tone(values.casa) }}>{values.casa}</b></div><Bar pct={values.casa} color={tone(values.casa)} h={9} /></div><span className="text-center text-faint">VS</span><div><div className="mb-1 flex justify-between"><span>{fora.sigla}</span><b style={{ color: tone(values.fora) }}>{values.fora}</b></div><Bar pct={values.fora} color={tone(values.fora)} h={9} /></div></div>
+    </div>
+  );
+}
+
+function WinProbabilityPanel({ casa, fora, values }: {
+  casa: Team; fora: Team; values: { casa: number; fora: number };
+}) {
+  return (
+    <div className="panel px-4 py-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-disp text-[14px] font-bold uppercase tracking-wider text-dim">Probabilidade de vitória</span>
+        <span className="font-mono text-[11px] text-faint">estimativa ao vivo</span>
+      </div>
+      <div className="grid grid-cols-[1fr_38px_1fr] items-center gap-3 font-mono text-[12px]">
+        <div>
+          <div className="mb-1 flex justify-between"><span>{casa.sigla}</span><b className="text-grass">{values.casa}%</b></div>
+          <Bar pct={values.casa} color="var(--color-grass)" h={9} />
+        </div>
+        <span className="text-center text-faint">VS</span>
+        <div>
+          <div className="mb-1 flex justify-between"><span>{fora.sigla}</span><b className="text-ice">{values.fora}%</b></div>
+          <Bar pct={values.fora} color="var(--color-ice)" h={9} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -344,6 +375,7 @@ function StatsView({ r, casa, fora, ls, done }: {
   const total: Side2 = { casa: ls.rush.casa + ls.pass.casa, fora: ls.rush.fora + ls.pass.fora };
   return (
     <div className="max-h-[460px] overflow-y-auto">
+      {done && <TeamComparison casa={casa} fora={fora} c={r.rich.casa} f={r.rich.fora} />}
       <div className="flex items-center gap-2 px-3.5 pt-2.5">
         <span className={`inline-block h-2 w-2 rounded-full ${done ? 'bg-faint' : 'bg-blood live-dot'}`} />
         <span className="font-mono text-[10.5px] uppercase tracking-wider text-faint">
@@ -372,8 +404,47 @@ function StatsView({ r, casa, fora, ls, done }: {
           <p className="py-2 font-mono text-[11.5px] text-faint">Os destaques individuais aparecem ao fim da partida.</p>
         )}
       </div>
+      {done && (r.rich.story.mvp || r.rich.story.jogada) && <div className="grid gap-2 border-t border-line px-3.5 py-3 sm:grid-cols-2">
+        {r.rich.story.mvp && <div className="border border-gold/30 bg-gold/5 p-2.5">
+          <div className="font-disp text-[11px] font-bold uppercase tracking-wider text-goldhi">★ MVP · {r.rich.story.mvp.teamId.toUpperCase()}</div>
+          <div className="mt-1 font-mono text-[11.5px] text-ink"><b>{r.rich.story.mvp.nome}</b> · {r.rich.story.mvp.linha}</div>
+        </div>}
+        {r.rich.story.jogada && <div className="border border-ice/30 bg-ice/5 p-2.5">
+          <div className="font-disp text-[11px] font-bold uppercase tracking-wider text-ice">⚡ Jogada decisiva</div>
+          <div className="mt-1 font-mono text-[11.5px] text-ink">{r.rich.story.jogada.texto}</div>
+        </div>}
+      </div>}
     </div>
   );
+}
+
+function TeamComparison({ casa, fora, c, f }: {
+  casa: Team; fora: Team; c: NonNullable<GameState['lastResult']>['rich']['casa']; f: NonNullable<GameState['lastResult']>['rich']['fora'];
+}) {
+  const thirdC = c.thirdAtt ? `${c.thirdConv}/${c.thirdAtt}` : '0/0';
+  const thirdF = f.thirdAtt ? `${f.thirdConv}/${f.thirdAtt}` : '0/0';
+  const rzC = c.rzAtt ? `${c.rzTd}/${c.rzAtt}` : '0/0';
+  const rzF = f.rzAtt ? `${f.rzTd}/${f.rzAtt}` : '0/0';
+  const thirdPctC = c.thirdAtt ? c.thirdConv / c.thirdAtt : 0;
+  const thirdPctF = f.thirdAtt ? f.thirdConv / f.thirdAtt : 0;
+  const rzPctC = c.rzAtt ? c.rzTd / c.rzAtt : 0;
+  const rzPctF = f.rzAtt ? f.rzTd / f.rzAtt : 0;
+  return <div className="mx-3 mt-3 border border-line2 bg-panel2">
+    <div className="flex items-center justify-between border-b border-line2 px-3 py-2">
+      <span className="font-disp text-[12px] font-bold uppercase tracking-wider text-goldhi">Comparativo final</span>
+      <span className="font-mono text-[10px] text-faint">Os mesmos números do fechamento Ao Vivo</span>
+    </div>
+    <div className="grid grid-cols-[1fr_auto_1fr] border-b border-line2 px-4 py-2 font-disp text-[12px] font-bold uppercase text-dim"><span className="text-right">{casa.sigla}</span><span className="px-4 text-faint">Equipe</span><span>{fora.sigla}</span></div>
+    <StatRow label="Placar" casa={String(c.pts)} fora={String(f.pts)} winCasa={c.pts > f.pts} winFora={f.pts > c.pts} />
+    <StatRow label="Jardas totais" casa={String(c.yds)} fora={String(f.yds)} winCasa={c.yds > f.yds} winFora={f.yds > c.yds} />
+    <StatRow label="Corrida" casa={String(c.rushYds)} fora={String(f.rushYds)} winCasa={c.rushYds > f.rushYds} winFora={f.rushYds > c.rushYds} sub="jd" />
+    <StatRow label="Passe" casa={String(c.passYds)} fora={String(f.passYds)} winCasa={c.passYds > f.passYds} winFora={f.passYds > c.passYds} sub="jd" />
+    <StatRow label="1ºs Downs" casa={String(c.firstDowns)} fora={String(f.firstDowns)} winCasa={c.firstDowns > f.firstDowns} winFora={f.firstDowns > c.firstDowns} />
+    <StatRow label="3ª Descida" casa={thirdC} fora={thirdF} winCasa={thirdPctC > thirdPctF} winFora={thirdPctF > thirdPctC} sub="conv" />
+    <StatRow label="Zona Vermelha" casa={rzC} fora={rzF} winCasa={rzPctC > rzPctF} winFora={rzPctF > rzPctC} sub="TD" />
+    <StatRow label="Turnovers" casa={String(c.tos)} fora={String(f.tos)} winCasa={c.tos < f.tos} winFora={f.tos < c.tos} />
+    <StatRow label="Posse" casa={fmtPoss(c.possSecs)} fora={fmtPoss(f.possSecs)} winCasa={c.possSecs > f.possSecs} winFora={f.possSecs > c.possSecs} />
+  </div>;
 }
 
 function fmtPoss(secs: number): string {
@@ -424,6 +495,10 @@ function BoxScoreView({ r, casa, fora, done }: {
   const sackL = (tid: string) => leader(l => l.sacks ?? 0, tid);
   const tackL = (tid: string) => leader(l => l.tackles ?? 0, tid);
   const intL = (tid: string) => leader(l => l.intDef ?? 0, tid);
+  const safetyL = (tid: string) => leader(l => l.safeties ?? 0, tid);
+  const ffL = (tid: string) => leader(l => l.ff ?? 0, tid);
+  const frL = (tid: string) => leader(l => l.fumbleRec ?? 0, tid);
+  const pdL = (tid: string) => leader(l => l.passesDefended ?? 0, tid);
 
   const thirdC = c.thirdAtt ? `${c.thirdConv}/${c.thirdAtt}` : '0/0';
   const thirdF = f.thirdAtt ? `${f.thirdConv}/${f.thirdAtt}` : '0/0';
@@ -436,6 +511,7 @@ function BoxScoreView({ r, casa, fora, done }: {
 
   return (
     <div className="max-h-[520px] space-y-5 overflow-y-auto px-1 py-3">
+      <TeamComparison casa={casa} fora={fora} c={c} f={f} />
       <div className="panel2 mx-3 border border-line2">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-line px-4 py-2.5">
           <span className="flex items-center justify-end gap-2 font-disp text-[16px] font-bold uppercase">
@@ -509,14 +585,18 @@ function BoxScoreView({ r, casa, fora, done }: {
 
         <div className="panel2 border border-line2 p-3">
           <div className="mb-2 font-disp text-[13px] font-bold uppercase tracking-[0.15em] text-goldhi">Defesa</div>
-          {[{ t: casa, s: sackL(casa.id), tk: tackL(casa.id), it: intL(casa.id) },
-            { t: fora, s: sackL(fora.id), tk: tackL(fora.id), it: intL(fora.id) }].map(({ t, s, tk, it }) => (
+          {[{ t: casa, s: sackL(casa.id), tk: tackL(casa.id), it: intL(casa.id), sf: safetyL(casa.id), ff: ffL(casa.id), fr: frL(casa.id), pd: pdL(casa.id) },
+            { t: fora, s: sackL(fora.id), tk: tackL(fora.id), it: intL(fora.id), sf: safetyL(fora.id), ff: ffL(fora.id), fr: frL(fora.id), pd: pdL(fora.id) }].map(({ t, s, tk, it, sf, ff, fr, pd }) => (
             <div key={t.id} className="flex items-baseline gap-2 py-[3px] font-mono text-[11.5px]">
               <TeamCrest cor={t.cor} cor2={t.cor2} sigla={t.sigla} conf={t.conf} size={13} />
               <span className="truncate text-ink">
                 {s && (s.sacks ?? 0) > 0 ? <><b>{s.nome}</b> {s.sacks} sack{(s.sacks ?? 0) > 1 ? 's' : ''} (−{s.sackYds} jd)</> : 'Sem sacks'}
                 {tk && (tk.tackles ?? 0) > 0 && <span className="ml-1.5 text-dim">· <b>{tk.nome}</b> {tk.tackles} tackles</span>}
                 {it && (it.intDef ?? 0) > 0 && <span className="ml-1.5 text-grass">· <b>{it.nome}</b> {it.intDef} INT</span>}
+                {sf && (sf.safeties ?? 0) > 0 && <span className="ml-1.5 text-goldhi">· <b>{sf.nome}</b> {sf.safeties} safety</span>}
+                {ff && (ff.ff ?? 0) > 0 && <span className="ml-1.5 text-dim">· <b>{ff.nome}</b> {ff.ff} FF</span>}
+                {fr && (fr.fumbleRec ?? 0) > 0 && <span className="ml-1.5 text-dim">· <b>{fr.nome}</b> {fr.fumbleRec} FR</span>}
+                {pd && (pd.passesDefended ?? 0) > 0 && <span className="ml-1.5 text-dim">· <b>{pd.nome}</b> {pd.passesDefended} PD</span>}
               </span>
             </div>
           ))}

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '../state/store';
 import { teamById, fmtM } from '../game/season';
-import { CATEGORY_META, PRIORITY_META, unreadByCategory } from '../game/messaging';
+import { CATEGORY_META, PRIORITY_META, unreadByCategory, staffCandidatesForJob } from '../game/messaging';
 import type { CoachPerformance, JobOpening, Message, MessageCategory } from '../game/types';
 import { Panel, TeamCrest, Bar } from '../components/ui';
 
@@ -384,6 +384,7 @@ export function JobsScreen() {
           {open.map(j => {
             const team = teamById(g, j.teamId);
             const q = QUALITY_LABEL[j.teamQuality];
+            const candidates = staffCandidatesForJob(g, j.id);
             return (
               <div key={j.id} className="border border-line2 bg-panel2 p-3 transition-transform hover:-translate-y-0.5">
                 <div className="flex items-center gap-3">
@@ -407,6 +408,17 @@ export function JobsScreen() {
                 >
                   Candidatar-se ao cargo »
                 </button>
+                {candidates.length > 0 && <div className="mt-3 border-t border-line2 pt-2">
+                  <div className="mb-1 font-mono text-[10.5px] uppercase tracking-wider text-faint">Ou promover alguém da liga</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {candidates.map(candidate => <button key={candidate.id} className="btn btn-sm btn-ghost"
+                      title={`${candidate.funcao} · nível ${candidate.nivel}`}
+                      onClick={() => dispatch({ type: 'PROMOTE_STAFF', jobId: j.id, staffId: candidate.id })}>
+                      {candidate.nome} · {candidate.funcao.replace('Coordenador ', 'Coord. ')}
+                    </button>)}
+                  </div>
+                  <p className="mt-1 font-mono text-[10.5px] text-faint">Se você não assumir, um profissional da comissão será promovido após uma semana. O clube de origem contrata um substituto.</p>
+                </div>}
               </div>
             );
           })}

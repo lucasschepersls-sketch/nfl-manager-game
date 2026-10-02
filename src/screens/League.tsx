@@ -414,11 +414,13 @@ export function StandingsScreen() {
                   <div className="border-t border-line px-3.5 py-2.5">
                     <div className="mb-1.5 font-mono text-[9.5px] uppercase tracking-widest text-faint">Rodada de Wild Card (projeção)</div>
                     <div className="space-y-1.5">
-                      <div className="flex items-center gap-2 font-mono text-[11px] text-gold/80">
-                        <span className="w-5 text-center font-bold text-goldhi">1</span>
-                        <span>{teamById(g, bracket.bye.teamId).sigla}</span>
-                        <span className="ml-auto tag border-gold/50 text-gold">folga</span>
-                      </div>
+                      {bracket.bye && (
+                        <div className="flex items-center gap-2 font-mono text-[11px] text-gold/80">
+                          <span className="w-5 text-center font-bold text-goldhi">1</span>
+                          <span>{teamById(g, bracket.bye.teamId).sigla}</span>
+                          <span className="ml-auto tag border-gold/50 text-gold">folga</span>
+                        </div>
+                      )}
                       {bracket.matchups.map(mu => (
                         <div key={mu.seedCasa} className="flex items-center gap-2 font-mono text-[11px] text-dim">
                           <span className="w-5 text-center font-bold text-ice">{mu.seedCasa}</span>

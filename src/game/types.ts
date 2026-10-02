@@ -15,7 +15,7 @@ export type Screen =
   | 'home' | 'elenco' | 'taticas' | 'calendario' | 'classificacao'
   | 'mercado' | 'draft' | 'financas' | 'dm' | 'partida' | 'scouting'
   | 'offseason' | 'staff' | 'negociacoes' | 'trades' | 'calendario-liga'
-  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st' | 'probowl' | 'hall-of-fame' | 'rivalidades' | 'elencos-liga' | 'comparador' | 'power-rankings' | 'storylines' | 'inbox' | 'jobs';
+  | 'stats-teams' | 'stats-off' | 'stats-def' | 'stats-st' | 'probowl' | 'hall-of-fame' | 'history' | 'rivalidades' | 'elencos-liga' | 'comparador' | 'power-rankings' | 'storylines' | 'inbox' | 'jobs';
 
 export type StatsTab = 'teams' | 'off' | 'def' | 'st';
 
@@ -31,13 +31,13 @@ export interface PlayerStats {
   sacks: number; tackles: number; fgM: number; fgT: number;
   /* acumulados do box score rico (Fase: Estatísticas da Temporada) */
   cmp: number; att: number; car: number;
-  intDef: number; ff: number;
+  intDef: number; ff: number; fumbleRec: number; passesDefended: number; safeties: number;
   punts: number; puntYds: number;
 }
 export const zeroStats = (): PlayerStats => ({
   jogos: 0, py: 0, ptd: 0, int: 0, ry: 0, rtd: 0, rec: 0, recYds: 0,
   recTD: 0, sacks: 0, tackles: 0, fgM: 0, fgT: 0,
-  cmp: 0, att: 0, car: 0, intDef: 0, ff: 0, punts: 0, puntYds: 0,
+  cmp: 0, att: 0, car: 0, intDef: 0, ff: 0, fumbleRec: 0, passesDefended: 0, safeties: 0, punts: 0, puntYds: 0,
 });
 
 export type GradeLetter = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D' | 'F';
@@ -126,10 +126,11 @@ export interface Team {
   tactics: Tactics;
   quimica: number;    // entrosamento do vestiário (0-100) — cresce com estabilidade
   teamChurn: number;  // rotatividade recente de elenco (trocas/cortes) — prejudica a química
+  reputacao: number; // atratividade e credibilidade da franquia no mercado (0-100)
 }
 
 export type StaffRole =
-  | 'Coordenador Ofensivo' | 'Coordenador Defensivo' | 'Médico'
+  | 'Técnico Principal' | 'Coordenador Ofensivo' | 'Coordenador Defensivo' | 'Médico'
   | 'Preparador Físico' | 'Olheiro' | 'Olheiro Extra' | 'Diretor de Personnel';
 
 export interface Staff {
@@ -143,6 +144,7 @@ export interface Staff {
   bonus: number;
   contrato: number;
   moral: number;
+  isHuman?: boolean;
 }
 
 /* ---------- partida ---------- */
@@ -160,6 +162,7 @@ export interface LiveEvent {
   runYds?: number; passYds?: number; penalties?: number;
   momentumCasa?: number; momentumFora?: number;
   momentumResult?: string;
+  winProbCasa?: number; winProbFora?: number;
 }
 
 export interface BoxScore {
@@ -188,7 +191,8 @@ export interface PlayerLine {
   cmp?: number; att?: number; py?: number; ptd?: number; int?: number; longPass?: number; rating?: number;
   rAtt?: number; ry?: number; rtd?: number; longRush?: number;
   rec?: number; recYds?: number; recTD?: number; longRec?: number;
-  sacks?: number; sackYds?: number; tackles?: number; intDef?: number;
+  sacks?: number; sackYds?: number; tackles?: number; intDef?: number; fumbleRec?: number;
+  passesDefended?: number; safeties?: number;
   fgM?: number; fgT?: number;
   ff?: number; punts?: number; puntYds?: number;
   snaps?: number;
@@ -214,10 +218,10 @@ export interface ProBowlVote {
   playerId: string;
   season: number;
   week: number;                 // última semana processada
-  fanVotes: number;             // fãs (peso 75%)
-  playerVotes: number;          // jogadores (peso 25%)
-  coachVotes: number;           // técnicos (peso 25%)
-  totalWeighted: number;        // fan*0.75 + players*0.25 + coaches*0.25
+  fanVotes: number;             // votos brutos dos fãs
+  playerVotes: number;          // votos brutos dos jogadores
+  coachVotes: number;           // votos brutos dos técnicos
+  totalWeighted: number;        // consenso normalizado; cada grupo vale 1/3
   rankInPosition: number;
   momentum: boolean;            // semana excepcional (bônus aplicado)
   summary: { yards: number; tds: number; rating: number };
@@ -230,6 +234,7 @@ export interface ProBowlState {
   lastWeek: number;             // última semana votada
   votes: ProBowlVote[];
   userFanVote: { week: number; playerId: string } | null;
+  userCoachVote: { week: number; playerId: string } | null;
   announced: boolean;           // roster final divulgado (fim da temporada regular)
 }
 
@@ -309,7 +314,18 @@ export interface LeagueSettings {
   tvDeal: number;     // receita de TV em bilhões
 }
 
-export interface NewsItem { id: number; rotulo: string; texto: string; }
+export interface NewsItem {
+  id: number;
+  rotulo: string;
+  texto: string;
+  season?: number;
+  week?: number;
+  createdAt?: number;
+  priority?: 'high' | 'normal' | 'low';
+  teamIds?: string[];
+  playerIds?: string[];
+  matchId?: number;
+}
 
 /* ================= Sistema de Mensagens / Inbox ================= */
 export type MessageCategory =
@@ -372,6 +388,7 @@ export interface JobOpening {
   pressureLevel: number;      // 1-10
   isFilled: boolean;
   filledByUser: boolean;
+  weeksOpen?: number;
 }
 
 export interface HallOfFameEntry {
@@ -389,6 +406,46 @@ export interface HallOfFameEntry {
   inducted: boolean;
   jerseyRetired: boolean;
 }
+
+export interface SeasonRecord {
+  temporada: number;
+  vitorias: number;
+  derrotas: number;
+  empates: number;
+  pf: number;
+  pc: number;
+  playoffs: boolean;
+  divisionTitle: boolean;
+  superBowl: boolean;
+  seed?: number | null;
+  playoffFinish?: string;
+  coach?: string;
+}
+
+export interface HistoryLeader { nome: string; valor: number; }
+export interface FranchiseHistory {
+  superBowls: number;
+  superBowlAppearances: number;
+  playoffAppearances: number;
+  divisionTitles: number;
+  winningSeasons: number;
+  losingSeasons: number;
+  bestRecord: string;
+  worstRecord: string;
+  longestWinStreak: number;
+  longestLoseStreak: number;
+  allTimeLeaders: {
+    passingYds: HistoryLeader | null;
+    passingTds: HistoryLeader | null;
+    rushYds: HistoryLeader | null;
+    rushTds: HistoryLeader | null;
+    receivingYds: HistoryLeader | null;
+    sacks: HistoryLeader | null;
+    tackles: HistoryLeader | null;
+  };
+  seasons: SeasonRecord[];
+}
+
 export type SeasonStorylineType = 'strong_division' | 'rookie_record' | 'historic_defense' | 'seed_race';
 export interface SeasonStoryline {
   type: SeasonStorylineType;
@@ -502,6 +559,7 @@ export interface GameState {
   narrativas: MediaNarrative[];
   userTeam: string;
   campeoes: { temporada: number; teamId: string }[];
+  historico?: Record<string, FranchiseHistory>;
   focus: Focus;
   lastResult: GameResult | null;
   weekResults: Match[];

@@ -7,7 +7,7 @@ import { calcExpectations, STRUCT_LABEL } from '../game/contracts';
 import { Panel, Bar, PosBadge, Ovr, TeamCrest } from '../components/ui';
 import type { Screen } from '../game/types';
 
-const PHASE_ICON = ['🤝', '✍️', '🎓', '✅'];
+const PHASE_ICON = ['✍️', '🤝', '🎓', '✅'];
 
 export function OffseasonScreen() {
   const { st, dispatch } = useGame();
@@ -90,8 +90,8 @@ export function OffseasonScreen() {
         <p className="mt-2 font-mono text-[12px] text-dim">{OFF_PHASES[ph - 1].desc}</p>
       </div>
 
-      {ph === 1 && <FaseFA g={g} fa={fa} espaco={espaco} irPara={irPara} />}
-      {ph === 2 && <FaseRenov g={g} renovaveis={renovaveis} irPara={irPara} />}
+      {ph === 1 && <FaseRenov g={g} renovaveis={renovaveis} irPara={irPara} />}
+      {ph === 2 && <FaseFA g={g} fa={fa} espaco={espaco} irPara={irPara} />}
       {ph === 3 && <FaseDraft g={g} draft={draft} minhaPos={minhaPos} draftDone={draftDone} quentes={quentes} irPara={irPara} dispatch={dispatch} />}
       {ph === 4 && (
         <FaseValida
@@ -102,7 +102,7 @@ export function OffseasonScreen() {
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        {ph === 1 && <span className="font-mono text-[11.5px] text-faint">Ao fechar o mercado, a IA faz a onda final de contratações e leva seus RFAs sem match.</span>}
+        {ph === 2 && <span className="font-mono text-[11.5px] text-faint">Ao fechar o mercado, a IA faz a onda final de contratações e leva seus RFAs sem match.</span>}
         {ph === 3 && !draftDone && <span className="font-mono text-[11.5px] text-faint">O Draft precisa terminar (7 rodadas) para avançar.</span>}
         {ph < 4 ? (
           <button
@@ -111,7 +111,7 @@ export function OffseasonScreen() {
             disabled={ph === 3 && !draftDone}
             title={ph === 3 && !draftDone ? 'Conclua o Draft antes de avançar' : ''}
           >
-            {ph === 1 ? 'Fechar mercado & avançar »' : `Avançar para Fase ${ph + 1} »`}
+            {ph === 1 ? 'Concluir renovações & abrir mercado »' : ph === 2 ? 'Fechar mercado & avançar »' : `Avançar para Fase ${ph + 1} »`}
           </button>
         ) : (
           <button

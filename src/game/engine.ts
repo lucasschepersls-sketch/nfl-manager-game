@@ -16,9 +16,10 @@ interface ScrimRes {
   yds: number; ball: number; secs: number; turnover: boolean; td: boolean;
   fgMade: boolean; passY: number; rushY: number;
   gain: { p: Player; tipo: 'run' | 'pass'; yds: number } | null;
+  safety?: boolean; safetyPlayer?: Player;
   faltaTeam?: 'off' | 'def';
 }
-interface DriveOutcome { pts: number; secs: number; net: number; passY: number; rushY: number; tos: number; firstDowns: number; }
+interface DriveOutcome { pts: number; secs: number; net: number; passY: number; rushY: number; tos: number; firstDowns: number; safety?: boolean; }
 
 interface ClimaDef { nome: string; icon: string; pass: number; run: number; fg: number; }
 const CLIMAS: { c: ClimaDef; w: number }[] = [
@@ -108,6 +109,7 @@ export class NFLMatchEngine {
   private clima!: ClimaDef;
   private uc!: Unit; private uf!: Unit;
   private scoreC = 0; private scoreF = 0;
+  private pregameEdge = 0;
   private injFactor = 1;
   private clock = 0;
   private momentum = { casa: 50, fora: 50 };
@@ -127,7 +129,7 @@ export class NFLMatchEngine {
     private casa: Side,
     private fora: Side,
     private rng: Rng,
-    private opts?: { neutro?: boolean; clima?: ClimaDef; rivalry?: Rivalry; attendanceBoost?: number; opponentScouted?: boolean },
+    private opts?: { neutro?: boolean; clima?: ClimaDef; rivalry?: Rivalry; attendanceBoost?: number; opponentScouted?: boolean; postseason?: boolean },
   ) {
     if (opts?.clima) this.clima = opts.clima;
   }
@@ -141,6 +143,7 @@ export class NFLMatchEngine {
     }
     this.uc = buildUnit(this.casa);
     this.uf = buildUnit(this.fora);
+    this.pregameEdge = this.calculatePregameEdge();
     const staffLvl = (st: Staff[], fn: string) => st.find(s => s.funcao === fn)?.nivel ?? 3;
     this.applyMods(this.uc, this.casa, true);
     this.applyMods(this.uf, this.fora, false);
@@ -195,10 +198,11 @@ export class NFLMatchEngine {
       this.clock = clock;
       const res = this.drive(off, def);
       clock += res.secs;
-      if (poss === 'casa') { tot.yC += res.net; tot.rC += res.rushY; tot.pC += res.passY; tot.toC += res.tos; tot.sC += res.secs; }
-      else { tot.yF += res.net; tot.rF += res.rushY; tot.pF += res.passY; tot.toF += res.tos; tot.sF += res.secs; }
+      if (poss === 'casa') { tot.rC += res.rushY; tot.pC += res.passY; tot.yC += res.rushY + res.passY; tot.toC += res.tos; tot.sC += res.secs; }
+      else { tot.rF += res.rushY; tot.pF += res.passY; tot.yF += res.rushY + res.passY; tot.toF += res.tos; tot.sF += res.secs; }
       if (res.pts > 0) {
-        if (poss === 'casa') { this.scoreC += res.pts; qC[quarter] += res.pts; }
+        const scorer = res.safety ? (poss === 'casa' ? 'fora' : 'casa') : poss;
+        if (scorer === 'casa') { this.scoreC += res.pts; qC[quarter] += res.pts; }
         else { this.scoreF += res.pts; qF[quarter] += res.pts; }
         this.emit({ kind: 'score', texto: '', placarCasa: this.scoreC, placarFora: this.scoreF, clock });
       }
@@ -213,22 +217,62 @@ export class NFLMatchEngine {
     }
 
     if (this.scoreC === this.scoreF) {
-      this.say('Tempo esgotado com empate — PRORROGAÇÃO! Morte súbita.', 'info');
-      qC.push(0); qF.push(0);
-      let ot = 0;
-      while (ot < 8 && this.scoreC === this.scoreF) {
-        const off = ot % 2 === 0 ? (poss === 'casa' ? this.uc : this.uf) : (poss === 'casa' ? this.uf : this.uc);
-        const def = off === this.uc ? this.uf : this.uc;
-        this.clock = 3600 + ot * 180;
-        const res = this.drive(off, def);
-        if (res.pts > 0) {
-          if (off === this.uc) { this.scoreC += res.pts; qC[qC.length - 1] += res.pts; }
-          else { this.scoreF += res.pts; qF[qF.length - 1] += res.pts; }
-          if (ot % 2 === 1) break;
+      const postseason = this.opts?.postseason ?? false;
+      const periodLength = postseason ? 900 : 600;
+      this.say(`Tempo esgotado com empate — PRORROGAÇÃO${postseason ? ' dos playoffs' : ''}!`, 'info');
+      let elapsed = 0;
+      let period = 0;
+      let nextSide: 'casa' | 'fora' = this.rng.chance(0.5) ? 'casa' : 'fora';
+      let possessionsInOpeningPeriod = 0;
+      let suddenDeath = false;
+      let periodsStarted = 0;
+
+      // Cada equipe recebe uma posse inicial, mesmo que a primeira marque.
+      // Depois dessas duas posses, qualquer pontuação encerra o jogo.
+      while (this.scoreC === this.scoreF && (postseason || elapsed < periodLength)) {
+        const periodNow = Math.floor(elapsed / periodLength);
+        while (period < periodNow) {
+          period++;
+          qC.push(0); qF.push(0);
+          // Um novo período de playoffs também exige uma oportunidade de posse
+          // para cada lado; se a segunda posse ainda não ocorreu, ela continua pendente.
+          if (possessionsInOpeningPeriod >= 2) possessionsInOpeningPeriod = 0;
+          suddenDeath = possessionsInOpeningPeriod >= 2;
+          this.say(`Início da ${period + 1}ª prorrogação.`, 'info');
         }
-        ot++;
+        if (periodsStarted === 0) { qC.push(0); qF.push(0); periodsStarted++; }
+        this.clock = 3600 + elapsed;
+        const offense = nextSide === 'casa' ? this.uc : this.uf;
+        const defense = nextSide === 'casa' ? this.uf : this.uc;
+        const beforeC = this.scoreC;
+        const beforeF = this.scoreF;
+        const res = this.drive(offense, defense);
+        elapsed += res.secs;
+        // A prorrogação também faz parte das estatísticas finais da partida.
+        if (nextSide === 'casa') {
+          tot.rC += res.rushY; tot.pC += res.passY; tot.yC += res.rushY + res.passY;
+          tot.toC += res.tos; tot.sC += res.secs;
+        } else {
+          tot.rF += res.rushY; tot.pF += res.passY; tot.yF += res.rushY + res.passY;
+          tot.toF += res.tos; tot.sF += res.secs;
+        }
+        if (res.pts > 0) {
+          const scorer = res.safety ? defense : offense;
+          if (scorer === this.uc) { this.scoreC += res.pts; qC[qC.length - 1] += res.pts; }
+          else { this.scoreF += res.pts; qF[qF.length - 1] += res.pts; }
+          this.emit({ kind: 'score', texto: '', placarCasa: this.scoreC, placarFora: this.scoreF, clock: 3600 + elapsed });
+        }
+        possessionsInOpeningPeriod++;
+        if (possessionsInOpeningPeriod >= 2) suddenDeath = true;
+        const scored = this.scoreC !== beforeC || this.scoreF !== beforeF;
+        const openingSafety = res.safety && possessionsInOpeningPeriod === 1;
+        nextSide = nextSide === 'casa' ? 'fora' : 'casa';
+
+        if (openingSafety || (suddenDeath && scored)) break;
+        // Jogos de temporada regular podem terminar empatados ao expirar o período.
+        if (!postseason && elapsed >= periodLength) break;
       }
-      if (this.scoreC === this.scoreF) this.say('Prorrogação sem pontos — partida termina EMPATADA.', 'info');
+      if (this.scoreC === this.scoreF && !postseason) this.say('Prorrogação encerrada sem desempate — partida termina EMPATADA.', 'info');
     }
 
     const possessionBonus = (side: 'casa' | 'fora') => {
@@ -237,8 +281,8 @@ export class NFLMatchEngine {
     };
     const bonusCasa = possessionBonus('casa');
     const bonusFora = possessionBonus('fora');
-    tot.sC = clamp(tot.sC + bonusCasa - bonusFora, 0, 3600);
-    tot.sF = clamp(tot.sF + bonusFora - bonusCasa, 0, 3600);
+    tot.sC = Math.max(0, tot.sC + bonusCasa - bonusFora);
+    tot.sF = Math.max(0, tot.sF + bonusFora - bonusCasa);
 
     const winner = this.scoreC > this.scoreF ? t.sigla : this.scoreF > this.scoreC ? o.sigla : null;
     const fim = `FIM DE JOGO: ${t.cidade} ${t.sigla} ${this.scoreC} × ${this.scoreF} ${o.sigla} ${o.cidade}${winner ? ` — vitória do ${winner}!` : ' — empate.'}`;
@@ -320,8 +364,38 @@ export class NFLMatchEngine {
     return clamp(nerv, 0, 0.55);
   }
 
+  private calculatePregameEdge(): number {
+    const rating = (u: Unit) => (u.passOff + u.runOff + u.passProt + u.runDef + u.passRush + u.coverage) / 6;
+    const coaching = (side: Side) => side.staff.length
+      ? side.staff.reduce((sum, member) => sum + member.nivel, 0) / side.staff.length
+      : 3;
+    const form = (side: Side) =>
+      (side.team.moral - 50) * 0.035 + ((side.team.histCampanha?.[0] ?? 0.5) - 0.5) * 5;
+    const rosterEdge = (rating(this.uc) - rating(this.uf)) * 0.1;
+    const coachingEdge = (coaching(this.casa) - coaching(this.fora)) * 0.7;
+    const formEdge = form(this.casa) - form(this.fora);
+    const homeEdge = 1.5 + this.casa.team.estadio * 0.15 + this.casa.pressao * 0.008;
+    return rosterEdge + coachingEdge + formEdge + homeEdge;
+  }
+
+  private winProbabilities(clock: number, finished = false): { casa: number; fora: number } {
+    const scoreDiff = this.scoreC - this.scoreF;
+    if (finished) {
+      const casa = scoreDiff > 0 ? 100 : scoreDiff < 0 ? 0 : 50;
+      return { casa, fora: 100 - casa };
+    }
+    const progress = clamp(clock / 3600, 0, 1);
+    const scoreEdge = scoreDiff * (0.035 + progress * 0.11);
+    const momentumEdge = ((this.momentum.casa - 50) / 50) * 0.6;
+    const logOdds = this.pregameEdge / 7.5 + scoreEdge + momentumEdge;
+    const casa = Math.round(clamp(100 / (1 + Math.exp(-logOdds)), 1, 99));
+    return { casa, fora: 100 - casa };
+  }
+
   private adjustMomentum(side: 'casa' | 'fora', delta: number, result: string) {
+    const other = side === 'casa' ? 'fora' : 'casa';
     this.momentum[side] = clamp(this.momentum[side] + delta, 0, 100);
+    this.momentum[other] = 100 - this.momentum[side];
     this.lastMomentumResult = result;
   }
   private momentumMultiplier(off: Unit): number {
@@ -396,8 +470,15 @@ export class NFLMatchEngine {
         const situationGo = toGo <= 2 && ball >= 50;
         if (situationGo || (toGo <= goLimit && (aggr >= 45 || toGo <= 1))) {
           this.log(`4ª descida e ${toGo}: ${t.sigla} vai para a conversão!`, 'info');
+          const beforePlay = this.lines.length;
           const r = this.scrimmage(off, def, ball, down, toGo);
           ball = clamp(r.ball, 1, 100); out.secs += r.secs; this.clock += r.secs; out.passY += r.passY; out.rushY += r.rushY;
+          if (r.safety) {
+            out.pts = 2; out.safety = true;
+            const playText = this.since(beforePlay).texto;
+            if (playText) segTextos.push(playText);
+            segTipo = 'score'; flush(); break;
+          }
           if (r.turnover) {
             out.tos++;
             this.log(`Conversão falha! ${def.team.sigla} assume a bola na linha de ${100 - ball}.`, 'turn');
@@ -411,7 +492,7 @@ export class NFLMatchEngine {
             out.firstDowns++;
             this.log(`CONVERTIDO! Primeira descida do ${t.sigla}.`, 'big');
             segTextos.push(`CONVERTIDO! Primeira descida do ${t.sigla}.`); segTipo = 'big';
-            segRun += Math.max(0, r.rushY); segPass += Math.max(0, r.passY);
+            segRun += r.rushY; segPass += r.passY;
             flush();
           } else {
             out.tos++;
@@ -458,10 +539,19 @@ export class NFLMatchEngine {
       if (r.gain) lastGain = r.gain;
       const desc = this.since(before);
 
+      if (r.safety) {
+        out.pts = 2;
+        out.safety = true;
+        segTextos.push(desc.texto || `SAFETY! Dois pontos para o ${def.team.sigla}.`);
+        segTipo = 'score';
+        flush();
+        break;
+      }
+
       if (r.turnover) {
         out.tos++;
         segTextos.push(desc.texto || 'Turnover!');
-        segRun += Math.max(0, r.rushY); segPass += Math.max(0, r.passY);
+            segRun += r.rushY; segPass += r.passY;
         this.emit({ kind: 'turnover', texto: segTextos.join('\n'), tipo: 'turn', posse: off === this.uc ? 'fora' : 'casa', ball: 100 - ball, down: 1, toGo: 10, clock: this.clock, runYds: segRun, passYds: segPass, penalties: segPen });
         segTextos = []; segRun = 0; segPass = 0; segPen = 0;
         break;
@@ -470,8 +560,8 @@ export class NFLMatchEngine {
 
       if (desc.texto) segTextos.push(desc.texto);
       if (desc.tipo === 'big' || desc.tipo === 'turn' || desc.tipo === 'pen' || desc.tipo === 'inj' || desc.tipo === 'score') segTipo = desc.tipo;
-      segRun += Math.max(0, r.rushY);
-      segPass += Math.max(0, r.passY);
+      segRun += r.rushY;
+      segPass += r.passY;
       if (r.faltaTeam) segPen++;
 
       toGo -= r.yds;
@@ -483,6 +573,12 @@ export class NFLMatchEngine {
         if (wasThird) this.adjustMomentum(side, 5, 'third_down_conversion');
         if (this.rng.chance(0.4)) this.log(`Primeira descida: ${t.sigla} mantém o drive vivo.`, 'ok');
       } else if (ball < 100) down++;
+      if (firstDown) {
+        if (!wasThird) this.adjustMomentum(side, 3, 'first_down');
+      } else if (r.yds >= 15) this.adjustMomentum(side, 4, 'explosive_play');
+      else if (r.yds >= 5) this.adjustMomentum(side, 2, 'positive_play');
+      else if (r.yds > 0) this.adjustMomentum(side, 1, 'positive_play');
+      else this.adjustMomentum(side, r.yds < 0 ? -3 : -2, 'play_stopped');
       plays++;
       if (wasThird) {
         this.third[side].att++;
@@ -566,6 +662,18 @@ export class NFLMatchEngine {
         res.faltaTeam = 'def';
       }
     }
+    if (!res.turnover && !res.td && ball + res.yds <= 0) {
+      res.safety = true;
+      res.ball = 1;
+      const defender = res.safetyPlayer ?? this.rng.pick([...def.dl, ...def.lb, ...def.s, ...def.cb]);
+      res.safetyPlayer = defender ?? undefined;
+      if (defender) {
+        this.addStat(defender.id, 'safeties', 1);
+        const line = this.line(defender);
+        line.safeties = (line.safeties ?? 0) + 1;
+      }
+      this.log(`SAFETY! O ataque do ${t.sigla} é derrubado na própria end zone. Dois pontos para o ${def.team.sigla}.`, 'score');
+    }
     return res;
   }
 
@@ -582,6 +690,7 @@ export class NFLMatchEngine {
     yds = Math.round((yds + this.rng.int(-1, 1)) * this.clutchMultiplier(rb) * this.momentumMultiplier(off));
 
     const tackler = this.rng.pick([...def.lb, ...def.dl, ...def.s]);
+    res.safetyPlayer = tackler ?? undefined;
     if (tackler && yds < 8) this.addStat(tackler.id, 'tackles', 1);
 
     const fumP = clamp(0.011 + (qn < 0 ? 0.008 : 0) + nerv * 0.006, 0.005, 0.04) * this.injFactor;
@@ -590,12 +699,20 @@ export class NFLMatchEngine {
       this.log(`${dn}, ${spot} — ${shortName(rb.nome)} sofre FUMBLE! ${rec ? shortName(rec.nome) : def.team.sigla} recupera para o ${def.team.sigla}.`, 'turn');
       if (nerv > 0.25) this.nervesEvent(`Sob pressão da torcida, ${shortName(rb.nome)} solta a bola — FUMBLE!`);
       res.turnover = true; res.yds = 0; res.secs = 33;
-      this.adjustMomentum(off === this.uc ? 'casa' : 'fora', -20, 'turnover');
       this.adjustMomentum(def === this.uc ? 'casa' : 'fora', 20, 'turnover');
-      if (rec) this.addStat(rec.id, 'tackles', 1);
       if (tackler) {
         const tl = this.line(tackler); tl.ff = (tl.ff ?? 0) + 1;
         this.addStat(tackler.id, 'ff', 1);
+      }
+      if (rec) {
+        this.addStat(rec.id, 'fumbleRec', 1);
+        const recoveryLine = this.line(rec);
+        recoveryLine.fumbleRec = (recoveryLine.fumbleRec ?? 0) + 1;
+      }
+      if (tackler) {
+        const tackleLine = this.line(tackler);
+        tackleLine.tackles = (tackleLine.tackles ?? 0) + 1;
+        if (yds >= 8) this.addStat(tackler.id, 'tackles', 1);
       }
       this.maybeInjury(off, def);
       return;
@@ -640,12 +757,14 @@ export class NFLMatchEngine {
       this.log(`${dn}, ${spot} — ${rusher ? shortName(rusher.nome) : 'a defesa'} derruba ${shortName(qb.nome)} atrás da linha! SACK de ${-loss} jardas.`, 'turn');
       if (rusher) {
         this.addStat(rusher.id, 'sacks', 1);
+        this.addStat(rusher.id, 'tackles', 1);
         const rl = this.line(rusher);
         rl.sacks = (rl.sacks ?? 0) + 1;
+        rl.tackles = (rl.tackles ?? 0) + 1;
         rl.sackYds = (rl.sackYds ?? 0) + (-loss);
+        res.safetyPlayer = rusher;
       }
-      res.yds = loss; res.secs = 33;
-      this.adjustMomentum(off === this.uc ? 'casa' : 'fora', -10, 'sack_suffered');
+      res.yds = loss; res.passY += loss; res.secs = 33;
       this.adjustMomentum(def === this.uc ? 'casa' : 'fora', 10, 'sack');
       this.maybeInjury(off, def, 0.02);
       return;
@@ -667,18 +786,29 @@ export class NFLMatchEngine {
         dl.tackles = (dl.tackles ?? 0) + 1;
       }
       res.turnover = true; res.yds = 0; res.secs = 33;
-      this.adjustMomentum(off === this.uc ? 'casa' : 'fora', -20, 'turnover');
       this.adjustMomentum(def === this.uc ? 'casa' : 'fora', 20, 'interception');
       return;
     }
     if (!this.rng.chance(complP)) {
       const alvo = this.receiver(off);
+      const defender = this.rng.chance(0.4) ? this.rng.pick([...def.cb, ...def.s, ...def.lb]) : null;
+      if (defender) {
+        this.addStat(defender.id, 'passesDefended', 1);
+        const line = this.line(defender);
+        line.passesDefended = (line.passesDefended ?? 0) + 1;
+      }
       this.log(`${dn}, ${spot} — passe incompleto de ${shortName(qb.nome)} para ${shortName(alvo.nome)}${pressure > 1.5 ? ' sob pressão' : ''}.`, 'ok');
       res.yds = 0; res.secs = 20;
       return;
     }
 
     const alvo = this.receiver(off);
+    const tackler = this.rng.pick([...def.lb, ...def.cb, ...def.s]);
+    if (tackler) {
+      this.addStat(tackler.id, 'tackles', 1);
+      const tackleLine = this.line(tackler);
+      tackleLine.tackles = (tackleLine.tackles ?? 0) + 1;
+    }
     const weights = [14, 24, 26, 18 + qn * 4, 10 + qn * 4, 5 + qn * 3, 2 + qn * 2, 1 + qn];
     if (script === 'aggressive') {
       weights[5] += 8; weights[6] += 5; weights[7] += 3;
@@ -819,7 +949,15 @@ export class NFLMatchEngine {
   }
   private log(t: string, tipo: PlayLine['tipo']) { this.lines.push({ t, tipo }); }
   private emit(e: LiveEvent) {
-    this.events.push({ ...e, momentumCasa: this.momentum.casa, momentumFora: this.momentum.fora, momentumResult: this.lastMomentumResult });
+    const probabilities = this.winProbabilities(e.clock ?? this.clock, e.kind === 'end');
+    this.events.push({
+      ...e,
+      momentumCasa: this.momentum.casa,
+      momentumFora: this.momentum.fora,
+      momentumResult: this.lastMomentumResult,
+      winProbCasa: probabilities.casa,
+      winProbFora: probabilities.fora,
+    });
   }
   private say(texto: string, tipo: LineTipo) {
     this.log(texto, tipo);
@@ -868,9 +1006,9 @@ export class NFLMatchEngine {
   private buildRichBox(tot: { yC: number; yF: number; rC: number; rF: number; pC: number; pF: number; toC: number; toF: number; sC: number; sF: number }): RichBox {
     const tb = (side: 'casa' | 'fora'): TeamBox => ({
       pts: side === 'casa' ? this.scoreC : this.scoreF,
-      yds: Math.max(0, Math.round(side === 'casa' ? tot.yC : tot.yF)),
+      yds: Math.round(side === 'casa' ? tot.yC : tot.yF),
       rushYds: Math.max(0, Math.round(side === 'casa' ? tot.rC : tot.rF)),
-      passYds: Math.max(0, Math.round(side === 'casa' ? tot.pC : tot.pF)),
+      passYds: Math.round(side === 'casa' ? tot.pC : tot.pF),
       firstDowns: this.fd[side],
       thirdAtt: this.third[side].att, thirdConv: this.third[side].conv,
       rzAtt: this.rz[side].att, rzTd: this.rz[side].td,
@@ -894,7 +1032,7 @@ export class NFLMatchEngine {
       const sc = (l.py ?? 0) + 25 * (l.ptd ?? 0) - 30 * (l.int ?? 0)
         + (l.ry ?? 0) + 20 * (l.rtd ?? 0)
         + (l.recYds ?? 0) + 20 * (l.recTD ?? 0)
-        + 10 * (l.sacks ?? 0) + 3 * (l.tackles ?? 0) + 45 * (l.intDef ?? 0)
+        + 10 * (l.sacks ?? 0) + 3 * (l.tackles ?? 0) + 45 * (l.intDef ?? 0) + 35 * (l.safeties ?? 0)
         + 15 * (l.fgM ?? 0);
       if (sc > bestScore) { bestScore = sc; mvp = { nome: l.nome, pos: l.pos, teamId: l.teamId, linha: this.mvpLine(l) }; }
     }
@@ -919,6 +1057,7 @@ export class NFLMatchEngine {
     if ((l.sacks ?? 0) > 0) parts.push(`${l.sacks} sacks (−${l.sackYds} jd)`);
     if ((l.tackles ?? 0) > 0) parts.push(`${l.tackles} tackles`);
     if ((l.intDef ?? 0) > 0) parts.push(`${l.intDef} interceptações`);
+    if ((l.safeties ?? 0) > 0) parts.push(`${l.safeties} safety`);
     if ((l.fgM ?? 0) > 0) parts.push(`${l.fgM}/${l.fgT} field goals`);
     return parts.join(' · ');
   }

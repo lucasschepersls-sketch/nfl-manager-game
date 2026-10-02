@@ -11,6 +11,7 @@ import type {
 } from './types';
 import { Rng, clamp } from './rng';
 import { computeStandings } from './tiebreakers';
+import { genName } from './data';
 
 /* ---------- metadados de categoria (ícone, rótulo, cor) ---------- */
 export const CATEGORY_META: Record<MessageCategory, { label: string; icon: string; color: string }> = {
@@ -32,6 +33,37 @@ export const PRIORITY_META: Record<MessagePriority, { label: string; color: stri
   normal: { label: 'Normal', color: 'var(--color-gold)' },
   low: { label: 'Baixa', color: 'var(--color-faint)' },
 };
+
+export interface NewsContext {
+  priority?: 'high' | 'normal' | 'low';
+  teamIds?: string[];
+  playerIds?: string[];
+  matchId?: number;
+}
+
+const NEWS_HIGH_LABELS = new Set(['SUPER BOWL', 'ELIMINAÇÃO', 'APOSENTADORIAS', 'RFA PERDIDO', 'CAP']);
+
+/** Publica uma manchete com contexto de temporada e impede duplicatas na mesma semana. */
+export function publishNews(s: GameState, rotulo: string, texto: string, context: NewsContext = {}): void {
+  const same = s.news.find(n => n.rotulo === rotulo && n.texto === texto &&
+    (n.season ?? s.settings.temporada) === s.settings.temporada &&
+    (n.week ?? s.settings.semana) === s.settings.semana);
+  if (same) return;
+  const id = s.news.reduce((max, item) => Math.max(max, item.id), 0) + 1;
+  s.news.unshift({
+    id,
+    rotulo,
+    texto,
+    season: s.settings.temporada,
+    week: s.settings.semana,
+    createdAt: Date.now(),
+    priority: context.priority ?? (NEWS_HIGH_LABELS.has(rotulo) ? 'high' : 'normal'),
+    teamIds: context.teamIds,
+    playerIds: context.playerIds,
+    matchId: context.matchId,
+  });
+  if (s.news.length > 300) s.news.length = 300;
+}
 
 /* ---------- helpers locais (evitam importar season.ts) ---------- */
 const teamOf = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -224,6 +256,7 @@ export function checkUserFiring(s: GameState, rng: Rng): boolean {
   last.isFired = true;
   last.fireReason = 'Avaliação da diretoria abaixo de 30/100 — confiança esgotada.';
   const team = teamOf(s, s.userTeam);
+  createCoachVacancy(s, s.userTeam, 'user_fired');
   notify(s, {
     category: 'job',
     sender: 'Diretoria',
@@ -264,6 +297,7 @@ export function checkEndSeasonFiring(s: GameState, rng: Rng): boolean {
   const last = seasonEvals[seasonEvals.length - 1];
   if (last) { last.isFired = true; last.fireReason = 'Temporada abaixo das expectativas — avaliação média ' + Math.round(avg) + '/100.'; }
   const team = teamOf(s, s.userTeam);
+  createCoachVacancy(s, s.userTeam, 'user_fired');
   notify(s, {
     category: 'job',
     sender: 'Diretoria',
@@ -300,6 +334,36 @@ function rosterQualityOf(s: GameState, teamId: string): JobOpening['rosterQualit
   return 'poor';
 }
 
+function createCoachVacancy(s: GameState, teamId: string, reason: string): JobOpening | null {
+  if (s.jobOpenings.some(job => job.teamId === teamId && !job.isFilled)) return null;
+  const departing = s.staff.find(member => member.teamId === teamId && member.funcao === 'Técnico Principal');
+  if (departing) {
+    departing.teamId = '';
+    if (!departing.isHuman) s.staff = s.staff.filter(member => member.id !== departing.id);
+  }
+  const quality = teamQualityOf(s, teamId);
+  const roster = rosterQualityOf(s, teamId);
+  const picks: number[] = [];
+  for (let round = 0; round < 3; round++) {
+    const row = s.pickOwners[round];
+    if (row && row.some(cell => cell.owner === teamId && !cell.consumed)) picks.push(round + 1);
+  }
+  const expectations: JobOpening['expectations'] = quality === 'contender' ? 'win_now'
+    : quality === 'playoff_team' ? 'develop_young_players' : 'rebuild';
+  const payroll = s.players.filter(player => player.teamId === teamId)
+    .reduce((total, player) => total + (player.contract?.capHits[0] ?? player.salario), 0);
+  const opening: JobOpening = {
+    id: nextId(s), season: s.settings.temporada, week: s.settings.semana, teamId, reason,
+    teamQuality: quality, rosterQuality: roster,
+    capSpace: Math.round((s.settings.cap - payroll) * 10) / 10,
+    draftPicks: picks, expectations,
+    pressureLevel: quality === 'disaster' ? 9 : quality === 'rebuilding' ? 6 : quality === 'playoff_team' ? 4 : 3,
+    isFilled: false, filledByUser: false, weeksOpen: 0,
+  };
+  s.jobOpenings.unshift(opening);
+  return opening;
+}
+
 export function generateAiCoachFirings(s: GameState, rng: Rng, forceMin = 0): number {
   if (s.settings.fase !== 'REG' || s.settings.semana < 4) return 0;
   let created = 0;
@@ -312,25 +376,8 @@ export function generateAiCoachFirings(s: GameState, rng: Rng, forceMin = 0): nu
     const chance = winPct < 0.15 ? 0.18 : winPct < 0.25 ? 0.07 : 0;
     if (created < forceMin ? false : !rng.chance(chance)) continue;
 
-    const quality = teamQualityOf(s, t.id);
-    const roster = rosterQualityOf(s, t.id);
-    const picks: number[] = [];
-    for (let r = 0; r < 3; r++) {
-      const row = s.pickOwners[r];
-      if (row && row.some(c => c.owner === t.id && !c.consumed)) picks.push(r + 1);
-    }
-    const capSpace = Math.round((s.settings.cap - capUsed(s, t.id)) * 10) / 10;
-    const expectations: JobOpening['expectations'] =
-      quality === 'contender' ? 'win_now' : quality === 'playoff_team' ? 'develop_young_players' : 'rebuild';
-    const pressureLevel = quality === 'disaster' ? 9 : quality === 'rebuilding' ? 6 : quality === 'playoff_team' ? 4 : 3;
-
-    s.jobOpenings.unshift({
-      id: nextId(s), season: s.settings.temporada, week: s.settings.semana,
-      teamId: t.id, reason: 'fired_coach',
-      teamQuality: quality, rosterQuality: roster,
-      capSpace, draftPicks: picks, expectations, pressureLevel,
-      isFilled: false, filledByUser: false,
-    });
+    const opening = createCoachVacancy(s, t.id, 'fired_coach');
+    if (!opening) continue;
     created++;
     notify(s, {
       category: 'media',
@@ -338,12 +385,79 @@ export function generateAiCoachFirings(s: GameState, rng: Rng, forceMin = 0): nu
       subject: `Técnico do ${t.cidade} ${t.nome} é demitido`,
       body: `Após uma campanha de ${Math.round(winPct * 100)}% de aproveitamento, o ${t.cidade} ${t.nome} ` +
         `dispensou seu treinador. A vaga está aberta e a diretoria busca um novo nome. ` +
-        `Qualidade do elenco: ${roster}.`,
+        `Qualidade do elenco: ${opening.rosterQuality}. A diretoria pode promover alguém da liga se a vaga seguir aberta por uma semana.`,
       priority: 'low',
       dataPayload: { teamId: t.id },
     });
   }
   return created;
+}
+
+function staffCoachCandidates(s: GameState): GameState['staff'] {
+  return s.staff.filter(member => member.teamId && member.funcao !== 'Técnico Principal' && !member.isHuman)
+    .sort((a, b) => {
+      const roleScore = (role: string) => role.startsWith('Coordenador') ? 100 : 0;
+      return roleScore(b.funcao) + b.nivel * 10 + b.experiencia * 0.2
+        - roleScore(a.funcao) - a.nivel * 10 - a.experiencia * 0.2;
+    });
+}
+
+export function staffCandidatesForJob(s: GameState, jobId: number): GameState['staff'] {
+  if (!s.jobOpenings.some(job => job.id === jobId && !job.isFilled)) return [];
+  const candidates = staffCoachCandidates(s);
+  const coordinators = candidates.filter(member => member.funcao.startsWith('Coordenador')).slice(0, 2);
+  const otherRole = candidates.find(member => !member.funcao.startsWith('Coordenador'));
+  return [...coordinators, ...(otherRole ? [otherRole] : [])].slice(0, 3);
+}
+
+export function promoteStaffToCoach(s: GameState, jobId: number, staffId: string, rng: Rng): { ok: boolean; msg: string } {
+  const job = s.jobOpenings.find(opening => opening.id === jobId && !opening.isFilled);
+  const candidate = s.staff.find(member => member.id === staffId);
+  if (!job) return { ok: false, msg: 'Esta vaga já foi preenchida.' };
+  if (!candidate || !candidate.teamId || candidate.funcao === 'Técnico Principal' || candidate.isHuman)
+    return { ok: false, msg: 'Esse profissional não está disponível para promoção.' };
+
+  const sourceTeamId = candidate.teamId;
+  const formerRole = candidate.funcao;
+  const oldCoach = s.staff.find(member => member.teamId === job.teamId && member.funcao === 'Técnico Principal');
+  if (oldCoach) { oldCoach.teamId = ''; oldCoach.isHuman = false; }
+  candidate.teamId = job.teamId;
+  candidate.funcao = 'Técnico Principal';
+  candidate.contrato = Math.max(1, candidate.contrato);
+  candidate.salario = Math.round(Math.max(candidate.salario, 1.2) * 10) / 10;
+  candidate.moral = Math.min(95, candidate.moral + 8);
+  job.isFilled = true;
+  job.filledByUser = false;
+  teamOf(s, job.teamId).moral = Math.max(teamOf(s, job.teamId).moral, 55);
+
+  s.staff.push({
+    id: `st${nextId(s)}`, teamId: sourceTeamId, nome: genName(rng), funcao: formerRole,
+    nivel: Math.max(1, candidate.nivel - 1), experiencia: rng.int(1, 8),
+    salario: Math.round(Math.max(0.7, candidate.salario * 0.7) * 10) / 10,
+    bonus: 0, contrato: 2, moral: 65,
+  });
+  const source = teamOf(s, sourceTeamId);
+  const destination = teamOf(s, job.teamId);
+  notify(s, {
+    category: 'job', sender: 'Mídia NFL',
+    subject: `${destination.sigla} promove ${candidate.nome} a técnico principal`,
+    body: `O ${destination.cidade} ${destination.nome} preencheu a vaga com uma promoção interna da liga. O ${source.cidade} ${source.nome} contratou um substituto para a comissão.`,
+    priority: 'normal', dataPayload: { teamId: job.teamId },
+  });
+  return { ok: true, msg: `${candidate.nome} assume o comando do ${destination.sigla}.` };
+}
+
+export function resolveCoachVacancies(s: GameState, rng: Rng, force = false): number {
+  let filled = 0;
+  for (const job of s.jobOpenings.filter(opening => !opening.isFilled
+    && (force || (opening.weeksOpen ?? 0) >= 1)
+    && !(force && s.coachFired && opening.reason === 'user_fired'))) {
+    const candidate = staffCoachCandidates(s)[0];
+    if (!candidate) continue;
+    const result = promoteStaffToCoach(s, job.id, candidate.id, rng);
+    if (result.ok) filled++;
+  }
+  return filled;
 }
 
 /* ================= recolocação (candidatura a uma vaga) ================= */
@@ -370,6 +484,24 @@ export function applyToJob(s: GameState, jobId: number, rng: Rng): { ok: boolean
 
   // aceita: troca de equipe
   const oldTeam = teamOf(s, s.userTeam);
+  const oldTeamId = s.userTeam;
+  const humanCoach = s.staff.find(member => member.isHuman)
+    ?? {
+      id: `human-coach-${s.userTeam}`, teamId: oldTeamId, nome: 'Você', funcao: 'Técnico Principal' as const,
+      nivel: 4, experiencia: 0, salario: 0, bonus: 0, contrato: 99, moral: 75, isHuman: true,
+    };
+  if (!s.staff.some(member => member.id === humanCoach.id)) s.staff.push(humanCoach);
+  const displacedCoach = s.staff.find(member => member.teamId === job.teamId && member.funcao === 'Técnico Principal');
+  if (displacedCoach && displacedCoach !== humanCoach) displacedCoach.teamId = '';
+  if (humanCoach.teamId && humanCoach.teamId !== job.teamId) {
+    const previousTeamId = humanCoach.teamId;
+    humanCoach.teamId = '';
+    createCoachVacancy(s, previousTeamId, 'human_left');
+  }
+  humanCoach.teamId = job.teamId;
+  humanCoach.funcao = 'Técnico Principal';
+  humanCoach.nome = 'Você';
+  humanCoach.isHuman = true;
   job.isFilled = true;
   job.filledByUser = true;
   s.userTeam = job.teamId;
@@ -425,7 +557,7 @@ export function sendProBowlResults(s: GameState): void {
       ? `Pro Bowl: ${mine.length} jogador(es) do seu time selecionados!`
       : 'Pro Bowl: elencos definidos — nenhum atleta seu foi escolhido',
     body:
-      `A votação de fãs (75%), jogadores e técnicos definiu os elencos do Pro Bowl da temporada ${s.settings.temporada}.\n\n` +
+      `A votação de fãs, jogadores e técnicos, com pesos iguais e desempate pelo voto dos fãs, definiu os elencos do Pro Bowl da temporada ${s.settings.temporada}.\n\n` +
       `—— CONFERÊNCIA AFC ——\n${fmtRoster(afc)}\n\n` +
       `—— CONFERÊNCIA NFC ——\n${fmtRoster(nfc)}\n\n` +
       (mine.length

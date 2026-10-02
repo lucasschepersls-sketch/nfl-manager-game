@@ -1,6 +1,6 @@
 /* ============================================================
  * Sistema de Votação do Pro Bowl
- * Votos semanais (fãs 75% · jogadores 25% · técnicos 25%),
+ * Votos semanais (fãs, jogadores e técnicos com 1/3 cada),
  * 4 fatores: performance da semana (40%) + stats da temporada
  * (35%) + rating (15%) + reputação (10%). Bônus de momentum
  * (+25%) em semanas excepcionais. Seleção final: líder de cada
@@ -10,6 +10,7 @@
 import type { Conf, GameState, Pos, ProBowlState, ProBowlVote, RichBox, Team } from './types';
 import { Rng, clamp } from './rng';
 import { passerRating } from './seasonStats';
+import { publishNews } from './messaging';
 
 /** Box rico acompanhado dos IDs das franquias (casa × fora). */
 export interface WeekBox { casaId: string; foraId: string; rich: RichBox; }
@@ -22,7 +23,7 @@ export const PROBOWL_POSITIONS: Pos[] = ['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB
 const RESERVE_POSITIONS: Pos[] = ['QB', 'RB', 'WR', 'TE', 'DL', 'LB', 'CB', 'S'];
 
 export const emptyProBowl = (season: number): ProBowlState => ({
-  season, lastWeek: 0, votes: [], userFanVote: null, announced: false,
+  season, lastWeek: 0, votes: [], userFanVote: null, userCoachVote: null, announced: false,
 });
 
 /* ---------- FATOR 1: performance da SEMANA (peso 40%) ---------- */
@@ -172,7 +173,6 @@ export function runWeeklyProBowlVoting(s: GameState, week: number, boxes: WeekBo
       s.probowl.votes.push(v);
     }
     v.fanVotes += fan; v.playerVotes += pl; v.coachVotes += co;
-    v.totalWeighted = Math.round(v.fanVotes * 0.75 + v.playerVotes * 0.25 + v.coachVotes * 0.25);
     v.week = week;
     v.momentum = momentum;
     v.summary = {
@@ -192,14 +192,49 @@ export function runWeeklyProBowlVoting(s: GameState, week: number, boxes: WeekBo
 
 /* ---------- ranking por posição ---------- */
 export function updateRankings(s: GameState): void {
+  recalculateWeightedVotes(s);
   for (const pos of PROBOWL_POSITIONS) {
     const ids = new Set(
       s.players.filter(p => p.pos === pos && p.teamId).map(p => p.id),
     );
     const group = s.probowl.votes
       .filter(v => ids.has(v.playerId))
-      .sort((a, b) => b.totalWeighted - a.totalWeighted);
+      .sort((a, b) => b.totalWeighted - a.totalWeighted || b.fanVotes - a.fanVotes);
     group.forEach((v, i) => { v.rankInPosition = i + 1; });
+  }
+}
+
+/** Normalize each voting group's counts within position and conference so
+ * fans, players and coaches each contribute exactly one third. */
+export function recalculateWeightedVotes(s: GameState): void {
+  const teams = new Map(s.teams.map(team => [team.id, team]));
+  const players = new Map(s.players.map(player => [player.id, player]));
+  const groups = new Map<string, ProBowlVote[]>();
+
+  for (const vote of s.probowl.votes) {
+    const player = players.get(vote.playerId);
+    const conf = player?.teamId ? teams.get(player.teamId)?.conf : undefined;
+    if (!player || !conf) { vote.totalWeighted = 0; continue; }
+    const key = `${player.pos}:${conf}`;
+    const group = groups.get(key) ?? [];
+    group.push(vote);
+    groups.set(key, group);
+  }
+
+  for (const group of groups.values()) {
+    const totals = group.reduce((sum, vote) => ({
+      fans: sum.fans + vote.fanVotes,
+      players: sum.players + vote.playerVotes,
+      coaches: sum.coaches + vote.coachVotes,
+    }), { fans: 0, players: 0, coaches: 0 });
+    for (const vote of group) {
+      const share = (count: number, total: number) => total > 0 ? count / total : 0;
+      vote.totalWeighted = Math.round((
+        share(vote.fanVotes, totals.fans)
+        + share(vote.playerVotes, totals.players)
+        + share(vote.coachVotes, totals.coaches)
+      ) / 3 * 10000) / 100;
+    }
   }
 }
 
@@ -213,15 +248,40 @@ export function castFanVote(s: GameState, playerId: string): { ok: boolean; msg:
   const v = s.probowl.votes.find(x => x.playerId === playerId);
   if (!v) return { ok: false, msg: 'Jogador ainda não entrou na votação.' };
   v.fanVotes += 2500;
-  v.totalWeighted = Math.round(v.fanVotes * 0.75 + v.playerVotes * 0.25 + v.coachVotes * 0.25);
+  recalculateWeightedVotes(s);
   s.probowl.userFanVote = { week, playerId };
   updateRankings(s);
   return { ok: true, msg: '🗳️ Voto computado! +2.500 votos de fã.' };
 }
 
+/** The human head coach casts the coach ballot for eligible players. */
+export function castCoachVote(s: GameState, playerId: string): { ok: boolean; msg: string } {
+  const week = s.settings.fase === 'REG' ? s.settings.semana : s.probowl.lastWeek;
+  if (week < 1) return { ok: false, msg: 'A votação começa na semana 1 da temporada regular.' };
+  if (s.probowl.announced) return { ok: false, msg: 'Votação encerrada — o roster do Pro Bowl já foi anunciado.' };
+  if (s.probowl.userCoachVote?.week === week)
+    return { ok: false, msg: 'Você já votou como técnico nesta semana. Novo voto na próxima semana.' };
+
+  const humanCoach = s.staff.find(member => member.isHuman && member.funcao === 'Técnico Principal');
+  const userTeam = s.teams.find(team => team.id === humanCoach?.teamId);
+  const vote = s.probowl.votes.find(item => item.playerId === playerId);
+  const player = s.players.find(item => item.id === playerId);
+  const targetTeam = player?.teamId ? s.teams.find(team => team.id === player.teamId) : undefined;
+  if (!humanCoach || !userTeam) return { ok: false, msg: 'Você não está registrado como técnico principal.' };
+  if (!vote || !player || !targetTeam) return { ok: false, msg: 'Jogador ainda não entrou na votação.' };
+  if (targetTeam.id === userTeam.id) return { ok: false, msg: 'Técnicos não votam em jogadores do próprio time.' };
+  if (targetTeam.conf !== userTeam.conf) return { ok: false, msg: 'Técnicos votam apenas em jogadores da própria conferência.' };
+
+  vote.coachVotes += 2500;
+  s.probowl.userCoachVote = { week, playerId };
+  updateRankings(s);
+  return { ok: true, msg: '🗳️ Voto de técnico computado! +2.500 votos de técnico.' };
+}
+
 /* ---------- seleção final (fim da temporada regular) ---------- */
 export function selectProBowlRoster(s: GameState): void {
   if (s.probowl.announced) return;
+  recalculateWeightedVotes(s);
   const tm = new Map(s.teams.map(t => [t.id, t]));
   const byPosConf = (pos: Pos, conf: Conf) =>
     s.probowl.votes
@@ -229,7 +289,7 @@ export function selectProBowlRoster(s: GameState): void {
         const p = s.players.find(x => x.id === v.playerId);
         return p && p.pos === pos && p.teamId && tm.get(p.teamId)?.conf === conf;
       })
-      .sort((a, b) => b.totalWeighted - a.totalWeighted);
+      .sort((a, b) => b.totalWeighted - a.totalWeighted || b.fanVotes - a.fanVotes);
 
   let titulares = 0;
   for (const pos of PROBOWL_POSITIONS) {
@@ -245,7 +305,7 @@ export function selectProBowlRoster(s: GameState): void {
         const p = s.players.find(x => x.id === v.playerId);
         return p && p.pos === pos && !v.isStarter;
       })
-      .sort((a, b) => b.totalWeighted - a.totalWeighted)
+      .sort((a, b) => b.totalWeighted - a.totalWeighted || b.fanVotes - a.fanVotes)
       .slice(0, 3);
     for (const r of resto) { r.isReserve = true; reservas++; }
   }
@@ -293,7 +353,7 @@ function standingsFast(s: GameState): Map<string, { v: number }> {
 }
 
 function pushNewsPb(s: GameState, rotulo: string, texto: string): void {
-  s.news.unshift({ id: Date.now() + Math.floor(Math.random() * 9999), rotulo, texto });
+  publishNews(s, rotulo, texto);
 }
 
 /** Time do jogador (para a UI). */

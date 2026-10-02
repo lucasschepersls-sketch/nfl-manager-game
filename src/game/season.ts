@@ -4,7 +4,7 @@
  * ============================================================ */
 
 import type {
-  Conf, ContractOffer, ContractStructure, Focus, GameResult, GameState, Match, Player, Pos, PowerRankingEntry, Rivalry, Screen, Staff, Team, TeamBox, TeamSeasonStats,
+  Conf, ContractOffer, ContractStructure, Focus, FranchiseHistory, GameResult, GameState, Match, Player, Pos, PowerRankingEntry, Rivalry, Screen, SeasonRecord, Staff, Team, TeamBox, TeamSeasonStats,
 } from './types';
 import { zeroStats, zeroTeamStats } from './types';
 import { Rng, clamp, newSeed } from './rng';
@@ -16,17 +16,17 @@ import { emptyProBowl, runWeeklyProBowlVoting, selectProBowlRoster, type WeekBox
 import {
   recordCoachEvaluation, sendEvaluationMessage, sendWeeklyPressure, sendTrainingReport,
   checkUserFiring, checkEndSeasonFiring, generateAiCoachFirings, sendProBowlResults, sendSuperBowlMessage,
-  sendInjuryMessage, sendDraftMessage, sendFreeAgentMessage, sendContractMessage, notify,
+  sendInjuryMessage, sendDraftMessage, sendFreeAgentMessage, sendContractMessage, notify, resolveCoachVacancies, publishNews,
 } from './messaging';
-import { addChurn, recalcChemistry } from './franchise';
+import { addChurn, adjustReputation, recalcChemistry, teamChemistry } from './franchise';
 import {
   acceptanceRoll, calcExpectations, franchiseTagValue, happinessVerdict,
   makeContract, makeTagContract, negotiationHappiness, shouldHoldout,
   STRUCT_LABEL,
 } from './contracts';
-import { staffExpectations, staffHappiness } from './negotiations';
+import { playerHappiness, staffExpectations, staffHappiness } from './negotiations';
 import { simulateTrainingWeek, type TrainingCenterState } from './training';
-import { computeStandings, rankDivision, conferenceOrder, generatePlayoffBracket } from './tiebreakers';
+import { computeStandings, rankDivision, conferenceOrder, generatePlayoffBracket, type TeamStanding } from './tiebreakers';
 
 /* ================= helpers ================= */
 export const teamById = (s: GameState, id: string): Team => s.teams.find(t => t.id === id)!;
@@ -68,7 +68,9 @@ export function teamStrength(s: GameState, teamId: string): number {
 }
 
 export const pushNews = (s: GameState, rotulo: string, texto: string) => {
-  s.news.unshift({ id: Date.now() + Math.floor(Math.random() * 9999), rotulo, texto });
+  const words = texto.toLocaleLowerCase('pt-BR').split(/[^a-z0-9]+/);
+  const teamIds = s.teams.filter(t => words.includes(t.sigla.toLocaleLowerCase('pt-BR'))).map(t => t.id);
+  publishNews(s, rotulo, texto, { teamIds });
 };
 
 function updateMediaNarratives(s: GameState, results: Match[]): void {
@@ -169,14 +171,17 @@ function buildMatchups(teams: SchedTeam[], year: number, ranks: RankMap): Game[]
     }
   }
 
-  const g17Conf: Conf = year % 2 === 0 ? 'AFC' : 'NFC';
-  const otherConf: Conf = g17Conf === 'AFC' ? 'NFC' : 'AFC';
+  // O 17º jogo cruza conferências: cada time da AFC recebe exatamente um
+  // adversário da NFC, com mando alternando por temporada. Iterar só sobre
+  // uma conferência evita criar o mesmo par duas vezes.
   for (const t of teams) {
-    if (t.conf !== g17Conf) continue;
+    if (t.conf !== 'AFC') continue;
     const targetDiv = (t.div + year + 2) % 4;
-    const opp = divByRank(otherConf, targetDiv)[rankOf(t.id) - 1];
+    const opp = divByRank('NFC', targetDiv)[rankOf(t.id) - 1];
     if (!opp) continue;
-    games.push({ casa: t.id, fora: opp.id, isDiv: false });
+    games.push(year % 2 === 0
+      ? { casa: t.id, fora: opp.id, isDiv: false }
+      : { casa: opp.id, fora: t.id, isDiv: false });
   }
 
   const seen = new Set<string>();
@@ -422,8 +427,24 @@ function assignWeeks(teams: SchedTeam[], games: Game[], rng: Rng): { weeks: Game
       }
     }
   }
+  // Nunca descarte partidas: além de deixar franquias com menos de 17 jogos,
+  // isso fazia algumas semanas parecerem ausentes na temporada seguinte.
+  // Em um grafo válido sempre há espaço; este último recurso preserva o jogo
+  // na semana com menos conflitos para que a validação/reparo possa detectá-lo.
+  for (const g of overflow) {
+    let bestW = 0;
+    let bestConflicts = Infinity;
+    for (let w = 0; w < N; w++) {
+      const occupied = new Set(weeks[w].flatMap(x => [x.casa, x.fora]));
+      for (const t of teams) if (bye.get(t.id) === w) occupied.add(t.id);
+      const conflicts = Number(occupied.has(g.casa)) + Number(occupied.has(g.fora));
+      if (conflicts < bestConflicts) { bestConflicts = conflicts; bestW = w; }
+    }
+    weeks[bestW].push(g);
+  }
   if (overflow.length > 0) {
-    console.warn(`Calendário: ${overflow.length} jogo(s) sem semana — o grafo de confrontos não fechou. Isso não deveria acontecer.`);  }
+    console.warn(`Calendário: ${overflow.length} jogo(s) alocado(s) em semana com conflito para preservar todas as partidas.`);
+  }
 
   return { weeks, week18 };
 }
@@ -499,7 +520,6 @@ export interface TableRow {
   isChamp?: boolean;
   seed?: number | null;
 }
-export type { TeamStanding };
 export { computeStandings, rankDivision, conferenceOrder, generatePlayoffBracket };
 export function standings(s: GameState): TableRow[] {
   const rows: TableRow[] = s.teams.map(t => ({ teamId: t.id, j: 0, v: 0, e: 0, d: 0, pf: 0, pc: 0, net: 0, seq: '' }));
@@ -645,18 +665,6 @@ function mergeStats(s: GameState, r: GameResult, importantGame: boolean, rivalry
     if (!p) continue;
     for (const [k, v] of Object.entries(delta)) (p.stats as unknown as Record<string, number>)[k] = ((p.stats as unknown as Record<string, number>)[k] ?? 0) + v;
   }
-  // campos novos (não presentes em statDeltas) acumulados do box score rico
-  for (const l of r.rich.lines) {
-    const p = s.players.find(x => x.id === l.id);
-    if (!p) continue;
-    p.stats.cmp += l.cmp ?? 0;
-    p.stats.att += l.att ?? 0;
-    p.stats.car += l.rAtt ?? 0;
-    p.stats.intDef += l.intDef ?? 0;
-    p.stats.ff += l.ff ?? 0;
-    p.stats.punts += l.punts ?? 0;
-    p.stats.puntYds += l.puntYds ?? 0;
-  }
   // estatísticas acumuladas da temporada por franquia
   const acc = (teamId: string, tb: TeamBox, oppPts: number) => {
     const st = getTeamStats(s, teamId);
@@ -743,6 +751,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
   const s = structuredClone(s0);
   const out: AdvanceOutcome = {};
   const { fase, semana } = s.settings;
+  const openJobsAtStart = new Set(s.jobOpenings.filter(job => !job.isFilled).map(job => job.id));
 
   const isUser = (m: Match) => m.casa === s.userTeam || m.fora === s.userTeam;
 
@@ -779,6 +788,7 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
       rivalry,
       attendanceBoost,
       opponentScouted,
+      postseason: fase === 'PO',
     });
     const faseLabel = fase === 'PRE' ? `Pré-temporada, semana ${semana}` : fase === 'REG' ? `Semana ${semana}` : `Playoffs — ${s.bracket?.[semana - 1]?.nome ?? ''}`;
     const r = engine.simulate(m.id, faseLabel);
@@ -849,23 +859,6 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     }
     else s.settings.semana++;
   } else if (fase === 'PO') {
-    // Grava os resultados simulados no bracket e gera a próxima fase quando a rodada fecha.
-    const playedRodada = semana;                      // rodada recém-jogada
-    const roundsBefore = s.bracket?.length ?? 0;
-    syncRoundResults(s, playedRodada);
-    const roundsAfter = s.bracket?.length ?? 0;
-
-    // O usuário foi eliminado se a rodada fechou (nova fase gerada) e ele não está nela.
-    if (roundsAfter > roundsBefore && s.bracket) {
-      const nova = s.bracket[s.bracket.length - 1];
-      const stillIn = nova.jogos.some(j => j.casa === s.userTeam || j.fora === s.userTeam);
-      if (!stillIn) {
-        const t = teamById(s, s.userTeam);
-        pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
-        out.eliminado = true;
-      }
-    }
-
     // Se não há jogos do usuário nesta semana, simula os jogos dos outros times
     if (weekMatches.length === 0 && s.bracket && semana <= s.bracket.length) {
       const round = s.bracket[semana - 1];
@@ -879,13 +872,13 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
             ((m.casa === j.casa && m.fora === j.fora) || (m.casa === j.fora && m.fora === j.casa))
           );
           if (match && !match.jogada) {
-            const engine = new NFLMatchEngine(sideOf(s, match.casa), sideOf(s, match.fora), rng, {});
+            const engine = new NFLMatchEngine(sideOf(s, match.casa), sideOf(s, match.fora), rng, { postseason: true });
             const r = engine.simulate(match.id, `Playoffs — ${round.nome}`);
             match.placarCasa = r.placarCasa;
             match.placarFora = r.placarFora;
             match.jogada = true;
             match.publico = r.publico;
-            mergeStats(s, r);
+            mergeStats(s, r, true, undefined, true);
             if (semana === 4) superBowlResult = r;
           }
         }
@@ -897,18 +890,27 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     // derrubar a simulação — os jogos já simulados devem sempre aparecer.
     try {
       if (s.bracket && s.bracket.length) {
+        const roundsBefore = s.bracket.length;
+        const playedRound = s.bracket[semana - 1];
         syncRoundResults(s, semana);
-        if (semana === s.bracket.length) {
-          if (semana < 4) nextRound(s);
-          else {
-            // Super Bowl (rodada 4) concluído → registra o campeão + mensagem
-            const sb = s.bracket[3]?.jogos[0];
-            if (sb && !s.campeoes.some(c => c.temporada === s.settings.temporada)) {
-              const champId = (sb.pc ?? 0) >= (sb.pf ?? 0) ? sb.casa : sb.fora;
-              s.campeoes.push({ temporada: s.settings.temporada, teamId: champId });
-              sendSuperBowlMessage(s, champId, superBowlResult ?? undefined);
-            }
+        const roundsAfter = s.bracket.length;
+
+        // A sincronização do round também cria exatamente a próxima fase.
+        if (roundsAfter > roundsBefore) {
+          const nova = s.bracket[s.bracket.length - 1];
+          const stillIn = nova.jogos.some(j => j.casa === s.userTeam || j.fora === s.userTeam);
+          if (!stillIn) {
+            const t = teamById(s, s.userTeam);
+            pushNews(s, 'ELIMINAÇÃO', `Fim de sonho: ${t.cidade} ${t.nome} cai nos playoffs.`);
+            out.eliminado = true;
           }
+        }
+
+        // O campeão é registrado por syncRoundResults; aqui enviamos só o resumo da final.
+        const superBowl = playedRound?.nome === 'Super Bowl' ? playedRound.jogos[0] : undefined;
+        if (superBowl?.jogada) {
+          const champion = s.campeoes.find(c => c.temporada === s.settings.temporada)?.teamId;
+          if (champion) sendSuperBowlMessage(s, champion, superBowlResult ?? undefined);
         }
       }
     } catch (err) {
@@ -919,6 +921,10 @@ export function advance(s0: GameState): { state: GameState; out: AdvanceOutcome;
     syncPlayoffMatches(s);   // prepara as partidas da nova rodada no calendário jogável
     if (s.settings.semana > 4) endSeason(s, rng);
   }
+  for (const job of s.jobOpenings) {
+    if (!job.isFilled && openJobsAtStart.has(job.id)) job.weeksOpen = (job.weeksOpen ?? 0) + 1;
+  }
+  resolveCoachVacancies(s, rng);
   return { state: s, out, trainingResults };
 }
 
@@ -936,13 +942,14 @@ function startPlayoffs(s: GameState) {
     }
     return out;
   };
-  if (!jogos.length) {
+  const confrontos = jogos();
+  if (!confrontos.length) {
     // segurança: sem matchups válidos, volta para a offseason sem quebrar
     console.error('[TAG] startPlayoffs: nenhum matchup de Wild Card gerado.');
     endSeason(s, new Rng(newSeed()));
     return;
   }
-  s.bracket = [{ nome: 'Wild Card', jogos: jogos() }];
+  s.bracket = [{ nome: 'Wild Card', jogos: confrontos }];
   for (const conf of ['AFC', 'NFC'] as Conf[]) {
     const seeds = conferenceSeeds(s, conf);
     const one = teamById(s, seeds[0].teamId);
@@ -982,9 +989,11 @@ function nextRound(s: GameState) {
       const ws = winByConf.get(conf)!;
       if (nomes[idx + 1] === 'Divisional') {
         const one = seeds[0].teamId;
-        const wLow = ws[ws.length - 1]; const wHigh = ws[0];
-        next.push({ casa: one, fora: wLow, pc: null, pf: null, jogada: false });
-        next.push({ casa: wHigh, fora: seeds[1].teamId === wHigh ? seeds.find(x => x.seed === 2 && x.teamId !== wHigh)!.teamId : seeds[1].teamId, pc: null, pf: null, jogada: false });
+        const orderedWinners = [...ws].sort((a, b) => seedOf.get(a)! - seedOf.get(b)!);
+        const lowestSeedWinner = orderedWinners[orderedWinners.length - 1]!;
+        const remainingWinners = orderedWinners.filter(teamId => teamId !== lowestSeedWinner);
+        next.push({ casa: one, fora: lowestSeedWinner, pc: null, pf: null, jogada: false });
+        next.push({ casa: remainingWinners[0]!, fora: remainingWinners[1]!, pc: null, pf: null, jogada: false });
       } else {
         const sorted = [...ws].sort((a, b) => seedOf.get(a)! - seedOf.get(b)!);
         next.push({ casa: sorted[0], fora: sorted[1], pc: null, pf: null, jogada: false });
@@ -1060,14 +1069,113 @@ function resolveConditionalPicks(s: GameState): void {
   }
 }
 
+/** Grava uma retrospectiva por franquia; é idempotente para suportar saves antigos. */
+export function recordFranchiseHistories(s: GameState): void {
+  s.historico ??= {};
+  const table = standings(s);
+  const seeds = new Map<string, number>();
+  for (const conf of ['AFC', 'NFC'] as Conf[]) {
+    for (const entry of conferenceSeeds(s, conf)) seeds.set(entry.teamId, entry.seed);
+  }
+  const sb = s.matches.find(m => m.fase === 'PO' && m.rodada === 4 && m.jogada);
+  const champId = s.campeoes.find(c => c.temporada === s.settings.temporada)?.teamId;
+  const lastRound = new Map<string, number>();
+  for (const m of s.matches) if (m.fase === 'PO' && m.jogada) {
+    lastRound.set(m.casa, Math.max(lastRound.get(m.casa) ?? 0, m.rodada));
+    lastRound.set(m.fora, Math.max(lastRound.get(m.fora) ?? 0, m.rodada));
+  }
+  const roundName = (round: number) => ['Não classificou', 'Wild Card', 'Divisional', 'Final de Conferência', 'Super Bowl'][round] ?? 'Playoffs';
+  const streaks = new Map<string, { win: number; loss: number }>();
+  for (const team of s.teams) {
+    let win = 0; let loss = 0; let bestWin = 0; let bestLoss = 0;
+    const games = s.matches.filter(m => m.fase === 'REG' && m.jogada && (m.casa === team.id || m.fora === team.id)).sort((a, b) => a.rodada - b.rodada);
+    for (const m of games) {
+      const won = m.casa === team.id ? (m.placarCasa ?? 0) > (m.placarFora ?? 0) : (m.placarFora ?? 0) > (m.placarCasa ?? 0);
+      const lost = m.casa === team.id ? (m.placarCasa ?? 0) < (m.placarFora ?? 0) : (m.placarFora ?? 0) < (m.placarCasa ?? 0);
+      win = won ? win + 1 : 0; loss = lost ? loss + 1 : 0;
+      bestWin = Math.max(bestWin, win); bestLoss = Math.max(bestLoss, loss);
+    }
+    streaks.set(team.id, { win: bestWin, loss: bestLoss });
+  }
+
+  for (const team of s.teams) {
+    const history = s.historico[team.id] ?? {
+      superBowls: 0, superBowlAppearances: 0, playoffAppearances: 0, divisionTitles: 0,
+      winningSeasons: 0, losingSeasons: 0, bestRecord: '—', worstRecord: '—',
+      longestWinStreak: 0, longestLoseStreak: 0,
+      allTimeLeaders: { passingYds: null, passingTds: null, rushYds: null, rushTds: null, receivingYds: null, sacks: null, tackles: null },
+      seasons: [],
+    } satisfies FranchiseHistory;
+    if (history.seasons.some(entry => entry.temporada === s.settings.temporada)) { s.historico[team.id] = history; continue; }
+    const row = table.find(entry => entry.teamId === team.id);
+    if (!row) continue;
+    const seed = seeds.get(team.id) ?? null;
+    const finish = champId === team.id ? 'Campeão'
+      : sb && (sb.casa === team.id || sb.fora === team.id) ? 'Vice-campeão'
+        : roundName(lastRound.get(team.id) ?? 0);
+    const coach = s.staff.find(member => member.teamId === team.id && member.funcao === 'Técnico Principal')?.nome ?? '—';
+    const record: SeasonRecord = {
+      temporada: s.settings.temporada, vitorias: row.v, derrotas: row.d, empates: row.e,
+      pf: row.pf, pc: row.pc, playoffs: seed != null, divisionTitle: seed != null && seed <= 4,
+      superBowl: champId === team.id, seed, playoffFinish: finish, coach,
+    };
+    history.seasons.push(record);
+    history.seasons.sort((a, b) => a.temporada - b.temporada);
+    history.superBowls = history.seasons.filter(entry => entry.superBowl).length;
+    history.superBowlAppearances = history.seasons.filter(entry => entry.playoffFinish === 'Vice-campeão' || entry.superBowl).length;
+    history.playoffAppearances = history.seasons.filter(entry => entry.playoffs).length;
+    history.divisionTitles = history.seasons.filter(entry => entry.divisionTitle).length;
+    history.winningSeasons = history.seasons.filter(entry => entry.vitorias > entry.derrotas).length;
+    history.losingSeasons = history.seasons.filter(entry => entry.vitorias < entry.derrotas).length;
+    const pct = (entry: SeasonRecord) => (entry.vitorias + entry.empates * 0.5) / Math.max(1, entry.vitorias + entry.derrotas + entry.empates);
+    const best = [...history.seasons].sort((a, b) => pct(b) - pct(a))[0];
+    const worst = [...history.seasons].sort((a, b) => pct(a) - pct(b))[0];
+    const fmt = (entry: SeasonRecord) => `${entry.vitorias}-${entry.derrotas}${entry.empates ? `-${entry.empates}` : ''} (${entry.temporada})`;
+    history.bestRecord = fmt(best); history.worstRecord = fmt(worst);
+    const streak = streaks.get(team.id)!;
+    history.longestWinStreak = Math.max(history.longestWinStreak, streak.win);
+    history.longestLoseStreak = Math.max(history.longestLoseStreak, streak.loss);
+    history.allTimeLeaders = {
+      passingYds: seasonLeader(history.allTimeLeaders.passingYds, team.id, s, 'py'),
+      passingTds: seasonLeader(history.allTimeLeaders.passingTds, team.id, s, 'ptd'),
+      rushYds: seasonLeader(history.allTimeLeaders.rushYds, team.id, s, 'ry'),
+      rushTds: seasonLeader(history.allTimeLeaders.rushTds, team.id, s, 'rtd'),
+      receivingYds: seasonLeader(history.allTimeLeaders.receivingYds, team.id, s, 'recYds'),
+      sacks: seasonLeader(history.allTimeLeaders.sacks, team.id, s, 'sacks'),
+      tackles: seasonLeader(history.allTimeLeaders.tackles, team.id, s, 'tackles'),
+    };
+    const reputationChange = champId === team.id ? 5 : sb && (sb.casa === team.id || sb.fora === team.id) ? 3
+      : seed != null ? 2 : row.v >= 9 ? 1 : row.d - row.v >= 3 ? -2 : 0;
+    const reputation = adjustReputation(s, team.id, reputationChange);
+    if (team.id === s.userTeam && reputation.after !== reputation.before) {
+      pushNews(s, 'REPUTAÇÃO', `A temporada altera a reputação da franquia: ${reputation.before} → ${reputation.after} (${reputationChange > 0 ? '+' : ''}${reputationChange}).`);
+    }
+    s.historico[team.id] = history;
+  }
+}
+
+function seasonLeader(
+  previous: { nome: string; valor: number } | null, teamId: string, s: GameState, key: keyof Player['stats'],
+): { nome: string; valor: number } | null {
+  let best = previous;
+  for (const p of s.players) {
+    if (p.teamId !== teamId) continue;
+    const value = p.stats[key];
+    if (value > (best?.valor ?? 0)) best = { nome: p.nome, valor: value };
+  }
+  return best;
+}
+
 function endSeason(s: GameState, rng: Rng) {
   s.settings.fase = 'OFF'; s.settings.semana = 0;
+  recordFranchiseHistories(s);
 
   // 📧 avaliação de fim de temporada: pode resultar em demissão
   checkEndSeasonFiring(s, rng);
+  resolveCoachVacancies(s, rng, true);
   
-  // vagas não preenchidas expiram; técnico ainda demitido segue desempregado
-  s.jobOpenings = s.jobOpenings.filter(j => j.isFilled);
+  // outras vagas fecham automaticamente; a vaga que demitiu o humano permanece como opção de retorno.
+  s.jobOpenings = s.jobOpenings.filter(j => j.isFilled || (s.coachFired && j.reason === 'user_fired'));
   if (s.coachFired) {
     notify(s, {
       category: 'job', sender: 'Agente', senderIcon: '🤝',
@@ -1164,7 +1272,7 @@ function endSeason(s: GameState, rng: Rng) {
 
   s.offPhase = 1;
   s.draftState = null;
-  pushNews(s, 'OFFSEASON', 'Fim dos playoffs! Offseason em 4 fases: 1) Free Agency → 2) Renovações → 3) Draft → 4) Validação.');
+  pushNews(s, 'OFFSEASON', 'Fim dos playoffs! Offseason em 4 fases: 1) Renovações → 2) Free Agency → 3) Draft → 4) Validação.');
 }
 
 function evaluateHallOfFame(s: GameState): void {
@@ -1185,8 +1293,8 @@ function evaluateHallOfFame(s: GameState): void {
 
 /* ---------- offseason guiada ---------- */
 export const OFF_PHASES: { n: 1 | 2 | 3 | 4; titulo: string; desc: string; destino: Screen }[] = [
-  { n: 1, titulo: 'Free Agency', desc: 'O mercado abre: 31 franquias disputam os agentes livres.', destino: 'mercado' },
-  { n: 2, titulo: 'Renovações', desc: 'Garanta suas estrelas antes do Draft.', destino: 'negociacoes' },
+  { n: 1, titulo: 'Renovações', desc: 'Garanta suas estrelas antes da abertura do mercado.', destino: 'negociacoes' },
+  { n: 2, titulo: 'Free Agency', desc: 'Após as renovações, 31 franquias disputam os agentes livres.', destino: 'mercado' },
   { n: 3, titulo: 'Draft de Novatos', desc: '7 rodadas para construir o futuro. Ordem pela campanha.', destino: 'draft' },
   { n: 4, titulo: 'Validação Final', desc: 'Feche com 53 jogadores e dentro do cap para iniciar.', destino: 'offseason' },
 ];
@@ -1294,7 +1402,7 @@ function biddingPass(s: GameState, rng: Rng): string[] {
     for (const o of list) {
       const sal = clamp(o.base / mv, 0.4, 1.4);
       const dur = clamp(o.years / expAnos, 0.4, 1.3);
-      const comp = 0.5 + teamStrength(s, o.teamId) / 200;
+      const comp = 0.5 + teamStrength(s, o.teamId) / 200 + ((s.teams.find(x => x.id === o.teamId)?.reputacao ?? 50) - 50) / 200;
       const score = sal * 0.6 + dur * 0.2 + comp * 0.2 + rng.f(0, 0.05);
       if (score > bestScore) { bestScore = score; best = o; }
     }
@@ -1351,19 +1459,21 @@ export function advanceOffPhase(s: GameState): { ok: boolean; msg: string } {
   const ph = s.offPhase ?? 1;
   if (s.settings.fase !== 'OFF') return { ok: false, msg: 'A offseason ainda não começou.' };
   if (ph === 1) {
-    aiFreeAgency(s, rng);
-    const perdidos = stealUnmatchedRfas(s, rng);
     aiScoutingWave(s, rng);
     s.offPhase = 2;
-    pushNews(s, 'OFFSEASON', `Free Agency encerrada${perdidos ? ` — você perdeu ${perdidos} RFA(s) sem exercer o match` : ''}. Fase 2: Renovações aberta.`);
-    return { ok: true, msg: perdidos ? `Fase 2 aberta — ${perdidos} RFA(s) perdidos no mercado.` : 'Fase 2 — Renovações aberta.' };
+    for (const job of s.jobOpenings) if (!job.isFilled) job.weeksOpen = (job.weeksOpen ?? 0) + 1;
+    resolveCoachVacancies(s, rng);
+    pushNews(s, 'OFFSEASON', 'Renovações concluídas. Fase 2: Free Agency aberta.');
+    return { ok: true, msg: 'Fase 2 — Free Agency aberta.' };
   }
   if (ph === 2) {
+    aiFreeAgency(s, rng);
+    const perdidos = stealUnmatchedRfas(s, rng);
     setupDraftOrder(s);
     aiScoutingWave(s, rng);
     s.offPhase = 3;
-    pushNews(s, 'OFFSEASON', 'Renovações concluídas. Fase 3: Draft aberto em 7 rodadas.');
-    return { ok: true, msg: 'Fase 3 — Draft aberto.' };
+    pushNews(s, 'OFFSEASON', `Free Agency encerrada${perdidos ? ` — você perdeu ${perdidos} RFA(s) sem exercer o match` : ''}. Fase 3: Draft aberto em 7 rodadas.`);
+    return { ok: true, msg: perdidos ? `Fase 3 aberta — você perdeu ${perdidos} RFA(s) sem exercer o match.` : 'Fase 3 — Draft aberto.' };
   }
   if (ph === 3) {
     if (!s.draftState?.done) return { ok: false, msg: 'Conclua as 7 rodadas do Draft antes de avançar.' };
@@ -1394,7 +1504,31 @@ export function validateRosterDetailed(s: GameState): RosterRule[] {
   const nQB = ativosArr.filter(p => p.pos === 'QB').length;
   const nK = ativosArr.filter(p => p.pos === 'K').length;
   const nP = ativosArr.filter(p => p.pos === 'P').length;
+  const offenseStarters = ativosArr.filter(p => p.status === 'TIT' && ['QB', 'RB', 'WR', 'TE', 'OL'].includes(p.pos)).length;
+  const defenseStarters = ativosArr.filter(p => p.status === 'TIT' && ['DL', 'LB', 'CB', 'S'].includes(p.pos)).length;
+  const kStarters = ativosArr.filter(p => p.pos === 'K' && p.status === 'TIT').length;
+  const pStarters = ativosArr.filter(p => p.pos === 'P' && p.status === 'TIT').length;
   return [
+    {
+      id: 'off-starters', label: 'Até 11 titulares no ataque', ok: offenseStarters <= 11,
+      detalhe: `${offenseStarters}/11 titulares ofensivos${offenseStarters > 11 ? ` — rebaixe ${offenseStarters - 11} jogador(es)` : ''}`,
+      destino: 'elenco', acao: 'Gerenciar titulares',
+    },
+    {
+      id: 'def-starters', label: 'Até 11 titulares na defesa', ok: defenseStarters <= 11,
+      detalhe: `${defenseStarters}/11 titulares defensivos${defenseStarters > 11 ? ` — rebaixe ${defenseStarters - 11} jogador(es)` : ''}`,
+      destino: 'elenco', acao: 'Gerenciar titulares',
+    },
+    {
+      id: 'k-starter', label: 'Um kicker titular', ok: kStarters === 1,
+      detalhe: `${kStarters} K titular(es) — marque exatamente um como TIT`,
+      destino: 'elenco', acao: 'Definir K titular',
+    },
+    {
+      id: 'p-starter', label: 'Um punter titular', ok: pStarters === 1,
+      detalhe: `${pStarters} P titular(es) — marque exatamente um como TIT`,
+      destino: 'elenco', acao: 'Definir P titular',
+    },
     {
       id: 'roster', label: 'Elenco ativo com exatamente 53', ok: ativos === 53,
       detalhe: ativos > 53 ? `${ativos - 53} acima do limite — corte ${ativos - 53} jogador(es)`
@@ -1589,11 +1723,16 @@ export function userDraftPick(s: GameState, playerId: string): { ok: boolean; ms
   if (!p) return { ok: false, msg: 'Prospecto indisponível.' };
   const ativos = playersOf(s, s.userTeam).filter(x => x.status !== 'PS').length;
   if (ativos >= 53) return { ok: false, msg: 'Elenco cheio (53). Dispense alguém antes de draftar.' };
+  const capBefore = s.settings.cap - capUsed(s, s.userTeam);
+  const chemBefore = teamChemistry(s, s.userTeam).score;
   const rng = new Rng(newSeed());
   const round = d.round;
   const surprise = commitPick(s, p, s.userTeam, rng);
   addChurn(s, s.userTeam, 3);   // novato entra no vestiário — leve ajuste de química
-  pushNews(s, 'DRAFT', `Rodada ${round}: você escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}).`);
+  const reputation = adjustReputation(s, s.userTeam, p.pot >= 88 ? 1 : 0);
+  const capAfter = s.settings.cap - capUsed(s, s.userTeam);
+  const chemAfter = teamChemistry(s, s.userTeam).score;
+  pushNews(s, 'DRAFT', `Rodada ${round}: você escolhe ${p.nome} (${p.pos}, OVR ${p.ovr}, POT ${p.pot}). Cap livre: ${fmtM(capBefore)} → ${fmtM(capAfter)}; química: ${chemBefore} → ${chemAfter}; reputação ${reputation.before} → ${reputation.after}.`);
   sendDraftMessage(s, round, p.nome, p.pos, p.scout?.college ?? 'universidade');
   if (surprise) pushNews(s, 'COMBINE', surprise);
   advanceDraft(s);
@@ -1743,18 +1882,24 @@ export function canSign(s: GameState, p: Player): { ok: boolean; motivo: string 
 }
 
 export function signFA(s: GameState, playerId: string): { ok: boolean; msg: string } {
+  if (s.settings.fase !== 'OFF' || s.offPhase !== 2) return { ok: false, msg: 'A Free Agency abre após a fase de renovações.' };
   const p = s.faPool.find(x => x.id === playerId);
   if (!p) return { ok: false, msg: 'Jogador indisponível.' };
   const chk = canSign(s, p);
   if (!chk.ok) return { ok: false, msg: chk.motivo };
+  const capBefore = s.settings.cap - capUsed(s, s.userTeam);
+  const chemBefore = teamChemistry(s, s.userTeam).score;
   s.faPool = s.faPool.filter(x => x.id !== playerId);
   p.teamId = s.userTeam; p.status = 'RES'; p.contrato = Math.max(1, p.contrato); p.origem = undefined;
   p.anosNoTime = 0;              // acabou de chegar — sem entrosamento ainda
   p.moral = clamp(p.moral + 12, 25, 95);
   s.players.push(p);
   addChurn(s, s.userTeam, 8);    // contratação mexe com a química do vestiário
+  const reputation = adjustReputation(s, s.userTeam, p.ovr >= 85 ? 2 : p.ovr >= 75 ? 1 : 0);
+  const chemAfter = teamChemistry(s, s.userTeam).score;
+  const capAfter = s.settings.cap - capUsed(s, s.userTeam);
   const t = teamById(s, s.userTeam);
-  pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}) por ${fmtM(p.salario)}/ano.`);
+  pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}) por ${fmtM(p.salario)}/ano. Cap livre: ${fmtM(capBefore)} → ${fmtM(capAfter)}; química: ${chemBefore} → ${chemAfter}; reputação: ${reputation.before} → ${reputation.after}.`);
   sendFreeAgentMessage(s, p.nome, p.pos, p.ovr, p.salario);
   return { ok: true, msg: `${p.nome} contratado!` };
 }
@@ -1763,15 +1908,25 @@ export function releasePlayer(s: GameState, playerId: string): { ok: boolean; ms
   const p = s.players.find(x => x.id === playerId);
   if (!p || p.teamId !== s.userTeam) return { ok: false, msg: 'Jogador inválido.' };
   if (p.tag) return { ok: false, msg: 'Jogador com franchise tag não pode ser dispensado.' };
+  const capBefore = s.settings.cap - capUsed(s, s.userTeam);
+  const chemBefore = teamChemistry(s, s.userTeam).score;
+  const importantStarter = p.status === 'TIT' && p.ovr >= 80;
   s.players = s.players.filter(x => x.id !== playerId);
   p.teamId = null; p.status = 'RES'; p.origem = s.userTeam;
   s.faPool.push(p);
   addChurn(s, s.userTeam, 6);    // corte abala o vestiário
-  return { ok: true, msg: `${p.nome} dispensado — agora é free agent.` };
+  const team = teamById(s, s.userTeam);
+  const reputation = importantStarter ? adjustReputation(s, s.userTeam, -2) : { before: team.reputacao, after: team.reputacao };
+  const chemAfter = teamChemistry(s, s.userTeam).score;
+  const capAfter = s.settings.cap - capUsed(s, s.userTeam);
+  const msg = `${p.nome} dispensado — cap livre ${fmtM(capBefore)} → ${fmtM(capAfter)}, química ${chemBefore} → ${chemAfter}${importantStarter ? `, reputação ${reputation.before} → ${reputation.after}` : ''}.`;
+  pushNews(s, 'DISPENSA', msg);
+  return { ok: true, msg };
 }
 
 /** Contrata um free agent mediante oferta estruturada (Free Agency). */
 export function signFAWithOffer(s: GameState, p: Player, offer: ContractOffer): { ok: boolean; msg: string } {
+  if (s.settings.fase !== 'OFF' || s.offPhase !== 2) return { ok: false, msg: 'A Free Agency abre após a fase de renovações.' };
   const chk = canSign(s, p);
   if (!chk.ok) return { ok: false, msg: chk.motivo };
   if (offer.years < 1 || offer.years > 5) return { ok: false, msg: 'Contratos têm de 1 a 5 anos.' };
@@ -1783,14 +1938,17 @@ export function signFAWithOffer(s: GameState, p: Player, offer: ContractOffer): 
     return { ok: false, msg: `Cap insuficiente: a oferta pesa ${fmtM(novoHit)} no ano 1 e restam ${fmtM(Math.max(0, Math.round((s.settings.cap - usado) * 10) / 10))}.` };
   }
 
-  const hap = negotiationHappiness(p, offer, s.settings.inflacao);
-  const aceita = acceptanceRoll(hap.total, new Rng(newSeed()));
+  const team = teamById(s, s.userTeam);
+  const hap = playerHappiness(p, offer, s.settings.inflacao, team.reputacao);
+  const aceita = acceptanceRoll(hap.value, new Rng(newSeed()));
   const exp = calcExpectations(p, s.settings.inflacao);
 
   if (!aceita) {
-    return { ok: false, msg: `${p.nome} recusou (${hap.total}% de felicidade). O agente quer ${fmtM(exp.aav)}/ano por ${exp.anos} ano(s), ${STRUCT_LABEL[exp.structure].toLowerCase()}.` };
+    return { ok: false, msg: `${p.nome} recusou (${hap.value}% de felicidade). O agente quer ${fmtM(exp.aav)}/ano por ${exp.anos} ano(s), ${STRUCT_LABEL[exp.structure].toLowerCase()}.` };
   }
 
+  const capBefore = s.settings.cap - usado;
+  const chemBefore = teamChemistry(s, s.userTeam).score;
   s.faPool = s.faPool.filter(x => x.id !== p.id);
   p.teamId = s.userTeam; p.status = 'RES'; p.origem = undefined;
   p.contract = makeContract(offer);
@@ -1801,14 +1959,18 @@ export function signFAWithOffer(s: GameState, p: Player, offer: ContractOffer): 
   p.moral = clamp(p.moral + 12, 25, 95);
   s.players.push(p);
   addChurn(s, s.userTeam, 8);
-  const t = teamById(s, s.userTeam);
-  pushNews(s, 'CONTRATAÇÃO', `${t.cidade} ${t.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}): ${offer.years} ano(s), ${fmtM(offer.base)}/ano, ${STRUCT_LABEL[offer.structure].toLowerCase()}${offer.bonus > 0 ? `, ${fmtM(offer.bonus)} de luvas` : ''} (felicidade ${hap.total}%).`);
-  sendContractMessage(s, p.nome, p.pos, o.years, o.base);
-  return { ok: true, msg: `✍️ ${p.nome} contratado! (${hap.total}%)` };
+  const reputation = adjustReputation(s, s.userTeam, p.ovr >= 85 ? 2 : p.ovr >= 75 ? 1 : 0);
+  const chemAfter = teamChemistry(s, s.userTeam).score;
+  const capAfter = s.settings.cap - capUsed(s, s.userTeam);
+  pushNews(s, 'CONTRATAÇÃO', `${team.cidade} ${team.nome} contrata ${p.nome} (${p.pos}, OVR ${p.ovr}): ${offer.years} ano(s), ${fmtM(offer.base)}/ano, ${STRUCT_LABEL[offer.structure].toLowerCase()}${offer.bonus > 0 ? `, ${fmtM(offer.bonus)} de luvas` : ''} (felicidade ${hap.value}%). Cap livre: ${fmtM(capBefore)} → ${fmtM(capAfter)}; química: ${chemBefore} → ${chemAfter}; reputação: ${reputation.before} → ${reputation.after}.`);
+  sendContractMessage(s, p.nome, p.pos, offer.years, offer.base);
+  return { ok: true, msg: `✍️ ${p.nome} contratado! (${hap.value}%)` };
 }
 
 /** Renovação de contrato da comissão técnica. */
 export function renewStaff(s: GameState, staffId: string, offer: ContractOffer): { ok: boolean; msg: string } {
+  if (s.settings.fase === 'OFF' && (s.offPhase ?? 1) !== 1)
+    return { ok: false, msg: 'A fase de renovações já foi encerrada.' };
   const st = s.staff.find(x => x.id === staffId && x.teamId === s.userTeam);
   if (!st) return { ok: false, msg: 'Profissional inválido.' };
   if (st.contrato > 2) return { ok: false, msg: 'Renovação antecipada vale para contratos com ≤2 anos restantes.' };
@@ -1833,6 +1995,8 @@ export function renewStaff(s: GameState, staffId: string, offer: ContractOffer):
 export function negotiateContract(
   s: GameState, playerId: string, o: ContractOffer,
 ): { ok: boolean; msg: string; aceita?: boolean; hap?: number } {
+  if (s.settings.fase === 'OFF' && (s.offPhase ?? 1) !== 1)
+    return { ok: false, msg: 'A fase de renovações já foi encerrada.' };
   const p = s.players.find(x => x.id === playerId);
   if (!p || p.teamId !== s.userTeam) return { ok: false, msg: 'Jogador inválido.' };
   if (p.tag) return { ok: false, msg: 'Jogador com franchise tag — a tag já define o contrato.' };
@@ -1842,6 +2006,7 @@ export function negotiateContract(
 
   // o cap precisa comportar o novo cap hit (ano 1)
   const usadoSemEle = capUsed(s, s.userTeam) - capHitOf(p);
+  const capBefore = s.settings.cap - (usadoSemEle + capHitOf(p));
   const novoHit = makeContract(o).capHits[0];
   if (usadoSemEle + novoHit > s.settings.cap) {
     return {
@@ -1864,15 +2029,18 @@ export function negotiateContract(
     return { ok: false, msg: `${p.nome} recusou: ${veredicto.label.toLowerCase()} (${hap.total}%). O agente quer ${fmtM(Math.round(calcExpectations(p, s.settings.inflacao).aav * 10) / 10)}/ano por ${calcExpectations(p, s.settings.inflacao).anos} ano(s).`, aceita, hap: hap.total };
   }
 
+  const moralBefore = p.moral;
   p.contract = makeContract(o);
   p.contrato = o.years;
   p.salario = o.base;
   p.holdout = false;
   p.moral = clamp(p.moral + 8, 25, 95);
+  const reputation = adjustReputation(s, s.userTeam, p.ovr >= 85 ? 1 : 0);
+  const capAfter = s.settings.cap - capUsed(s, s.userTeam);
   pushNews(
     s, 'CONTRATO',
     `${p.nome} (${p.pos}, OVR ${p.ovr}) assina: ${o.years} ano(s), ${fmtM(o.base)}/ano, ${STRUCT_LABEL[o.structure].toLowerCase()}` +
-    (o.bonus > 0 ? `, ${fmtM(o.bonus)} de luvas` : '') + ` (felicidade ${hap.total}%).`,
+    (o.bonus > 0 ? `, ${fmtM(o.bonus)} de luvas` : '') + ` (felicidade ${hap.total}%). Cap livre: ${fmtM(capBefore)} → ${fmtM(capAfter)}; moral do jogador: ${moralBefore} → ${p.moral}; reputação da franquia: ${reputation.before} → ${reputation.after}.`,
   );
   return { ok: true, msg: `${p.nome} assinou! ${o.years} ano(s) por ${fmtM(o.base)}/ano (${hap.total}%).`, aceita, hap: hap.total };
 }
@@ -1909,6 +2077,14 @@ export function setStatus(s: GameState, playerId: string, status: Player['status
   const roster = playersOf(s, s.userTeam);
   if (p.status === 'PS' && status !== 'PS' && roster.filter(x => x.status !== 'PS').length >= 53) return;
   if (p.status !== 'PS' && status === 'PS' && roster.filter(x => x.status === 'PS').length >= 10) return;
+  if (status === 'TIT' && p.status !== 'TIT') {
+    const starters = roster.filter(x => x.status === 'TIT');
+    const offense = ['QB', 'RB', 'WR', 'TE', 'OL'].includes(p.pos);
+    const defense = ['DL', 'LB', 'CB', 'S'].includes(p.pos);
+    if (offense && starters.filter(x => ['QB', 'RB', 'WR', 'TE', 'OL'].includes(x.pos)).length >= 11) return;
+    if (defense && starters.filter(x => ['DL', 'LB', 'CB', 'S'].includes(x.pos)).length >= 11) return;
+    if ((p.pos === 'K' || p.pos === 'P') && starters.some(x => x.pos === p.pos)) return;
+  }
   p.status = status;
 }
 

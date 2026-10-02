@@ -33,6 +33,8 @@ export function RosterScreen() {
   }, [g, t.id, filter, sort]);
 
   const ativos = playersOf(g, t.id).filter(p => p.status !== 'PS');
+  const titularAtaque = ativos.filter(p => p.status === 'TIT' && ['QB', 'RB', 'WR', 'TE', 'OL'].includes(p.pos)).length;
+  const titularDefesa = ativos.filter(p => p.status === 'TIT' && ['DL', 'LB', 'CB', 'S'].includes(p.pos)).length;
   const psCount = playersOf(g, t.id).filter(p => p.status === 'PS');
   const folha = capUsed(g, t.id);
   const capPct = (folha / g.settings.cap) * 100;
@@ -54,6 +56,7 @@ export function RosterScreen() {
         ))}
         <span className="ml-auto font-mono text-[12px] text-dim">
           Ativos <b className={ativos.length > 53 ? 'text-blood' : 'text-ink'}>{ativos.length}</b>/53 ·
+          Titulares <b className={titularAtaque > 11 || titularDefesa > 11 ? 'text-blood' : 'text-ink'}>AT {titularAtaque}/11 · DEF {titularDefesa}/11</b> ·
           PS <b className="text-ink">{psCount.length}</b>/10
         </span>
       </div>
@@ -117,7 +120,12 @@ export function RosterScreen() {
                       {(['TIT', 'RES', 'PS'] as const).map(s2 => (
                         <button key={s2}
                           className={`btn btn-sm ${p.status === s2 ? (s2 === 'TIT' ? 'btn-gold' : '') : 'btn-ghost'}`}
-                          disabled={p.status === s2}
+                          disabled={p.status === s2 || (s2 === 'TIT' && (
+                            (['QB', 'RB', 'WR', 'TE', 'OL'].includes(p.pos) && titularAtaque >= 11)
+                            || (['DL', 'LB', 'CB', 'S'].includes(p.pos) && titularDefesa >= 11)
+                            || ((p.pos === 'K' || p.pos === 'P') && ativos.some(x => x.pos === p.pos && x.status === 'TIT'))
+                          ))}
+                          title={s2 === 'TIT' && p.status !== 'TIT' && (titularAtaque >= 11 || titularDefesa >= 11) ? 'Limite de 11 titulares atingido nessa unidade' : undefined}
                           onClick={() => dispatch({ type: 'SET_STATUS', playerId: p.id, status: s2 })}>
                           {s2}
                         </button>
@@ -248,7 +256,7 @@ export function TacticsScreen() {
               {staff.map(s2 => (
                 <tr key={s2.id}>
                   <td className="text-dim">{s2.funcao}</td>
-                  <td>{s2.nome}</td>
+                  <td>{s2.nome}{s2.isHuman && <span className="tag ml-2 border-ice/60 text-ice">HUMANO</span>}</td>
                   <td className="num"><span className="text-goldhi">{'★'.repeat(s2.nivel)}</span><span className="text-faint">{'★'.repeat(5 - s2.nivel)}</span></td>
                   <td className="num text-goldhi">{fmtM(s2.salario)}</td>
                 </tr>

@@ -7,6 +7,7 @@ import {
 } from '../game/seasonStats';
 import { Panel, PosBadge, TeamDot } from '../components/ui';
 import type { StatsTab } from '../game/types';
+import type { Pos } from '../game/types';
 
 function TeamFilter({ conf, div, setConf, setDiv }: {
   conf: 'ALL' | 'AFC' | 'NFC'; div: number;
@@ -38,17 +39,21 @@ export default function StatsScreen({ tab }: { tab: StatsTab }) {
   const [conf, setConf] = useState<'ALL' | 'AFC' | 'NFC'>('ALL');
   const [div, setDiv] = useState(-1);
   const [n, setN] = useState(20);
+  const [position, setPosition] = useState<Pos | 'ALL'>('ALL');
+  const positionOptions: Pos[] = tab === 'off' ? ['QB', 'RB', 'WR', 'TE']
+    : tab === 'def' ? ['DL', 'LB', 'CB', 'S'] : tab === 'st' ? ['K', 'P'] : [];
+  const selectedPosition: Pos | 'ALL' = position === 'ALL' || positionOptions.includes(position) ? position : 'ALL';
 
   const minG = minGamesToRank(g);
 
   const teams = useMemo(() => topBy(teamRankRows(g, conf, div), r => r.ts.pointsScored, 32), [g, conf, div]);
 
-  const qbs = useMemo(() => topBy(applyTeamFilter(qbRows(g), conf, div), r => r.p.stats.py, n), [g, conf, div, n]);
-  const rbs = useMemo(() => topBy(applyTeamFilter(rbRows(g), conf, div), r => r.p.stats.ry, n), [g, conf, div, n]);
-  const recs = useMemo(() => topBy(applyTeamFilter(recRows(g), conf, div), r => r.p.stats.recYds, n), [g, conf, div, n]);
-  const defs = useMemo(() => topBy(applyTeamFilter(defRows(g), conf, div), r => r.p.stats.tackles + r.p.stats.sacks * 4 + r.p.stats.intDef * 5, n), [g, conf, div, n]);
-  const kicks = useMemo(() => topBy(applyTeamFilter(kRows(g), conf, div), r => r.p.stats.fgM, n), [g, conf, div, n]);
-  const punts = useMemo(() => topBy(applyTeamFilter(pRows(g), conf, div), r => r.p.stats.puntYds, n), [g, conf, div, n]);
+  const qbs = useMemo(() => topBy(applyTeamFilter(qbRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.py, n), [g, conf, div, n, selectedPosition]);
+  const rbs = useMemo(() => topBy(applyTeamFilter(rbRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.ry, n), [g, conf, div, n, selectedPosition]);
+  const recs = useMemo(() => topBy(applyTeamFilter(recRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.recYds, n), [g, conf, div, n, selectedPosition]);
+  const defs = useMemo(() => topBy(applyTeamFilter(defRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.tackles + r.p.stats.sacks * 4 + r.p.stats.intDef * 5 + r.p.stats.safeties * 8, n), [g, conf, div, n, selectedPosition]);
+  const kicks = useMemo(() => topBy(applyTeamFilter(kRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.fgM, n), [g, conf, div, n, selectedPosition]);
+  const punts = useMemo(() => topBy(applyTeamFilter(pRows(g), conf, div).filter(r => selectedPosition === 'ALL' || r.p.pos === selectedPosition), r => r.p.stats.puntYds, n), [g, conf, div, n, selectedPosition]);
 
   const playerRow = (r: { p: typeof qbs[number]['p']; t: typeof qbs[number]['t'] }, i: number, cells: React.ReactNode) => (
     <tr key={r.p.id}>
@@ -63,7 +68,16 @@ export default function StatsScreen({ tab }: { tab: StatsTab }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <TeamFilter conf={conf} div={div} setConf={setConf} setDiv={setDiv} />
+        <div className="flex flex-wrap items-center gap-3">
+          <TeamFilter conf={conf} div={div} setConf={setConf} setDiv={setDiv} />
+          {positionOptions.length > 0 && <label className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-faint">
+            Posição:
+            <select className="sel" value={selectedPosition} onChange={e => setPosition(e.target.value as Pos | 'ALL')}>
+              <option value="ALL">Todas</option>
+              {positionOptions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
+            </select>
+          </label>}
+        </div>
         <div className="flex items-center gap-2">
           <span className="font-mono text-[11px] uppercase tracking-wider text-faint">Top:</span>
           {[10, 20, 50].map(v => (
@@ -143,13 +157,16 @@ export default function StatsScreen({ tab }: { tab: StatsTab }) {
       {tab === 'def' && (
         <Panel title={`Defesa — tackles + sacks + INTs (mín. ${minG} jogos)`} pad={false}>
           <table className="tbl">
-            <thead><tr><th>#</th><th>Jogador</th><th>Time</th><th className="num">J</th><th className="num">Tackles</th><th className="num">Sacks</th><th className="num">INT</th><th className="num">FF</th></tr></thead>
+            <thead><tr><th>#</th><th>Jogador</th><th>Time</th><th className="num">J</th><th className="num">Tackles</th><th className="num">Sacks</th><th className="num">INT</th><th className="num">FF</th><th className="num">FR</th><th className="num">PD</th><th className="num">Safety</th></tr></thead>
             <tbody>
               {defs.map((r, i) => playerRow(r, i, <>
                 <Num v={r.p.stats.tackles} hl />
                 <Num v={r.p.stats.sacks} />
                 <Num v={r.p.stats.intDef} />
                 <Num v={r.p.stats.ff} />
+                <Num v={r.p.stats.fumbleRec} />
+                <Num v={r.p.stats.passesDefended} />
+                <Num v={r.p.stats.safeties} />
               </>))}
             </tbody>
           </table>

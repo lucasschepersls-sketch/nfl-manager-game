@@ -5,6 +5,7 @@ import { marketValue, playerExpectations, playerHappiness, makeContract, STRUCT_
 import { Panel, PosBadge, Ovr, AttrCell, Bar } from '../components/ui';
 import { ATTR_KEYS } from '../game/data';
 import type { ContractOffer, ContractStructure, Player } from '../game/types';
+import type { Pos } from '../game/types';
 
 const keyAttrs = (pos: Player['pos']) => {
   const map: Record<string, string[]> = {
@@ -21,15 +22,18 @@ export function MarketScreen() {
   const { st, dispatch } = useGame();
   const g = st.game!;
   const off = g.settings.fase === 'OFF';
+  const marketOpen = off && g.offPhase === 2;
   const [ord, setOrd] = useState<'ovr' | 'idade' | 'salario'>('ovr');
+  const [position, setPosition] = useState<Pos | 'ALL'>('ALL');
   const [selId, setSelId] = useState<string | null>(null);
   const [offer, setOffer] = useState<ContractOffer | null>(null);
 
   const pool = useMemo(() =>
-    [...g.faPool].sort((a, b) => ord === 'ovr' ? b.ovr - a.ovr : ord === 'idade' ? a.idade - b.idade : a.salario - b.salario),
-    [g.faPool, ord]);
+    g.faPool.filter(p => position === 'ALL' || p.pos === position)
+      .sort((a, b) => ord === 'ovr' ? b.ovr - a.ovr : ord === 'idade' ? a.idade - b.idade : a.salario - b.salario),
+    [g.faPool, ord, position]);
 
-  const sel = selId ? g.faPool.find(p => p.id === selId) ?? null : null;
+  const sel = selId ? pool.find(p => p.id === selId) ?? null : null;
   const space = g.settings.cap - capUsed(g, g.userTeam);
 
   const openOffer = (p: Player) => {
@@ -38,7 +42,7 @@ export function MarketScreen() {
     setOffer({ years: exp.anos, base: Math.round(exp.aav), bonus: Math.round(exp.aav * exp.anos * 0.1), structure: 'BALANCED' });
   };
 
-  const hap = sel && offer ? playerHappiness(sel, offer, g.settings.inflacao) : null;
+  const hap = sel && offer ? playerHappiness(sel, offer, g.settings.inflacao, teamById(g, g.userTeam).reputacao) : null;
 
   return (
     <div className="space-y-4">
@@ -47,8 +51,13 @@ export function MarketScreen() {
           🔒 <b className="text-gold">Mercado fecha durante a temporada.</b> A Free Agency abre na offseason.
         </div>
       )}
+      {off && !marketOpen && (
+        <div className="border border-gold/40 px-4 py-3 font-mono text-[12.5px] text-dim">
+          🔒 <b className="text-gold">A Free Agency abre após a fase de renovações.</b> Conclua as renovações na tela de Offseason para liberar as ofertas.
+        </div>
+      )}
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        <Panel title={`Free Agency — ${g.faPool.length} agentes livres`} pad={false}
+        <Panel title={`Free Agency — ${pool.length} agente(s) exibido(s) de ${g.faPool.length}`} pad={false}
           right={
             <div className="flex items-center gap-2 font-mono text-[11px]">
               <span className="text-faint">ordenar:</span>
@@ -57,6 +66,11 @@ export function MarketScreen() {
                   {o === 'ovr' ? 'OVR' : o === 'idade' ? 'Idade' : 'Salário'}
                 </button>
               ))}
+              <select className="sel" aria-label="Filtrar free agents por posição" value={position}
+                onChange={e => setPosition(e.target.value as Pos | 'ALL')}>
+                <option value="ALL">Todas posições</option>
+                {(['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S', 'K', 'P'] as Pos[]).map(pos => <option key={pos} value={pos}>{pos}</option>)}
+              </select>
             </div>
           }>
           <div className="max-h-[600px] overflow-y-auto">
@@ -77,7 +91,7 @@ export function MarketScreen() {
                       </td>
                       <td className="num text-goldhi">{fmtM(marketValue(p.ovr, p.idade, g.settings.inflacao))}</td>
                       <td>
-                        <button className="btn btn-sm btn-gold" disabled={!off || !chk.ok} title={chk.ok ? 'Fazer oferta' : chk.motivo}
+                        <button className="btn btn-sm btn-gold" disabled={!marketOpen || !chk.ok} title={!marketOpen ? 'A Free Agency abre após a fase de renovações' : chk.ok ? 'Fazer oferta' : chk.motivo}
                           onClick={() => openOffer(p)}>Ofertar</button>
                       </td>
                     </tr>
@@ -132,7 +146,7 @@ export function MarketScreen() {
                 </div>
                 <Bar pct={hap.value} color={hap.value >= 70 ? 'var(--color-grass)' : hap.value >= 40 ? 'var(--color-gold)' : 'var(--color-blood)'} />
                 <div className="mt-1 font-mono text-[11px] text-faint">
-                  Salário {hap.partes.salario} · Duração {hap.partes.duracao} · Situação {hap.partes.situacao} · Moral {hap.partes.moral}
+                  Salário {hap.partes.salario} · Duração {hap.partes.duracao} · Situação {hap.partes.situacao} · Moral {hap.partes.moral} · Reputação {hap.partes.reputacao! > 0 ? '+' : ''}{hap.partes.reputacao}
                 </div>
               </div>
 
@@ -146,6 +160,7 @@ export function MarketScreen() {
               </div>
 
               <button className="btn btn-gold mt-4 w-full"
+                disabled={!marketOpen}
                 onClick={() => { dispatch({ type: 'SIGN_OFFER', playerId: sel.id, offer }); setSelId(null); setOffer(null); }}>
                 Apresentar oferta »
               </button>

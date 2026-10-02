@@ -1,19 +1,19 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode, type Dispatch } from 'react';
-import type { ContractOffer, Focus, GameState, PStatus, Screen, TradeAsset } from '../game/types';
+import type { ContractOffer, Focus, GameState, MessageCategory, PStatus, Screen, TradeAsset } from '../game/types';
 import { zeroStats } from '../game/types';
 import { newGame, buildWorldFor, buildRivalries } from '../game/generate';
 import {
   advance, advanceOffPhase, applyTag, autoDraftAll, autoDraftUntilUser, autoFixRoster,
-  enforceAllCompliance, generateNFLSchedule, hireScoutStaff, negotiateContract, newSeason,
+  enforceAllCompliance, generateNFLSchedule, hireScoutStaff, negotiateContract, newSeason, recordFranchiseHistories,
   releasePlayer, renewPlayer, renewStaff, setStatus, setTactics, signFA, signFAWithOffer,
   upgrade, userDraftPick, validateRoster, type RankMap,
 } from '../game/season';
 import { newSeed, Rng } from '../game/rng';
 import { restructureContract } from '../game/contracts';
 import { executeProposal } from '../game/trades';
-import { castFanVote } from '../game/probowl';
+import { castCoachVote, castFanVote, recalculateWeightedVotes } from '../game/probowl';
 import { investigate, studyOpponent, toggleBoard } from '../game/scouting';
-import { markRead, toggleStar, toggleArchive, removeMessage, markAllRead, applyToJob } from '../game/messaging';
+import { markRead, toggleStar, toggleArchive, removeMessage, markAllRead, applyToJob, promoteStaffToCoach, publishNews } from '../game/messaging';
 
 const SAVE_KEY = 'gridiron-nfl-save-v1';
 
@@ -37,9 +37,42 @@ export function loadSave(): GameState | null {
     if (!Array.isArray(s.narrativas)) s.narrativas = [];
     if (!Array.isArray(s.campeoes)) s.campeoes = [];
     if (!s.historico) s.historico = {};
+    for (const history of Object.values(s.historico)) {
+      history.superBowls ??= 0;
+      history.superBowlAppearances ??= 0;
+      history.playoffAppearances ??= 0;
+      history.divisionTitles ??= 0;
+      history.winningSeasons ??= 0;
+      history.losingSeasons ??= 0;
+      history.bestRecord ??= '—';
+      history.worstRecord ??= '—';
+      history.longestWinStreak ??= 0;
+      history.longestLoseStreak ??= 0;
+      history.seasons = Array.isArray(history.seasons) ? history.seasons : [];
+      if (!history.allTimeLeaders) history.allTimeLeaders = { passingYds: null, passingTds: null, rushYds: null, rushTds: null, receivingYds: null, sacks: null, tackles: null };
+      else for (const key of ['passingYds', 'passingTds', 'rushYds', 'rushTds', 'receivingYds', 'sacks', 'tackles'] as const) history.allTimeLeaders[key] ??= null;
+    }
     if (!Array.isArray(s.faPool)) s.faPool = [];
     if (!Array.isArray(s.draftClass)) s.draftClass = [];
     if (!Array.isArray(s.staff)) s.staff = [];
+    if (!Array.isArray(s.jobOpenings)) s.jobOpenings = [];
+    if (typeof s.coachFired !== 'boolean') s.coachFired = false;
+    for (const team of s.teams) {
+      if (s.jobOpenings.some(job => job.teamId === team.id && !job.isFilled)) continue;
+      if (!s.staff.some(member => member.teamId === team.id && member.funcao === 'Técnico Principal')) {
+        s.staff.push({
+          id: `hc-${team.id}`, teamId: team.id,
+          nome: team.id === s.userTeam && !s.coachFired ? 'Você' : `Técnico ${team.sigla}`,
+          funcao: 'Técnico Principal', nivel: 3, experiencia: 12, salario: 1.5,
+          bonus: 0, contrato: 2, moral: 70,
+          ...(team.id === s.userTeam && !s.coachFired ? { isHuman: true } : {}),
+        });
+      }
+    }
+    if (!s.coachFired && !s.staff.some(member => member.isHuman)) {
+      const userCoach = s.staff.find(member => member.teamId === s.userTeam && member.funcao === 'Técnico Principal');
+      if (userCoach) { userCoach.nome = 'Você'; userCoach.isHuman = true; }
+    }
     if (typeof s.scoutBudget !== 'number') { s.scoutBudget = 10; s.scoutBudgetMax = 10; }
     // saves antigos podem não ter posse de picks nem log de trocas
     if (!Array.isArray(s.pickOwners)) {
@@ -52,7 +85,9 @@ export function loadSave(): GameState | null {
     if (!Array.isArray(s.tradeLog)) s.tradeLog = [];
     if (!Array.isArray(s.teamSeasonStats)) s.teamSeasonStats = [];
     if (!Array.isArray(s.powerRankings)) s.powerRankings = [];
-    if (!s.probowl) s.probowl = { season: s.settings.temporada, lastWeek: 0, votes: [], userFanVote: null, announced: false };
+    if (!s.probowl) s.probowl = { season: s.settings.temporada, lastWeek: 0, votes: [], userFanVote: null, userCoachVote: null, announced: false };
+    s.probowl.userCoachVote ??= null;
+    recalculateWeightedVotes(s);
     if (!s.trainingState) s.trainingState = { focus: s.focus ?? 'FISICO', intensity: 'NORMAL', playersTraining: [] };
     // saves antigos: preenche campos novos de PlayerStats e TeamSeasonStats
     for (const p of s.players) {
@@ -67,6 +102,7 @@ export function loadSave(): GameState | null {
     for (const t of s.teams) {
       if (typeof t.quimica !== 'number') t.quimica = 65;
       if (typeof t.teamChurn !== 'number') t.teamChurn = 0;
+      if (typeof t.reputacao !== 'number') t.reputacao = Math.max(30, Math.min(85, Math.round(50 + ((t.moral ?? 50) - 50) * 0.35)));
       if (!t.tactics.playbook) t.tactics.playbook = 'balanced';
     }
     /* Repara calendário incompleto (bug antigo gerava 16 jogos p/ alguns times).
@@ -104,10 +140,11 @@ export function loadSave(): GameState | null {
             s.settings.temporada, ranks, rng,
           );
           s.matches = [...kept, ...reg];
-          s.news.unshift({ id: Date.now(), rotulo: 'LIGA', texto: 'Calendário da temporada regular regenerado (17 jogos por franquia).' });
+          publishNews(s, 'LIGA', 'Calendário da temporada regular regenerado (17 jogos por franquia).');
         }
       }
     } catch { /* mantém o calendário salvo se o reparo falhar */ }
+    if (s.settings.fase === 'OFF') recordFranchiseHistories(s);
     return s;
   } catch {
     return null;
@@ -152,7 +189,8 @@ export type Action =
   | { type: 'MSG_ARCHIVE'; id: number }
   | { type: 'MSG_DELETE'; id: number }
   | { type: 'MSG_READ_ALL'; category?: MessageCategory }
-  | { type: 'APPLY_JOB'; jobId: number };
+  | { type: 'APPLY_JOB'; jobId: number }
+  | { type: 'PROMOTE_STAFF'; jobId: number; staffId: string };
 
 interface StoreState {
   game: GameState | null;
@@ -334,7 +372,8 @@ function reducerCore(st: StoreState, a: Action): StoreState {
     case 'PROBOWL_VOTE': {
       if (!st.game) return st;
       const g = structuredClone(st.game);
-      const r = castFanVote(g, a.playerId);
+      const isHumanCoach = g.staff.some(member => member.isHuman && member.funcao === 'Técnico Principal');
+      const r = isHumanCoach ? castCoachVote(g, a.playerId) : castFanVote(g, a.playerId);
       return { ...st, game: r.ok ? g : st.game, toast: r.msg };
     }
     case 'NEGOTIATE': {
@@ -392,6 +431,12 @@ function reducerCore(st: StoreState, a: Action): StoreState {
       const g = structuredClone(st.game);
       const r = applyToJob(g, a.jobId, new Rng(newSeed()));
       return { ...st, game: g, toast: r.msg, screen: r.ok ? 'home' : st.screen };
+    }
+    case 'PROMOTE_STAFF': {
+      if (!st.game) return st;
+      const g = structuredClone(st.game);
+      const r = promoteStaffToCoach(g, a.jobId, a.staffId, new Rng(newSeed()));
+      return { ...st, game: g, toast: r.msg };
     }
     case 'TOAST_CLEAR':
       return { ...st, toast: null };
