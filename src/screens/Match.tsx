@@ -113,6 +113,14 @@ function Field({ st, casa, fora }: { st: FieldState; casa: Team; fora: Team }) {
           <ellipse cx="500" cy="120" rx="20" ry="11" fill="none" stroke="var(--color-gold)" strokeWidth="2" opacity="0.5" />
         </svg>
 
+        {/* Marks sit inside the endzones, above the rotated abbreviations. */}
+        <div className="pointer-events-none absolute left-[4%] top-[13%] -translate-x-1/2" aria-hidden="true">
+          <TeamCrest cor={casa.cor} cor2={casa.cor2} sigla={casa.sigla} conf={casa.conf} size={32} />
+        </div>
+        <div className="pointer-events-none absolute left-[96%] top-[13%] -translate-x-1/2" aria-hidden="true">
+          <TeamCrest cor={fora.cor} cor2={fora.cor2} sigla={fora.sigla} conf={fora.conf} size={32} />
+        </div>
+
         <div className="absolute bottom-0 top-0 w-[2px]" style={{ left: `${ballX}%`, background: off.cor, boxShadow: `0 0 8px ${off.cor}`, transition: 'left 0.55s cubic-bezier(0.25,0.9,0.3,1), background 0.3s, box-shadow 0.3s' }} />
         {st.ball < 100 && (
           <div className="absolute bottom-0 top-0 w-[3px]" style={{
